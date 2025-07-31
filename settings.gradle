@@ -1,5 +1,21 @@
+pluginManagement {
+    repositories {
+        maven { url = 'https://nexus.prs/nexus/repository/maven-public/' }
+    }
+}
+
+dependencyResolutionManagement {
+    repositories {
+        maven { url = 'https://nexus.prs/nexus/repository/maven-public/' }
+    }
+    versionCatalogs {
+        libs {
+            from("cris.apos.build:AposDependenyVersionCatalog:0.1.0-SNAPSHOT")
+        }
+    }
+}
+
 rootProject.name = 'solace-request-reply'
 include 'server'
 include 'client'
-include 'spring-integration'
 

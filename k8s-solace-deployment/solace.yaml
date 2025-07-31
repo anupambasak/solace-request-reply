@@ -1,0 +1,27 @@
+apiVersion: pubsubplus.solace.com/v1beta1
+kind: PubSubPlusEventBroker
+metadata:
+  name: broker
+  namespace: anupam
+spec:
+  developer: false
+  enableServiceLinks: false
+  image:
+    repository: registry.connect.redhat.com/solace/pubsubplus-standard
+    tag: 10.4.1.271@sha256:47adfca89e38a0ed49ef6958268152c3a72b520721e9f9c679c7b4a5116fe466
+    pullPolicy: IfNotPresent
+  redundancy: false
+  service:
+    type: ClusterIP
+  storage:
+    messagingNodeStorageSize: 30Gi
+    monitorNodeStorageSize: 3Gi
+    slow: false
+  systemScaling:
+    maxConnections: 100
+    maxQueueMessages: 100
+    maxSpoolUsage: 1000
+    messagingNodeCpu: "2"
+    messagingNodeMemory: 4025Mi
+  timezone: Asia/Kolkata
+  updateStrategy: automatedRolling

@@ -1,5 +1,5 @@
 server:
-  port: 8081
+  port: 8080
 
 spring:
   cloud:
@@ -20,7 +20,7 @@ spring:
           environment:
             solace:
               java:
-                host: tcp://localhost:55555
+                host: tcp://broker-pubsubplus:55555
                 msgVpn: default
                 clientUsername: default
                 clientPassword: default
@@ -33,7 +33,7 @@ spring:
 
 solace:
   java:
-    host: tcp://localhost:55554
+    host: tcp://broker-pubsubplus:55555
     msgVpn: default
     clientUsername: default
     clientPassword: default

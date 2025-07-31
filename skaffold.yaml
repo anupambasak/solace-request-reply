@@ -1,0 +1,27 @@
+apiVersion: skaffold/v4beta11
+kind: Config
+metadata:
+  name: server
+build:
+  artifacts:
+    - image: quay-registry.apps.hub1.ocp.prs/basak.anupam/server
+      runtimeType: jvm
+      jib:
+        project: server
+        type: gradle
+    - image: quay-registry.apps.hub1.ocp.prs/basak.anupam/client
+      runtimeType: jvm
+      jib:
+        project: client
+        type: gradle
+#portForward:
+#  - resourceType: Service
+#    resourceName: server
+#    namespace: anupam
+#    port: 80
+#    address: 10.64.8.65
+#    localPort: 8080
+manifests:
+  rawYaml:
+    - server/k8s/deployment.yaml
+    - client/k8s/deployment.yaml

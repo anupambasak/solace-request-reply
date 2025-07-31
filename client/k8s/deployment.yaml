@@ -1,0 +1,66 @@
+apiVersion: v1
+kind: Service
+metadata:
+  namespace: anupam
+  name: client
+  labels:
+    app: client
+spec:
+  type: ClusterIP
+  selector:
+    app: client
+  ports:
+    - port: 80
+      targetPort: 8080
+      protocol: TCP
+      name: http
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  namespace: anupam
+  name: client
+  labels:
+    app: client
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: client
+  template:
+    metadata:
+      labels:
+        app: client
+      annotations:
+        openshift.io/required-scc: "apos-application-scc"
+    spec:
+      containers:
+        - name: client
+          image: 'quay-registry.apps.hub1.ocp.prs/basak.anupam/client'
+          imagePullPolicy: Always
+          env:
+            - name: SPRING_PROFILES_ACTIVE
+              value: ocptnd1
+            - name: SPRING_APPLICATION_ENV
+              value: dev1
+            - name: SPRING_APPLICATION_KAFKA
+              value: amq-streams-aposdev-kafka-brokers.kafka-aposdev.svc:9092
+            - name: SPRING_CASSANDRA_HOST
+              value: development-dc1-service.k8ssandra-dev.svc
+            - name: SPRING_CONFIG_SERVER_URL
+              value: http://aposconfigserver-dev1.aposdev.svc
+            - name: http_proxy
+              value: http://httpproxy.prs:9090/
+            - name: https_proxy
+              value: http://httpproxy.prs:9090/
+            - name: no_proxy
+              value: 'localhost,127.0.0.0/8,::1,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,.apos,.prs,.svc'
+            - name: JAVA_OPTS
+              value: "--add-modules java.se --add-exports java.base/jdk.internal.ref=ALL-UNNAMED --add-opens java.base/java.lang=ALL-UNNAMED --add-opens java.base/java.nio=ALL-UNNAMED --add-opens java.base/sun.nio.ch=ALL-UNNAMED --add-opens java.management/sun.management=ALL-UNNAMED --add-opens jdk.management/com.sun.management.internal=ALL-UNNAMED -XX:+ExitOnOutOfMemoryError -Dhttps.proxyHost=httpproxy.prs -Dhttps.proxyPort=9090 -Dhttp.proxyHost=httpproxy.prs -Dhttp.proxyPort=9090 -Dhttp.nonProxyHosts=\"localhost|127.*|10.*|192.168.*|172.16.*|172.17.*|172.18.*|172.19.*|172.16.2*|172.16.30.*|172.16.31.*|*.apos|*.prs|kubernetes.default|*.svc\""
+
+          ports:
+            - containerPort: 8080
+              name: http
+              protocol: TCP
+      imagePullSecrets:
+        - name: basak-anupam-pull-secret

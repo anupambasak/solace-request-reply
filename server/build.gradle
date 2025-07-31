@@ -1,43 +1,113 @@
-plugins {
-    id 'java'
-    id 'org.springframework.boot' version '3.3.3'
-    id 'io.spring.dependency-management' version '1.1.6'
+buildscript {
+    repositories {
+        maven { url = 'https://nexus.prs/nexus/repository/maven-public/' }
+    }
+    dependencies {
+        classpath libs.asm.get() // JIB plugin asm version override
+    }
 }
 
-group 'cris.prs.msg'
-version '1.0-SNAPSHOT'
-
-repositories {
-    mavenCentral()
+plugins {
+    id 'eclipse'
+    id 'idea'
+    id 'java'
+    alias(libs.plugins.gradleGitProperties)
+    alias(libs.plugins.semverGitPlugin)
+    alias(libs.plugins.springBoot)
+    alias(libs.plugins.springDependencyMgmt)
+    alias(libs.plugins.jibPlugin)
+    alias(libs.plugins.sonarQubePlugin)
 }
 
 ext{
+    set('hazelcast.version', libs.versions.hazelcastVersion.get())
     set('solaceSpringCloudVersion', "4.4.0")
-    set('springCloudVersion', "2023.0.3")
 }
+
+semver {
+    nextVersion = '0.1.0'
+    snapshotSuffix = "SNAPSHOT"
+    dirtyMarker = "-dirty"
+    initialVersion = "0.1.0"
+}
+
+repositories {
+    maven { url = 'https://nexus.prs/nexus/repository/maven-public/' }
+}
+
+group 'cris.prs.msg'
+version = semver.info.version
+
+bootJar{
+    enabled = true
+    launchScript()
+}
+
+jar {
+    enabled = true
+}
+
+java {
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(24)
+    }
+}
+
+dependencyManagement {
+    imports {
+        mavenBom "${libs.springCloud.get()}"
+        mavenBom "com.solace.spring.cloud:solace-spring-cloud-bom:${solaceSpringCloudVersion}"
+    }
+}
+
+gitProperties {
+    extProperty = 'gitProps'
+    if(!layout.projectDirectory.dir(".git").asFile.isDirectory()) {
+        dotGitDirectory = layout.projectDirectory.dir("../git/modules/${rootProject.name}")
+    }
+}
+generateGitProperties.outputs.upToDateWhen { false }
 
 dependencies {
 
-    annotationProcessor 'org.projectlombok:lombok:1.18.34'
+    annotationProcessor libs.lombok
     annotationProcessor 'org.springframework.boot:spring-boot-configuration-processor'
-    implementation 'org.projectlombok:lombok:1.18.34'
-    implementation 'ch.qos.logback:logback-classic:1.5.7'
-
-//    implementation 'org.springframework.boot:spring-boot-starter-webflux'
+    compileOnly libs.lombok
+    implementation libs.logbackClassic
     implementation 'org.springframework.cloud:spring-cloud-stream'
     implementation 'com.solace.spring.cloud:spring-cloud-starter-stream-solace'
+    developmentOnly("org.springframework.boot:spring-boot-devtools")
 
 //    testImplementation 'org.junit.jupiter:junit-jupiter-api:5.8.1'
 //    testRuntimeOnly 'org.junit.jupiter:junit-jupiter-engine:5.8.1'
 }
 
-dependencyManagement {
-    imports {
-        mavenBom "com.solace.spring.cloud:solace-spring-cloud-bom:${solaceSpringCloudVersion}"
-        mavenBom "org.springframework.cloud:spring-cloud-dependencies:${springCloudVersion}"
-    }
-}
+
 
 //test {
 //    useJUnitPlatform()
 //}
+
+jib {
+    container {
+        creationTime = project.provider {project.ext.gitProps['git.commit.time']}
+        entrypoint = ["/usr/local/sbin/tini", "--"]
+        args = ["supervisord", "-e", "info", "-n", "-l", "/dev/stdout", "-y", "0", "-z", "0"]
+    }
+    extraDirectories {
+        paths {
+            path {
+                from = file('docker')
+                into = '/etc/supervisor/conf.d'
+            }
+        }
+    }
+
+    from {
+        image = 'quay-registry.apps.hub1.ocp.prs/apos/base-images/ubi9/spring-app:jre-24.0.1-v0.1.0@sha256:8738e693608dcddd322ecf5c2732ac7912c7c63d7dd7533498cba8ef527e97f1'
+    }
+
+    to {
+        image = "quay-registry.apps.hub1.ocp.prs/basak.anupam/${project.name.toLowerCase()}"
+    }
+}
