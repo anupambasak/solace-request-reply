@@ -1,5 +1,5 @@
 server:
-  port: "8080"
+  port: 8080
 
 spring:
   cloud:
@@ -8,10 +8,10 @@ spring:
     stream:
       bindings:
         bookingreply-in-0:
-          destination: bookingreply
-          group: bookingreply-group
+          destination: bkgRep
+          group: bkgRepGrp
           consumer:
-            concurrency: 1
+            concurrency: 10
       binders:
         local-solace:
           type: solace
@@ -26,14 +26,24 @@ spring:
         bindings:
           bookingreply-in-0:
             consumer:
-              queueAdditionalSubscriptions: booking/train/reply
+              selector: "hostname = '${HOSTNAME}'"
+              queueAdditionalSubscriptions:
+                - bkgRep/trn
 
+replyTopic: bkgRep/trn
 
-solace:
-  java:
-    host: tcp://broker-pubsubplus:55554
-    msgVpn: default
-    clientUsername: default
-    clientPassword: default
-
-
+management:
+  server:
+    port: ${MANAGEMENT_SERVER_PORT:9090}
+  endpoint:
+#    env:
+#      show-values: ALWAYS
+#    configprops:
+#      show-values: ALWAYS
+  endpoints:
+    web:
+      exposure:
+        include: '*'
+  info:
+    git:
+      mode: full

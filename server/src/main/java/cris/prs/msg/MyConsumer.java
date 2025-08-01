@@ -1,7 +1,9 @@
 package cris.prs.msg;
 
 import com.solace.spring.cloud.stream.binder.messaging.SolaceHeaders;
+import com.solacesystems.jcsmp.Topic;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.cloud.stream.binder.BinderHeaders;
 import org.springframework.context.annotation.Bean;
 import org.springframework.messaging.Message;
 import org.springframework.messaging.MessageHeaders;
@@ -19,8 +21,10 @@ public class MyConsumer {
         return msg -> {
             MessageHeaders headers = msg.getHeaders();
             String correlationId = headers.get(SolaceHeaders.CORRELATION_ID,String.class);
-            log.info("Headers:{}",headers);
-            log.info("Consuming Message {}:{}",SolaceHeaders.CORRELATION_ID,correlationId);
+            String hostName = msg.getHeaders().get("hostname",String.class);
+            Topic topic = headers.get(SolaceHeaders.REPLY_TO,Topic.class);
+//            log.info("Headers:{}",headers);
+//            log.info("Consuming Message {}:{}",SolaceHeaders.CORRELATION_ID,correlationId);
             String v = msg.getPayload();
             log.info("Payload: {}",v);
             if("sleep".equals(v)){
@@ -33,7 +37,8 @@ public class MyConsumer {
             }
             return MessageBuilder.withPayload(v.toUpperCase())
                     .setHeader(SolaceHeaders.CORRELATION_ID,correlationId)
-                    .setHeader(SolaceHeaders.IS_REPLY, true)
+                    .setHeader("hostname",hostName)
+                    .setHeader(BinderHeaders.TARGET_DESTINATION,topic.getName())
                     .build();
         };
     }

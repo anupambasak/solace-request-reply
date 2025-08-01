@@ -1,8 +1,11 @@
 package cris.prs.msg;
 
 import com.solace.spring.cloud.stream.binder.messaging.SolaceHeaders;
+import com.solacesystems.jcsmp.Destination;
+import com.solacesystems.jcsmp.JCSMPFactory;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.cloud.stream.function.StreamBridge;
 import org.springframework.context.annotation.Bean;
 import org.springframework.messaging.Message;
@@ -10,6 +13,7 @@ import org.springframework.messaging.MessageHeaders;
 import org.springframework.messaging.support.MessageBuilder;
 import org.springframework.stereotype.Service;
 
+import java.time.Instant;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
@@ -20,18 +24,44 @@ import java.util.function.Consumer;
 @Service
 public class RequestReplyService {
 
-    private final Map<String, CompletableFuture<String>> responseMap = new ConcurrentHashMap<>();
+    private final Map<String, PendingRequest> outstandingRequests = new ConcurrentHashMap<>();
 
     @Autowired
     private StreamBridge sb;
 
-    public void sendAndReceive(String payload){
+    @Value("${replyTopic}")
+    private String replyTopic;
+
+    @Value("${HOSTNAME}")
+    private String currentHost;
+
+    public CompletableFuture<ReplyResult> sendAndReceive(String payload){
+
         String correlationId = UUID.randomUUID().toString();
-        log.info("Sending Message {}:{}",SolaceHeaders.CORRELATION_ID,correlationId);
+        Destination topic = JCSMPFactory.onlyInstance().createTopic(replyTopic);
+
+        CompletableFuture<ReplyResult> future = new CompletableFuture<>();
+
+        long sendTime = System.currentTimeMillis();
+        outstandingRequests.put(correlationId, new PendingRequest(sendTime, future));
+
         Message<String> msg = MessageBuilder.withPayload(payload)
                 .setHeader(SolaceHeaders.CORRELATION_ID,correlationId)
+                .setHeader("hostname", currentHost)
+                .setHeader(SolaceHeaders.REPLY_TO, topic)
                 .build();
-        sb.send("booking/train", msg);
+
+        try {
+            sb.send("bkg/trn", msg);
+            log.info("Sent message with CorrelationId={} at {}", correlationId, Instant.ofEpochMilli(sendTime));
+        } catch (Exception e) {
+            outstandingRequests.remove(correlationId);
+            future.completeExceptionally(e);
+            log.error("Failed to send message with CorrelationId={}", correlationId, e);
+        }
+
+        return future;
+
     }
 
     @Bean
@@ -39,16 +69,18 @@ public class RequestReplyService {
         return msg -> {
             MessageHeaders headers = msg.getHeaders();
             String correlationId = headers.get(SolaceHeaders.CORRELATION_ID,String.class);
-            log.info("Receiving Message {}:{}",SolaceHeaders.CORRELATION_ID,correlationId);
             String payload = msg.getPayload();
-            log.info("Message Headers: {}", headers);
-            log.info("Message: {}", payload);
-            if("sleep".equalsIgnoreCase(payload)){
-                try {
-                    Thread.sleep(10000);
-                } catch (InterruptedException e) {
-                    log.error("<Error>",e);
-                }
+
+            PendingRequest pending = outstandingRequests.remove(correlationId);
+
+            if (pending != null) {
+                long receiveTime = System.currentTimeMillis();
+                ReplyResult result = new ReplyResult(payload, pending.sendTime, receiveTime);
+//                log.info("Received reply for CorrelationId={} at {} (latency={} ms), payload={}",
+//                        correlationId, Instant.ofEpochMilli(receiveTime), result.getLatency(), payload);
+                pending.future.complete(result);
+            } else {
+                log.warn("No outstanding request for CorrelationId={} with payload={}", correlationId, payload);
             }
         };
     }

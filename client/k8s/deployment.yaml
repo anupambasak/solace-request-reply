@@ -1,12 +1,15 @@
 apiVersion: v1
 kind: Service
 metadata:
+  annotations:
+    cis.f5.com/health: '{"interval": 5, "timeout": 10}'
+    cis.f5.com/ipamLabel: TND
   namespace: anupam
   name: client
   labels:
     app: client
 spec:
-  type: ClusterIP
+  type: LoadBalancer
   selector:
     app: client
   ports:
