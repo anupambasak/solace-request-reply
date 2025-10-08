@@ -1,5 +1,7 @@
 package cris.prs.msg;
 
+import cris.prs.messaging.ReplyResult;
+import cris.prs.messaging.RequestReplyService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.GetMapping;

@@ -16,6 +16,6 @@ dependencyResolutionManagement {
 }
 
 rootProject.name = 'solace-request-reply'
+include 'solace-library'
 include 'server'
 include 'client'
-

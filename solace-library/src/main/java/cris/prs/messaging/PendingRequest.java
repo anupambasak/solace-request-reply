@@ -1,4 +1,4 @@
-package cris.prs.msg;
+package cris.prs.messaging;
 
 import java.util.concurrent.CompletableFuture;
 

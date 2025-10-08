@@ -1,4 +1,4 @@
-package cris.prs.msg;
+package cris.prs.messaging;
 
 import com.solace.spring.cloud.stream.binder.messaging.SolaceHeaders;
 import com.solacesystems.jcsmp.Destination;
@@ -35,7 +35,7 @@ public class RequestReplyService {
     @Value("${HOSTNAME}")
     private String currentHost;
 
-    public CompletableFuture<ReplyResult> sendAndReceive(String payload){
+    public <T> CompletableFuture<ReplyResult> sendAndReceive(Message<T> payload){
 
         String correlationId = UUID.randomUUID().toString();
         Destination topic = JCSMPFactory.onlyInstance().createTopic(replyTopic);
@@ -45,7 +45,7 @@ public class RequestReplyService {
         long sendTime = System.currentTimeMillis();
         outstandingRequests.put(correlationId, new PendingRequest(sendTime, future));
 
-        Message<String> msg = MessageBuilder.withPayload(payload)
+        Message<T> msg = MessageBuilder.fromMessage(payload)
                 .setHeader(SolaceHeaders.CORRELATION_ID,correlationId)
                 .setHeader("hostname", currentHost)
                 .setHeader(SolaceHeaders.REPLY_TO, topic)

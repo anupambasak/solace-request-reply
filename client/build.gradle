@@ -79,6 +79,7 @@ dependencies {
     implementation 'org.springframework.cloud:spring-cloud-starter-config'
     implementation 'org.springframework.cloud:spring-cloud-stream'
     implementation 'com.solace.spring.cloud:spring-cloud-starter-stream-solace'
+    implementation project(":solace-library")
     developmentOnly("org.springframework.boot:spring-boot-devtools")
 
 //    testImplementation 'org.junit.jupiter:junit-jupiter-api:5.8.1'

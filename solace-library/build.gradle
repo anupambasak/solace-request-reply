@@ -1,0 +1,85 @@
+buildscript {
+    repositories {
+        maven { url = 'https://nexus.prs/nexus/repository/maven-public/' }
+    }
+    dependencies {
+        classpath libs.asm.get() // JIB plugin asm version override
+    }
+}
+
+plugins {
+    id 'eclipse'
+    id 'idea'
+    id 'java-library'
+    alias(libs.plugins.gradleGitProperties)
+    alias(libs.plugins.semverGitPlugin)
+    alias(libs.plugins.springBoot) apply false
+    alias(libs.plugins.springDependencyMgmt)
+    alias(libs.plugins.sonarQubePlugin)
+}
+
+ext{
+    set('hazelcast.version', libs.versions.hazelcastVersion.get())
+    set('solaceSpringCloudVersion', "4.4.0")
+}
+
+semver {
+    nextVersion = '0.1.0'
+    snapshotSuffix = "SNAPSHOT"
+    dirtyMarker = "-dirty"
+    initialVersion = "0.1.0"
+}
+
+repositories {
+    maven { url = 'https://nexus.prs/nexus/repository/maven-public/' }
+}
+
+group 'cris.prs.msg'
+version = semver.info.version
+
+jar {
+    enabled = true
+}
+
+java {
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(24)
+    }
+}
+
+dependencyManagement {
+    imports {
+        mavenBom org.springframework.boot.gradle.plugin.SpringBootPlugin.BOM_COORDINATES
+        mavenBom "${libs.springCloud.get()}"
+        mavenBom "com.solace.spring.cloud:solace-spring-cloud-bom:${solaceSpringCloudVersion}"
+    }
+}
+
+gitProperties {
+    extProperty = 'gitProps'
+    if(!layout.projectDirectory.dir(".git").asFile.isDirectory()) {
+        dotGitDirectory = layout.projectDirectory.dir("../git/modules/${rootProject.name}")
+    }
+}
+generateGitProperties.outputs.upToDateWhen { false }
+
+dependencies {
+
+    annotationProcessor libs.lombok
+    annotationProcessor 'org.springframework.boot:spring-boot-configuration-processor'
+    compileOnly libs.lombok
+    api libs.logbackClassic
+
+    api 'org.springframework.boot:spring-boot-starter-actuator'
+    api 'org.springframework.cloud:spring-cloud-stream'
+    api 'com.solace.spring.cloud:spring-cloud-starter-stream-solace'
+
+
+
+    testImplementation platform('org.junit:junit-bom:5.10.0')
+    testImplementation 'org.junit.jupiter:junit-jupiter'
+}
+
+test {
+    useJUnitPlatform()
+}
