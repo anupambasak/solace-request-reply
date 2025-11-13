@@ -1,4 +1,4 @@
-package cris.prs.msg.spring.config;
+package cris.prs.messaging.spring.config;
 
 import org.springframework.context.annotation.Configuration;
 

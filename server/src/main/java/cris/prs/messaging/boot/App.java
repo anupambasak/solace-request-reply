@@ -1,11 +1,11 @@
-package cris.prs.msg;
+package cris.prs.messaging.boot;
 
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.context.annotation.ComponentScan;
 
 @SpringBootApplication
-@ComponentScan(basePackages = {"cris.prs.msg"})
+@ComponentScan(basePackages = {"cris.prs.messaging"})
 public class App {
 
     public static void main(String[] args) {

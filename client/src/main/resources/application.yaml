@@ -6,10 +6,10 @@ spring:
     import: configserver:${SPRING_CONFIG_SERVER_URL:http://aposconfigserver.dev1.prs}
   cloud:
     function:
-      definition: bookingreply
+      definition: myReplyConsumer
     stream:
       bindings:
-        bookingreply-in-0:
+        myReplyConsumer-in-0:
           destination: bkgRep
           group: bkgRepGrp
           consumer:
@@ -26,7 +26,7 @@ spring:
                 clientPassword: default
       solace:
         bindings:
-          bookingreply-in-0:
+          myReplyConsumer-in-0:
             consumer:
               selector: "hostname = '${HOSTNAME}'"
               queueAdditionalSubscriptions:
