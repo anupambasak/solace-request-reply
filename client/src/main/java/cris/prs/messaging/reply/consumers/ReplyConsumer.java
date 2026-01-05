@@ -1,6 +1,7 @@
 package cris.prs.messaging.reply.consumers;
 
-import cris.prs.messaging.ReplyProcessor;
+import cris.prs.messaging.Person;
+import cris.prs.messaging.service.ReplyProcessor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Bean;
@@ -17,7 +18,7 @@ public class ReplyConsumer {
     private ReplyProcessor replyProcessor;
 
     @Bean
-    public <T> Consumer<Message<T>> myReplyConsumer(){
+    public Consumer<Message<Person>> myReplyConsumer(){
         return replyProcessor.processReply();
     }
 }

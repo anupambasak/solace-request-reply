@@ -1,7 +1,8 @@
 package cris.prs.messaging.rest;
 
+import cris.prs.messaging.Person;
 import cris.prs.messaging.ReplyResult;
-import cris.prs.messaging.RequestReplyService;
+import cris.prs.messaging.service.RequestReplyService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
@@ -36,9 +37,23 @@ public class RestService {
         Message<String> msg = MessageBuilder.withPayload(cmd)
                 .build();
         final String topic = "bkg/trn";
-        CompletableFuture<ReplyResult<?>> cc = rrs.sendAndReceive(topic, msg, replyTopic);
+        CompletableFuture<ReplyResult<String>> cc = rrs.sendAndReceive(topic, cmd, replyTopic, String.class);
         return Mono.fromFuture(cc).map(ss -> {
-            log.info("{}",new String((byte[]) ss.getPayload()));
+            log.info("{}", ss.getPayload());
+            return ss;
+        });
+    }
+
+    @GetMapping("/sendperson")
+    public Mono<ReplyResult<Person>> sendperson(){
+        Person p = new Person();
+        p.setName("anupam basak");
+        p.setAge(10);
+        final String topic = "bkg/trn";
+        CompletableFuture<ReplyResult<Person>> cc = rrs.sendAndReceive(topic, p, replyTopic, Person.class);
+        return Mono.fromFuture(cc).map(ss -> {
+            Person pp = (Person) ss.getPayload();
+            log.info("pp:  {}",pp);
             return ss;
         });
     }
@@ -48,12 +63,11 @@ public class RestService {
         int total = 100_000;
         int concurrency = 1000;
 
-        final Message<String> msg = MessageBuilder.withPayload("asdf")
-                .build();
+        final String msg = "asdf";
 
         final String topic = "bkg/trn";
         return Flux.range(1, total)
-                .flatMap(i -> Mono.fromFuture(rrs.sendAndReceive(topic, msg, replyTopic))
+                .flatMap(i -> Mono.fromFuture(rrs.sendAndReceive(topic, msg, replyTopic, String.class))
                                 .subscribeOn(Schedulers.boundedElastic()), concurrency);
     }
 }

@@ -1,9 +1,11 @@
-package cris.prs.messaging;
+package cris.prs.messaging.service;
 
 import com.solace.spring.cloud.stream.binder.messaging.SolaceHeaders;
 import com.solacesystems.jcsmp.Destination;
 import com.solacesystems.jcsmp.JCSMPFactory;
 import com.solacesystems.jcsmp.Topic;
+import cris.prs.messaging.ReplyResult;
+import cris.prs.messaging.SolaceRequest;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
@@ -20,6 +22,7 @@ import java.util.concurrent.CompletableFuture;
 
 @Slf4j
 @Service
+@SuppressWarnings({"unchecked","rawtypes"})
 public class RequestReplyService {
 
     @Autowired
@@ -31,36 +34,33 @@ public class RequestReplyService {
     @Value("${HOSTNAME}")
     private String currentHost;
 
-    public <T> CompletableFuture<ReplyResult<?>> sendAndReceive(String requestTopic, Message<T> payload, String replyTopic){
+    public <T,R> CompletableFuture<ReplyResult<R>> sendAndReceive(String requestTopic, T payload, String replyTopic, Class<R> responseClass){
 
         final String correlationId = UUID.randomUUID().toString();
-        Destination topic = JCSMPFactory.onlyInstance().createTopic(replyTopic);
-
-        CompletableFuture<ReplyResult<?>> future = new CompletableFuture<>();
-
-        long sendTime = System.currentTimeMillis();
-        requestMapBean.put(correlationId, new PendingRequest(sendTime, future));
-
-        Message<T> msg = MessageBuilder.fromMessage(payload)
-                .setHeader(SolaceHeaders.CORRELATION_ID,correlationId)
-                .setHeader("hostname", currentHost)
-                .setHeader(SolaceHeaders.REPLY_TO, topic)
-                .build();
+        final Destination topic = JCSMPFactory.onlyInstance().createTopic(replyTopic);
+        final CompletableFuture<ReplyResult<R>> future = new CompletableFuture<>();
 
         try {
+            final long sendTime = System.currentTimeMillis();
+            requestMapBean.put(correlationId, new SolaceRequest<R>(sendTime, future));
+
+            final Message<T> msg = MessageBuilder.withPayload(payload)
+                    .setHeader(SolaceHeaders.CORRELATION_ID,correlationId)
+                    .setHeader("hostname", currentHost)
+                    .setHeader(SolaceHeaders.REPLY_TO, topic)
+                    .build();
             sb.send(requestTopic, msg);
-            log.info("Sent message with CorrelationId={} at {}", correlationId, Instant.ofEpochMilli(sendTime));
+            log.debug("Sent message with CorrelationId={} at {} to request-topic {}", correlationId, Instant.ofEpochMilli(sendTime),requestTopic);
         } catch (Exception e) {
-            requestMapBean.remove(correlationId);
             future.completeExceptionally(e);
-            log.error("Failed to send message with CorrelationId={}", correlationId, e);
+            log.error("Failed to sendind message with correlationId={}", correlationId, e);
+        } finally {
+            requestMapBean.remove(correlationId);
         }
-
         return future;
-
     }
 
-    public <T> Message<T> sendReplyToMessage(MessageHeaders headers, T payload){
+    public <R> Message<R> sendReplyToMessage(MessageHeaders headers, R payload){
 
         String correlationId = headers.get(SolaceHeaders.CORRELATION_ID,String.class);
         String hostName = headers.get("hostname",String.class);
