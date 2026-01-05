@@ -52,10 +52,9 @@ public class RequestReplyService {
             sb.send(requestTopic, msg);
             log.debug("Sent message with CorrelationId={} at {} to request-topic {}", correlationId, Instant.ofEpochMilli(sendTime),requestTopic);
         } catch (Exception e) {
+            requestMapBean.remove(correlationId);
             future.completeExceptionally(e);
             log.error("Failed to sendind message with correlationId={}", correlationId, e);
-        } finally {
-            requestMapBean.remove(correlationId);
         }
         return future;
     }
