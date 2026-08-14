@@ -18,24 +18,6 @@ public class ServiceConsumer {
     @Autowired
     private RequestReplyService rrs;
 
-//    @Bean
-//    public Function<Message<String>, Message<String>> booking(){
-//        return msg -> {
-//            String v = msg.getPayload();
-//            log.info("Payload: {}",v);
-//            if("sleep".equals(v)){
-//                try {
-//                    log.info("Going to sleep for 10s");
-//                    Thread.sleep(10000);
-//                } catch (InterruptedException e) {
-//                    log.error("<Error>",e);
-//                }
-//            }
-//            v = v.toUpperCase(); // processing finished
-//            return rrs.sendReplyToMessage(msg.getHeaders(), v);
-//        };
-//    }
-
     @Bean
     public Function<Message<Person>, Message<Person>> booking(){
         return msg -> {

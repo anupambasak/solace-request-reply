@@ -71,6 +71,78 @@ solace-request-reply/
 
 ---
 
+## ⚙️ Spring Cloud Function Mapping & `application.yaml` Configuration
+
+Spring Cloud Stream maps Spring Java Bean functions (`Consumer`, `Function`, `Supplier`) to messaging channels using standard naming conventions: `<functionName>-in-0` for inputs and `<functionName>-out-0` for outputs.
+
+### 1. Client Module Mapping ([`client/src/main/resources/application.yaml`](client/src/main/resources/application.yaml))
+
+```yaml
+spring:
+  cloud:
+    function:
+      definition: myReplyConsumer        # 1. Spring Bean name defined in ReplyConsumer.java
+    stream:
+      bindings:
+        myReplyConsumer-in-0:            # 2. Input channel binding for 'myReplyConsumer'
+          destination: bkgRep            # 3. Base Solace queue name
+          group: bkgRepGrp               # 4. Solace Consumer Group (bkgRep.bkgRepGrp)
+          consumer:
+            concurrency: 10              # 5. Number of concurrent listener threads
+      binders:
+        local-solace:
+          type: solace
+          environment:
+            solace:
+              java:
+                host: tcp://broker-pubsubplus:55555
+                msgVpn: default
+                clientUsername: default
+                clientPassword: default
+      solace:
+        bindings:
+          myReplyConsumer-in-0:
+            consumer:
+              selector: "hostname = '${HOSTNAME}'" # 6. Hostname message selector
+              queueAdditionalSubscriptions:
+                - bkgRep/trn             # 7. Topic subscription bound to the queue
+```
+
+* **Java Bean Link**: `spring.cloud.function.definition: myReplyConsumer` maps to the `@Bean Consumer<Message<Person>> myReplyConsumer()` in [`ReplyConsumer.java`](client/src/main/java/cris/prs/messaging/reply/consumers/ReplyConsumer.java).
+* **Solace Queue Setup**: Provisions queue `bkgRep.bkgRepGrp` with subscription `bkgRep/trn`.
+* **Host Filtering**: `selector: "hostname = '${HOSTNAME}'"` filters messages on the broker side, ensuring each client pod only receives replies matching its container hostname.
+
+---
+
+### 2. Server Module Mapping ([`server/src/main/resources/application.yaml`](server/src/main/resources/application.yaml))
+
+```yaml
+spring:
+  cloud:
+    function:
+      definition: booking                # 1. Spring Bean name defined in ServiceConsumer.java
+    stream:
+      bindings:
+        booking-in-0:                    # 2. Input channel binding for 'booking' function
+          destination: bkg                # 3. Base Solace queue name
+          group: bkgGrp                   # 4. Solace Consumer Group (bkg.bkgGrp)
+          consumer:
+            concurrency: 10              # 5. Concurrent listener threads
+      solace:
+        bindings:
+          booking-in-0:
+            consumer:
+              queueAdditionalSubscriptions: # 6. Additional topic subscriptions
+                - bkg/trn
+                - bkg/trn/>
+```
+
+* **Java Bean Link**: `spring.cloud.function.definition: booking` maps to the `@Bean Function<Message<Person>, Message<Person>> booking()` in [`ServiceConsumer.java`](server/src/main/java/cris/prs/messaging/consumer/ServiceConsumer.java).
+* **Input Queue**: `<functionName>-in-0` (`booking-in-0`) binds to queue `bkg.bkgGrp` listening on topics `bkg/trn` and `bkg/trn/>`.
+* **Dynamic Header Routing**: The `booking` function returns a `Message<Person>` created via `rrs.sendReplyToMessage(msg.getHeaders(), payload)`. This sets `BinderHeaders.TARGET_DESTINATION` to the `REPLY_TO` topic (`bkgRep/trn`) specified in incoming request headers, allowing Spring Cloud Stream to route replies back dynamically without requiring a static output channel binding (`booking-out-0`).
+
+---
+
 ## 🔧 Build & Registry Configuration
 
 ### Registry Management via `gradle.properties`
