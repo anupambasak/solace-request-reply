@@ -73,6 +73,7 @@ dependencies {
     implementation 'org.springframework.cloud:spring-cloud-stream'
     implementation 'com.solace.spring.cloud:spring-cloud-starter-stream-solace'
     implementation project(":solace-library")
+    implementation libs.javaFaker
     developmentOnly("org.springframework.boot:spring-boot-devtools")
 }
 

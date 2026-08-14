@@ -4,6 +4,7 @@ import cris.prs.messaging.Person;
 import cris.prs.messaging.ReplyResult;
 import cris.prs.messaging.service.RequestReplyService;
 import lombok.extern.slf4j.Slf4j;
+import net.datafaker.Faker;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.messaging.Message;
@@ -21,6 +22,8 @@ import java.util.concurrent.CompletableFuture;
 @RestController
 public class RestService {
 
+    private final Faker faker = new Faker();
+
     @Value("${replyTopic}")
     private String replyTopic;
 
@@ -32,42 +35,34 @@ public class RestService {
         return Mono.just("OK Hello World");
     }
 
-    @GetMapping("/send")
-    public Mono<ReplyResult<?>> ss(@RequestParam("cmd") String cmd){
-        Message<String> msg = MessageBuilder.withPayload(cmd)
-                .build();
-        final String topic = "bkg/trn";
-        CompletableFuture<ReplyResult<String>> cc = rrs.sendAndReceive(topic, cmd, replyTopic, String.class);
-        return Mono.fromFuture(cc).map(ss -> {
-            log.info("{}", ss.getPayload());
-            return ss;
-        });
-    }
-
     @GetMapping("/sendperson")
     public Mono<ReplyResult<Person>> sendperson(){
         Person p = new Person();
-        p.setName("anupam basak");
-        p.setAge(10);
+        p.setName(faker.name().fullName());
+        p.setAge(faker.number().numberBetween(18, 80));
         final String topic = "bkg/trn";
         CompletableFuture<ReplyResult<Person>> cc = rrs.sendAndReceive(topic, p, replyTopic, Person.class);
         return Mono.fromFuture(cc).map(ss -> {
-            Person pp = (Person) ss.getPayload();
-            log.info("pp:  {}",pp);
+            Person pp = ss.getPayload();
+            log.info("pp:  {}", pp);
             return ss;
         });
     }
 
     @GetMapping("/send-bulk-stream")
-    public Flux<ReplyResult<?>> sendBulkStream() {
+    public Flux<ReplyResult<Person>> sendBulkStream() {
         int total = 100_000;
         int concurrency = 1000;
 
-        final String msg = "asdf";
-
         final String topic = "bkg/trn";
         return Flux.range(1, total)
-                .flatMap(i -> Mono.fromFuture(rrs.sendAndReceive(topic, msg, replyTopic, String.class))
+                .map(i -> {
+                    Person p = new Person();
+                    p.setName(faker.name().fullName());
+                    p.setAge(faker.number().numberBetween(18, 80));
+                    return p;
+                })
+                .flatMap(p -> Mono.fromFuture(rrs.sendAndReceive(topic, p, replyTopic, Person.class))
                                 .subscribeOn(Schedulers.boundedElastic()), concurrency);
     }
 }
