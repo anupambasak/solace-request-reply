@@ -2,8 +2,6 @@ server:
   port: 8080
 
 spring:
-  config:
-    import: configserver:${SPRING_CONFIG_SERVER_URL:http://aposconfigserver.dev1.prs}
   cloud:
     function:
       definition: myReplyConsumer

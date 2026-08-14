@@ -1,0 +1,71 @@
+plugins {
+    id 'eclipse'
+    id 'idea'
+    id 'lifecycle-base'
+    alias(libs.plugins.gradleGitProperties)
+    alias(libs.plugins.semverGitPlugin)
+    alias(libs.plugins.springBoot) apply false
+    alias(libs.plugins.springDependencyMgmt)
+    alias(libs.plugins.sonarQubePlugin)
+}
+
+semver {
+    nextVersion = 'patch'
+    snapshotSuffix = "SNAPSHOT"
+    dirtyMarker = "-dirty"
+    initialVersion = "0.1.0"
+}
+
+subprojects {
+    apply plugin: 'java-library'
+    apply plugin: 'io.spring.dependency-management'
+
+    group = "cris.prs.msg"
+    version = semver.info.version
+
+    ext {
+        set('hazelcast.version', libs.versions.hazelcastVersion.get())
+    }
+
+    configurations.configureEach {
+        resolutionStrategy.cacheDynamicVersionsFor 5, 'minutes'
+    }
+
+    java {
+        toolchain {
+            languageVersion = JavaLanguageVersion.of(24)
+        }
+    }
+
+    dependencyManagement {
+        imports {
+            mavenBom org.springframework.boot.gradle.plugin.SpringBootPlugin.BOM_COORDINATES
+            mavenBom "${libs.springCloud.get()}"
+        }
+    }
+
+    dependencies {
+        annotationProcessor libs.lombok
+        compileOnly libs.lombok
+        annotationProcessor 'org.springframework.boot:spring-boot-configuration-processor'
+        api libs.springBootStarter
+
+    }
+
+    tasks.register('sourceJar', Jar) {
+        dependsOn classes // Ensure it depends on the 'classes' task
+        archiveClassifier.set('sources') // Set the classifier to 'sources'
+        from(sourceSets.main.allSource) // Include all source files from the main source set
+    }
+
+    tasks.register('javadocJar', Jar) {
+        dependsOn(tasks.named('javadoc')) // Ensure it depends on the 'javadoc' task
+        archiveClassifier.set('javadoc') // Set the classifier to 'javadoc'
+        from(tasks.named('javadoc').map { it.destinationDir }) // Use the output directory of the 'javadoc' task
+    }
+
+    repositories {
+        mavenCentral()
+        gradlePluginPortal()
+    }
+}

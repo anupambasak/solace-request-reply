@@ -1,17 +1,12 @@
 pluginManagement {
     repositories {
-        maven { url = 'https://nexus.prs/nexus/repository/maven-public/' }
+        gradlePluginPortal()
     }
 }
 
 dependencyResolutionManagement {
     repositories {
-        maven { url = 'https://nexus.prs/nexus/repository/maven-public/' }
-    }
-    versionCatalogs {
-        libs {
-            from("cris.apos.build:AposDependenyVersionCatalog:0.1.0-SNAPSHOT")
-        }
+        mavenCentral()
     }
 }
 

@@ -1,0 +1,88 @@
+[versions]
+jakartaAnnotationVersion = "2.1.1"
+springBootVersion = "3.5.4"
+springDependencyMgmtVersion = "1.1.7"
+springCloudVersion = "2025.0.0"
+lombokVersion = "1.18.38"
+logbackVersion = "1.5.18"
+guavaVersion="33.4.8-jre"
+hazelcastVersion="5.3.8"
+minioVersion="6.0.11"
+solaceVersion="10.27.2"
+asmVersion="9.8"
+springdocOpenapiVersion="2.8.9"
+jsonwebtokenApiVersion="0.10.5"
+jsonwebtokenImplVersion="0.10.5"
+jsonwebtokenJacksonVersion="0.10.5"
+postgresqlVersion="42.7.7"
+modelMapperVersion="3.2.4"
+modelMapperModuleJsrVersion="1.2.1"
+modelMapperModuledataTypesVersion="1.2.1"
+hibernateToolsVersion="5.6.15.Final"
+webJarsLocatorVersion="0.59"
+protoVersion="4.31.1"
+springDataAerospikeVersion="5.2.0"
+aerospikeReactorClientVersion="9.0.5"
+aerospikeClientVersion="8.0.0"
+qpidJmsClientVersion="2.7.0"
+aerospikeJavaObjectMapperVersion="2.6.0"
+googleCodeGsonVersion="2.13.1"
+protoJacksonDataformatVersion="2.19.2"
+mapStructVersion="1.6.3"
+mapStructSpringExtensionVersion="1.1.3"
+apacheHttpclient5="5.6"
+apicurioRegistryProtobufSerdeKafka="3.1.7"
+uuidGeneratorVersion="5.1.1"
+
+
+[libraries]
+jakartaAnnotation = { module = "jakarta.annotation:jakarta.annotation-api", version.ref = "jakartaAnnotationVersion" }
+springBootDependencies = { module = "org.springframework.boot:spring-boot-dependencies", version.ref = "springBootVersion" }
+springBootStarter = { module = "org.springframework.boot:spring-boot-starter", version.ref = "springBootVersion" }
+springCloud = { module = "org.springframework.cloud:spring-cloud-dependencies", version.ref = "springCloudVersion" }
+lombok = { module = "org.projectlombok:lombok", version.ref = "lombokVersion" }
+logbackClassic = { module = "ch.qos.logback:logback-classic", version.ref = "logbackVersion" }
+guava = { module = "com.google.guava:guava", version.ref = "guavaVersion" }
+hazelcast = { module = "com.hazelcast:hazelcast", version.ref = "hazelcastVersion" }
+minio = { module = "io.minio:minio", version.ref = "minioVersion" }
+solace = { module = "com.solacesystems:sol-jms-jakarta", version.ref = "solaceVersion"}
+asm = { module = "org.ow2.asm:asm", version.ref = "asmVersion"}
+springdocOpenapi = { module = "org.springdoc:springdoc-openapi-starter-webflux-ui", version.ref = "springdocOpenapiVersion"}
+jsonwebtokenApi = { module = "io.jsonwebtoken:jjwt-api", version.ref = "jsonwebtokenApiVersion"}
+jsonwebtokenImpl = { module = "io.jsonwebtoken:jjwt-impl", version.ref = "jsonwebtokenImplVersion"}
+jsonwebtokenJackson = { module = "io.jsonwebtoken:jjwt-jackson", version.ref = "jsonwebtokenJacksonVersion"}
+postgresql = {module = "org.postgresql:postgresql", version.ref = "postgresqlVersion"}
+modelMapper = {module = "org.modelmapper:modelmapper", version.ref = "modelMapperVersion"}
+modelMapperModuleJsr = {module = "com.github.chhsiao90:modelmapper-module-jsr310", version.ref = "modelMapperModuleJsrVersion"}
+modelMapperModuledataTypes = {module = "com.github.chhsiao90:modelmapper-module-java8-datatypes", version.ref = "modelMapperModuledataTypesVersion"}
+hibernateTools = {module = "org.hibernate:hibernate-tools", version.ref = "hibernateToolsVersion"}
+webJarsLocator = {module = "org.webjars:webjars-locator-core", version.ref = "webJarsLocatorVersion"}
+protoCompiler = {module = "com.google.protobuf:protoc", version.ref = "protoVersion"}
+protoJavaUtil = {module = "com.google.protobuf:protobuf-java-util", version.ref = "protoVersion"}
+protoJacksonDataformat = {module = "com.fasterxml.jackson.dataformat:jackson-dataformat-protobuf", version.ref = "protoJacksonDataformatVersion"}
+springDataAerospike = {module = "com.aerospike:spring-data-aerospike", version.ref = "springDataAerospikeVersion"}
+aerospikeReactorClient = {module = "com.aerospike:aerospike-reactor-client", version.ref = "aerospikeReactorClientVersion"}
+aerospikeClient = {module = "com.aerospike:aerospike-client", version.ref = "aerospikeClientVersion"}
+qpidJmsClient = {module = "org.apache.qpid:qpid-jms-client", version.ref = "qpidJmsClientVersion"}
+aerospikeJavaObjectMapper = {module = "com.aerospike:java-object-mapper", version.ref = "aerospikeJavaObjectMapperVersion"}
+googleCodeGson = {module = "com.google.code.gson:gson", version.ref = "googleCodeGsonVersion"}
+mapStructProcessor = {module = "org.mapstruct:mapstruct-processor", version.ref = "mapStructVersion"}
+mapStruct = {module = "org.mapstruct:mapstruct", version.ref = "mapStructVersion"}
+mapStructSpringExtension = {module = "org.mapstruct.extensions.spring:mapstruct-spring-extensions", version.ref = "mapStructSpringExtensionVersion"}
+apacheHttpclient = { module = "org.apache.httpcomponents.client5:httpclient5", version.ref = "apacheHttpclient5" }
+apicurioRegistryProtobufSerdeKafka = { module = "io.apicurio:apicurio-registry-protobuf-serde-kafka", version.ref = "apicurioRegistryProtobufSerdeKafka" }
+uuidGenerator = { module = "com.fasterxml.uuid:java-uuid-generator", version.ref = "uuidGeneratorVersion" }
+
+[bundles]
+spring = ["springBootStarter", "lombok", "logbackClassic", "hazelcast"]
+aerospike = ["springDataAerospike", "aerospikeReactorClient", "aerospikeClient", "aerospikeJavaObjectMapper"]
+
+[plugins]
+springBoot = { id = "org.springframework.boot", version.ref = "springBootVersion" }
+springDependencyMgmt = { id = "io.spring.dependency-management", version.ref = "springDependencyMgmtVersion" }
+gradleGitProperties = { id = "com.gorylenko.gradle-git-properties", version = "2.4.2" }
+semverGitPlugin = { id = "io.wusa.semver-git-plugin", version = "1.2.1" }
+jibPlugin = { id = "com.google.cloud.tools.jib", version = "3.4.5" }
+sonarQubePlugin = { id = "org.sonarqube", version = "7.3.0.8198" }
+protoBufPlugin = {id = "com.google.protobuf", version = "0.9.5"}
+

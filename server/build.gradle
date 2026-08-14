@@ -1,7 +1,4 @@
 buildscript {
-    repositories {
-        maven { url = 'https://nexus.prs/nexus/repository/maven-public/' }
-    }
     dependencies {
         classpath libs.asm.get() // JIB plugin asm version override
     }
@@ -22,6 +19,7 @@ plugins {
 ext{
     set('hazelcast.version', libs.versions.hazelcastVersion.get())
     set('solaceSpringCloudVersion', "4.4.0")
+    set('container_registry', project.findProperty('container_registry'))
 }
 
 semver {
@@ -29,10 +27,6 @@ semver {
     snapshotSuffix = "SNAPSHOT"
     dirtyMarker = "-dirty"
     initialVersion = "0.1.0"
-}
-
-repositories {
-    maven { url = 'https://nexus.prs/nexus/repository/maven-public/' }
 }
 
 group 'cris.prs.msg'
@@ -44,7 +38,7 @@ bootJar{
 }
 
 jar {
-    enabled = true
+    enabled = false
 }
 
 java {
@@ -79,16 +73,11 @@ dependencies {
     implementation 'com.solace.spring.cloud:spring-cloud-starter-stream-solace'
     implementation project(":solace-library")
     developmentOnly("org.springframework.boot:spring-boot-devtools")
-
-//    testImplementation 'org.junit.jupiter:junit-jupiter-api:5.8.1'
-//    testRuntimeOnly 'org.junit.jupiter:junit-jupiter-engine:5.8.1'
 }
 
-
-
-//test {
-//    useJUnitPlatform()
-//}
+test {
+    useJUnitPlatform()
+}
 
 jib {
     container {
@@ -106,10 +95,10 @@ jib {
     }
 
     from {
-        image = 'quay-registry.apps.hub1.ocp.prs/apos/base-images/ubi9/spring-app:jre-24.0.1-v0.1.0@sha256:8738e693608dcddd322ecf5c2732ac7912c7c63d7dd7533498cba8ef527e97f1'
+        image = "${container_registry}/apos/base-images/ubi9/spring-app:jre-24.0.1-v0.1.0@sha256:8738e693608dcddd322ecf5c2732ac7912c7c63d7dd7533498cba8ef527e97f1"
     }
 
     to {
-        image = "quay-registry.apps.hub1.ocp.prs/basak.anupam/${project.name.toLowerCase()}"
+        image = "${container_registry}/basak.anupam/${project.name.toLowerCase()}"
     }
 }
