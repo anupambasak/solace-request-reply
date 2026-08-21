@@ -7,6 +7,7 @@ import com.solacesystems.jcsmp.JCSMPFactory;
 import com.solacesystems.jcsmp.TextMessage;
 import com.solacesystems.jcsmp.XMLMessage;
 
+import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 
 /**
@@ -65,6 +66,10 @@ public class JacksonSolaceMessageConverter implements SolaceMessageConverter {
         if (String.class.equals(targetType)) {
             return new String(body, StandardCharsets.UTF_8);
         }
+        if (body.length == 0) {
+            throw new SolaceMessagingException("Received a message with an empty body (no binary "
+                    + "attachment and no XML content); cannot convert it to " + targetType.getName());
+        }
         try {
             return this.objectMapper.readValue(body, targetType);
         }
@@ -74,12 +79,26 @@ public class JacksonSolaceMessageConverter implements SolaceMessageConverter {
         }
     }
 
+    /**
+     * Read the message body.
+     *
+     * <p>{@link #toMessage} writes the payload with {@code BytesMessage.setData}, which fills the
+     * <em>binary attachment</em>. {@code BytesXMLMessage.getBytes()} reads the <em>XML content</em>
+     * part instead &mdash; a different section of the message that stays empty here &mdash; so the
+     * attachment is read first, with the XML content kept as a fallback for senders that use it.</p>
+     */
     private byte[] extractBody(BytesXMLMessage message) {
         if (message instanceof TextMessage textMessage) {
             String text = textMessage.getText();
             return text == null ? new byte[0] : text.getBytes(StandardCharsets.UTF_8);
         }
-        byte[] bytes = message.getBytes();
-        return bytes == null ? new byte[0] : bytes;
+        ByteBuffer attachment = message.getAttachmentByteBuffer();
+        if (attachment != null && attachment.hasRemaining()) {
+            byte[] bytes = new byte[attachment.remaining()];
+            attachment.get(bytes);
+            return bytes;
+        }
+        byte[] xmlContent = message.getBytes();
+        return xmlContent == null ? new byte[0] : xmlContent;
     }
 }

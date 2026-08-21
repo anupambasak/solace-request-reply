@@ -83,6 +83,12 @@ public class DefaultSolaceSessionFactory implements SolaceSessionFactory, Dispos
     @Override
     public TransactedSession createTransactedSession() {
         try {
+            // JCSMP refuses to create additional publisher flows -- which is what a transacted
+            // session's producer is -- until the session's default publisher exists ("May not
+            // create additional publisher flows until the default publisher has been created").
+            // A consume-and-reply service never publishes outside a transaction, so nothing else
+            // would ever trigger it; force it here, on the session the transacted session belongs to.
+            getSharedProducer();
             return getSharedSession().createTransactedSession();
         }
         catch (JCSMPException ex) {
