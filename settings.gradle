@@ -11,6 +11,7 @@ dependencyResolutionManagement {
 }
 
 rootProject.name = 'solace-request-reply'
+include 'shared-dto'
 include 'solace-library'
 include 'server'
 include 'client'

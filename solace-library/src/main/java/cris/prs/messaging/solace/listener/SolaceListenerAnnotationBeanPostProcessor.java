@@ -102,6 +102,10 @@ public class SolaceListenerAnnotationBeanPostProcessor
         if (StringUtils.hasText(endpointMode)) {
             endpoint.setEndpointMode(EndpointMode.valueOf(endpointMode.trim().toUpperCase()));
         }
+        String dispatch = resolve(annotation.dispatch());
+        if (StringUtils.hasText(dispatch)) {
+            endpoint.setDispatch(ContainerProperties.DispatchMode.valueOf(dispatch.trim().toUpperCase()));
+        }
         endpoint.setConcurrency(resolveInteger(annotation.concurrency()));
         endpoint.setTransactional(resolveBoolean(annotation.transactional()));
         endpoint.setAutoStartup(resolveBoolean(annotation.autoStartup()));

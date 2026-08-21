@@ -36,6 +36,10 @@ public class DefaultSolaceListenerContainerFactory implements SolaceListenerCont
     @Setter
     private SolaceListenerErrorHandler errorHandler;
 
+    /** Executor backing {@link ContainerProperties.DispatchMode#EXECUTOR}. */
+    @Setter
+    private org.springframework.core.task.AsyncTaskExecutor taskExecutor;
+
     public DefaultSolaceListenerContainerFactory(SolaceSessionFactory sessionFactory,
             SolaceMessageConverter messageConverter, SolaceHeaderMapper headerMapper,
             InstanceIdProvider instanceIdProvider, ContainerProperties containerProperties) {
@@ -70,6 +74,7 @@ public class DefaultSolaceListenerContainerFactory implements SolaceListenerCont
                 this.instanceIdProvider.getInstanceId());
         container.setupMessageListener(listener);
         container.setTransactionManager(this.transactionManager);
+        container.setTaskExecutor(this.taskExecutor);
         if (this.errorHandler != null) {
             container.setErrorHandler(this.errorHandler);
         }

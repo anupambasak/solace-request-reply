@@ -29,6 +29,12 @@ solace:
     endpoint-mode: DURABLE_QUEUE
     concurrency: 10
     transactional: true
+    # INLINE runs the listener on the JCSMP delivery thread. EXECUTOR would hand it to the
+    # solaceListenerTaskExecutor instead, but it is rejected while transactional is true: a Solace
+    # transacted session must be driven by the thread its messages arrive on, because commit()
+    # acknowledges everything delivered on that session, not just the message being handled.
+    dispatch: INLINE
+    keep-alive: true
     provision-endpoint: true
     endpoint:
       access-type: NONEXCLUSIVE

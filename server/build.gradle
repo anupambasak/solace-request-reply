@@ -67,6 +67,7 @@ dependencies {
     compileOnly libs.lombok
     implementation libs.logbackClassic
     implementation 'org.springframework.boot:spring-boot-starter-actuator'
+    implementation project(":shared-dto")
     implementation project(":solace-library")
     implementation libs.javaFaker
     developmentOnly("org.springframework.boot:spring-boot-devtools")

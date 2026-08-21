@@ -8,6 +8,7 @@ import com.solacesystems.jcsmp.JCSMPErrorResponseException;
 import com.solacesystems.jcsmp.JCSMPErrorResponseSubcodeEx;
 import com.solacesystems.jcsmp.JCSMPException;
 import com.solacesystems.jcsmp.JCSMPFactory;
+import com.solacesystems.jcsmp.JCSMPProperties;
 import com.solacesystems.jcsmp.JCSMPSession;
 import com.solacesystems.jcsmp.Queue;
 import com.solacesystems.jcsmp.Topic;
@@ -23,12 +24,18 @@ import cris.prs.messaging.solace.transaction.SolaceTransactionUtils;
 import lombok.Getter;
 import lombok.Setter;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.core.task.AsyncTaskExecutor;
 import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.util.Assert;
 import org.springframework.util.StringUtils;
 
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.BlockingQueue;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
@@ -48,6 +55,18 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * <p>When {@code transactional} is set, each flow is created from its own transacted session which
  * the container binds to the thread before invoking the listener, so that the acknowledgement of
  * the consumed message and anything the listener publishes commit as one unit.</p>
+ *
+ * <h2>Dispatch modes</h2>
+ * <p>{@link ContainerProperties.DispatchMode#INLINE} (the default) invokes the listener on the JCSMP
+ * delivery thread &mdash; the lowest latency path, and the only one that is correct for transacted
+ * flows.</p>
+ * <p>{@link ContainerProperties.DispatchMode#EXECUTOR} runs one invoker task per flow on a Spring
+ * {@code AsyncTaskExecutor}, the way {@code DefaultMessageListenerContainer} does for JMS. The JCSMP
+ * delivery thread only hands the message to a bounded queue, so it stays free to receive while the
+ * listener works; because the queue blocks when full, the broker's flow control is preserved rather
+ * than being replaced by unbounded buffering. Listeners then run on Spring managed, non-daemon
+ * threads, which also keeps a consumer-only application alive without
+ * {@link ContainerProperties#isKeepAlive()}.</p>
  */
 @Slf4j
 public class DefaultSolaceMessageListenerContainer implements SolaceMessageListenerContainer {
@@ -66,6 +85,8 @@ public class DefaultSolaceMessageListenerContainer implements SolaceMessageListe
 
     private final List<TransactedSession> transactedSessions = new ArrayList<>();
 
+    private final List<FlowInvoker> invokers = new ArrayList<>();
+
     @Setter
     private SolaceMessageListener messageListener;
 
@@ -76,6 +97,10 @@ public class DefaultSolaceMessageListenerContainer implements SolaceMessageListe
 
     @Setter
     private SolaceTransactionManager transactionManager;
+
+    /** Executor used by {@link ContainerProperties.DispatchMode#EXECUTOR}; required in that mode. */
+    @Setter
+    private AsyncTaskExecutor taskExecutor;
 
     /** The resolved physical endpoint name, available once the container has started. */
     @Getter
@@ -129,6 +154,12 @@ public class DefaultSolaceMessageListenerContainer implements SolaceMessageListe
                 : this.containerProperties.isTransactional();
     }
 
+    private ContainerProperties.DispatchMode dispatch() {
+        return this.endpoint.getDispatch() != null
+                ? this.endpoint.getDispatch()
+                : this.containerProperties.getDispatch();
+    }
+
     @Override
     public boolean isAutoStartup() {
         return this.endpoint.getAutoStartup() != null
@@ -163,6 +194,20 @@ public class DefaultSolaceMessageListenerContainer implements SolaceMessageListe
                                 + getListenerId() + "'");
                 this.transactionTemplate = new TransactionTemplate(this.transactionManager);
             }
+            if (dispatch() == ContainerProperties.DispatchMode.EXECUTOR) {
+                Assert.state(this.taskExecutor != null,
+                        "An AsyncTaskExecutor is required for EXECUTOR dispatch on container '"
+                                + getListenerId() + "'");
+                // A transacted session's commit acknowledges every message delivered on it so far,
+                // not merely the one being handled. Buffering messages away from the delivery thread
+                // would therefore let a commit cover messages that have not been processed yet, and
+                // a rollback redeliver ones that have. Transacted flows stay strictly inline.
+                Assert.state(!transactional(), "EXECUTOR dispatch cannot be combined with "
+                        + "transactional=true on container '" + getListenerId() + "': a Solace "
+                        + "transacted session must be driven by the thread its messages are "
+                        + "delivered on. Use dispatch=INLINE, or keep-alive, for transactional "
+                        + "containers.");
+            }
             if (endpointMode() == EndpointMode.DIRECT) {
                 startDirect();
             }
@@ -173,9 +218,9 @@ public class DefaultSolaceMessageListenerContainer implements SolaceMessageListe
                 ContainerKeepAlive.acquire();
                 this.keepAliveHeld = true;
             }
-            log.info("Started Solace listener container '{}' [mode={}, endpoint={}, topics={}, concurrency={}, transactional={}]",
+            log.info("Started Solace listener container '{}' [mode={}, endpoint={}, topics={}, concurrency={}, transactional={}, dispatch={}]",
                     getListenerId(), endpointMode(), this.resolvedQueueName,
-                    this.endpoint.resolveTopics(this.instanceId), concurrency(), transactional());
+                    this.endpoint.resolveTopics(this.instanceId), concurrency(), transactional(), dispatch());
         }
         catch (JCSMPException | RuntimeException ex) {
             // Roll back a partially started container: flows and sessions bound so far would
@@ -190,7 +235,8 @@ public class DefaultSolaceMessageListenerContainer implements SolaceMessageListe
     private void startDirect() throws JCSMPException {
         // A dedicated session keeps this container's direct subscriptions isolated from others.
         this.ownSession = this.sessionFactory.createSession();
-        this.directConsumer = this.ownSession.getMessageConsumer(new ContainerMessageListener(null));
+        this.directConsumer = this.ownSession.getMessageConsumer(
+                new ContainerMessageListener(null, newInvokerIfNeeded(0)));
         for (String topicName : this.endpoint.resolveTopics(this.instanceId)) {
             addSubscription(this.ownSession, null, JCSMPFactory.onlyInstance().createTopic(topicName));
         }
@@ -231,16 +277,31 @@ public class DefaultSolaceMessageListenerContainer implements SolaceMessageListe
                 TransactedSession transactedSession = this.sessionFactory.createTransactedSession();
                 this.transactedSessions.add(transactedSession);
                 SolaceResourceHolder holder = new SolaceResourceHolder(transactedSession, true);
-                flow = transactedSession.createFlow(new ContainerMessageListener(holder), flowProperties,
-                        endpointProperties);
+                flow = transactedSession.createFlow(new ContainerMessageListener(holder, null),
+                        flowProperties, endpointProperties);
             }
             else {
-                flowProperties.setAckMode(com.solacesystems.jcsmp.JCSMPProperties.SUPPORTED_MESSAGE_ACK_CLIENT);
-                flow = session.createFlow(new ContainerMessageListener(null), flowProperties, endpointProperties);
+                flowProperties.setAckMode(JCSMPProperties.SUPPORTED_MESSAGE_ACK_CLIENT);
+                flow = session.createFlow(new ContainerMessageListener(null, newInvokerIfNeeded(i)),
+                        flowProperties, endpointProperties);
             }
             this.flows.add(flow);
             flow.start();
         }
+    }
+
+    /**
+     * Create and start the invoker for one flow when EXECUTOR dispatch is in use, otherwise return
+     * {@code null} so that the flow invokes the listener inline.
+     */
+    private FlowInvoker newInvokerIfNeeded(int index) {
+        if (dispatch() != ContainerProperties.DispatchMode.EXECUTOR) {
+            return null;
+        }
+        FlowInvoker invoker = new FlowInvoker(index, this.containerProperties.getDispatchQueueCapacity());
+        this.invokers.add(invoker);
+        this.taskExecutor.execute(invoker);
+        return invoker;
     }
 
     /**
@@ -281,11 +342,27 @@ public class DefaultSolaceMessageListenerContainer implements SolaceMessageListe
         log.info("Stopped Solace listener container '{}'", getListenerId());
     }
 
-    /** Close flows, transacted sessions and any session this container owns. Idempotent. */
+    /**
+     * Close flows, invokers, transacted sessions and any session this container owns. Idempotent.
+     *
+     * <p>Delivery is halted first, then the invokers are given {@code shutdownTimeout} to drain what
+     * they have already buffered, and only then are the flows closed &mdash; acknowledging a message
+     * on a closed flow would fail.</p>
+     */
     private void releaseResources() {
         this.flows.forEach(flow -> {
             try {
                 flow.stop();
+            }
+            catch (Exception ex) {
+                log.debug("Error stopping Solace flow for container '{}'", getListenerId(), ex);
+            }
+        });
+        Duration shutdownTimeout = this.containerProperties.getShutdownTimeout();
+        this.invokers.forEach(invoker -> invoker.stop(shutdownTimeout));
+        this.invokers.clear();
+        this.flows.forEach(flow -> {
+            try {
                 flow.close();
             }
             catch (Exception ex) {
@@ -322,38 +399,124 @@ public class DefaultSolaceMessageListenerContainer implements SolaceMessageListe
         callback.run();
     }
 
+    /** Invoke the listener and acknowledge, or hand the failure to the error handler. */
+    private void invokeListener(BytesXMLMessage message) {
+        try {
+            this.messageListener.onMessage(message);
+            message.ackMessage();
+        }
+        catch (Exception ex) {
+            this.errorHandler.handleError(message, ex);
+            if (this.containerProperties.isAckOnError()) {
+                message.ackMessage();
+            }
+        }
+    }
+
     /**
-     * Dispatches a received message, either directly (acknowledging on success) or inside a Solace
-     * local transaction when the flow is transacted.
+     * One invoker task per flow, submitted to the {@code AsyncTaskExecutor}, mirroring the invoker
+     * tasks of Spring's {@code DefaultMessageListenerContainer}.
+     *
+     * <p>The hand-off queue is bounded and {@link BlockingQueue#put} blocks, so a slow listener
+     * pushes back onto the JCSMP delivery thread and from there onto the broker's transport window.
+     * Replacing that with an unbounded queue would trade flow control for heap.</p>
+     */
+    private final class FlowInvoker implements Runnable {
+
+        private final int index;
+
+        private final BlockingQueue<BytesXMLMessage> handoff;
+
+        private final CountDownLatch stopped = new CountDownLatch(1);
+
+        private volatile boolean active = true;
+
+        private volatile Thread workerThread;
+
+        private FlowInvoker(int index, int capacity) {
+            this.index = index;
+            this.handoff = new LinkedBlockingQueue<>(Math.max(1, capacity));
+        }
+
+        /** Called on the JCSMP delivery thread; blocks while the invoker is saturated. */
+        void submit(BytesXMLMessage message) {
+            try {
+                this.handoff.put(message);
+            }
+            catch (InterruptedException ex) {
+                Thread.currentThread().interrupt();
+            }
+        }
+
+        @Override
+        public void run() {
+            this.workerThread = Thread.currentThread();
+            Thread.currentThread().setName("solace-" + getListenerId() + "-" + this.index);
+            try {
+                while (this.active) {
+                    BytesXMLMessage message = this.handoff.poll(200, TimeUnit.MILLISECONDS);
+                    if (message != null) {
+                        invokeListener(message);
+                    }
+                }
+                // Drain whatever was buffered when the stop was requested.
+                BytesXMLMessage message;
+                while ((message = this.handoff.poll()) != null) {
+                    invokeListener(message);
+                }
+            }
+            catch (InterruptedException ex) {
+                Thread.currentThread().interrupt();
+            }
+            finally {
+                this.stopped.countDown();
+            }
+        }
+
+        void stop(Duration timeout) {
+            this.active = false;
+            try {
+                if (!this.stopped.await(timeout.toMillis(), TimeUnit.MILLISECONDS)) {
+                    log.warn("Invoker {} of container '{}' did not finish within {}; interrupting",
+                            this.index, getListenerId(), timeout);
+                    Thread thread = this.workerThread;
+                    if (thread != null) {
+                        thread.interrupt();
+                    }
+                }
+            }
+            catch (InterruptedException ex) {
+                Thread.currentThread().interrupt();
+            }
+        }
+    }
+
+    /**
+     * Dispatches a received message: to the flow's invoker when EXECUTOR dispatch is configured,
+     * otherwise inline &mdash; either directly (acknowledging on success) or inside a Solace local
+     * transaction when the flow is transacted.
      */
     private final class ContainerMessageListener implements XMLMessageListener {
 
         private final SolaceResourceHolder resourceHolder;
 
-        private ContainerMessageListener(SolaceResourceHolder resourceHolder) {
+        private final FlowInvoker invoker;
+
+        private ContainerMessageListener(SolaceResourceHolder resourceHolder, FlowInvoker invoker) {
             this.resourceHolder = resourceHolder;
+            this.invoker = invoker;
         }
 
         @Override
         public void onReceive(BytesXMLMessage message) {
-            if (this.resourceHolder != null) {
+            if (this.invoker != null) {
+                this.invoker.submit(message);
+            }
+            else if (this.resourceHolder != null) {
                 receiveInTransaction(message);
             }
             else {
-                receive(message);
-            }
-        }
-
-        private void receive(BytesXMLMessage message) {
-            try {
-                DefaultSolaceMessageListenerContainer.this.messageListener.onMessage(message);
-                message.ackMessage();
-            }
-            catch (Exception ex) {
-                DefaultSolaceMessageListenerContainer.this.errorHandler.handleError(message, ex);
-                if (DefaultSolaceMessageListenerContainer.this.containerProperties.isAckOnError()) {
-                    message.ackMessage();
-                }
+                invokeListener(message);
             }
         }
 

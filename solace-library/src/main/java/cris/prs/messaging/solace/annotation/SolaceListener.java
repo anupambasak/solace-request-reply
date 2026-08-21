@@ -48,6 +48,13 @@ public @interface SolaceListener {
     /** Consume and reply inside a Solace local transaction. */
     String transactional() default "";
 
+    /**
+     * {@code INLINE} to invoke this listener on the JCSMP delivery thread, {@code EXECUTOR} to
+     * invoke it on the Solace listener task executor. Empty uses the default. {@code EXECUTOR}
+     * cannot be combined with {@code transactional = "true"}.
+     */
+    String dispatch() default "";
+
     String autoStartup() default "";
 
     /** Give this instance its own endpoint by appending the instance id to the queue name. */

@@ -1,0 +1,34 @@
+plugins {
+    id 'eclipse'
+    id 'idea'
+    id 'java-library'
+}
+
+/*
+ * Payload and response types exchanged between client and server.
+ *
+ * This module declares nothing beyond Lombok on purpose: a shared contract that pulled in Solace,
+ * Spring Messaging or web types would drag the whole transport into anything that only wants to
+ * read the DTOs. Everything messaging related lives in solace-library instead.
+ *
+ * (The root build's subprojects block still contributes spring-boot-starter to every module; the
+ * classes here use none of it.)
+ */
+
+description = 'Data transfer objects shared by the client and server services'
+
+jar {
+    enabled = true
+}
+
+dependencies {
+    annotationProcessor libs.lombok
+    compileOnly libs.lombok
+
+    testImplementation platform('org.junit:junit-bom:5.10.0')
+    testImplementation 'org.junit.jupiter:junit-jupiter'
+}
+
+test {
+    useJUnitPlatform()
+}

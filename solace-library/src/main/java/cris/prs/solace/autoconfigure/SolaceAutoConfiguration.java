@@ -22,6 +22,7 @@ import cris.prs.messaging.solace.support.InstanceIdProvider;
 import cris.prs.messaging.solace.support.ReplyDestinationResolver;
 import cris.prs.messaging.solace.transaction.SolaceTransactionManager;
 import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
@@ -29,6 +30,8 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Import;
+import org.springframework.core.task.AsyncTaskExecutor;
+import org.springframework.core.task.SimpleAsyncTaskExecutor;
 
 import java.util.List;
 
@@ -99,17 +102,36 @@ public class SolaceAutoConfiguration {
         return template;
     }
 
+    /**
+     * Executor backing {@code dispatch: EXECUTOR} listener containers. Each flow submits a single
+     * long-lived invoker task, so this creates exactly one thread per flow, the same arrangement
+     * Spring's {@code DefaultMessageListenerContainer} uses for JMS.
+     *
+     * <p>The threads are non-daemon, which is what lets a consumer-only application stay alive
+     * without {@code solace.listener.keep-alive}. Replacing this bean with a virtual thread
+     * executor is fine, but virtual threads are daemon threads, so keep-alive must stay on.</p>
+     */
+    @Bean(name = "solaceListenerTaskExecutor")
+    @ConditionalOnMissingBean(name = "solaceListenerTaskExecutor")
+    public AsyncTaskExecutor solaceListenerTaskExecutor() {
+        SimpleAsyncTaskExecutor executor = new SimpleAsyncTaskExecutor("solace-listener-");
+        executor.setDaemon(false);
+        return executor;
+    }
+
     @Bean(name = SolaceListenerConfigUtils.DEFAULT_SOLACE_LISTENER_CONTAINER_FACTORY_BEAN_NAME)
     @ConditionalOnMissingBean(name = SolaceListenerConfigUtils.DEFAULT_SOLACE_LISTENER_CONTAINER_FACTORY_BEAN_NAME)
     public DefaultSolaceListenerContainerFactory solaceListenerContainerFactory(
             SolaceSessionFactory sessionFactory, SolaceMessageConverter messageConverter,
             SolaceHeaderMapper headerMapper, InstanceIdProvider instanceIdProvider,
             SolaceProperties properties, SolaceTransactionManager transactionManager,
-            SolaceTemplate<Object> solaceTemplate) {
+            SolaceTemplate<Object> solaceTemplate,
+            @Qualifier("solaceListenerTaskExecutor") AsyncTaskExecutor listenerTaskExecutor) {
         DefaultSolaceListenerContainerFactory factory = new DefaultSolaceListenerContainerFactory(
                 sessionFactory, messageConverter, headerMapper, instanceIdProvider, properties.getListener());
         factory.setTransactionManager(transactionManager);
         factory.setReplyTemplate(solaceTemplate);
+        factory.setTaskExecutor(listenerTaskExecutor);
         return factory;
     }
 

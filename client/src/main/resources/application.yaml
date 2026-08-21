@@ -8,7 +8,8 @@ app:
 solace:
   # Broker connection: solace-java-spring-boot-starter
   java:
-    host: tcp://broker-pubsubplus:55555
+#    host: tcp://broker-pubsubplus:55555
+    host: tcp://10.74.24.23:55555
     msgVpn: default
     clientUsername: default
     clientPassword: default

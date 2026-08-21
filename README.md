@@ -145,6 +145,35 @@ containers) selects the delivery guarantee:
 | `NON_DURABLE_QUEUE` *(default for replies)* | temporary queue | guaranteed while connected | broker removes it on disconnect |
 | `DIRECT` | none — plain topic subscription | at-most-once, non-persistent | lowest latency, no acks or transactions |
 
+### Dispatch modes: where the listener runs
+
+`solace.listener.dispatch` (or `@SolaceListener(dispatch = "...")`) chooses the thread the listener
+is invoked on:
+
+| Mode | Listener runs on | Notes |
+| :--- | :--- | :--- |
+| `INLINE` *(default)* | the JCSMP delivery thread | lowest latency; the only correct mode for transacted flows |
+| `EXECUTOR` | a Spring `AsyncTaskExecutor` | one invoker task per flow, as `DefaultMessageListenerContainer` does for JMS |
+
+In `EXECUTOR` mode the delivery thread only hands the message to a bounded queue
+(`solace.listener.dispatch-queue-capacity`, default 256) and returns, so it stays free to receive
+while the listener works. The queue **blocks** when full, which pushes back onto the delivery thread
+and from there onto the broker's transport window — flow control is preserved rather than being
+replaced by unbounded buffering. Listeners then run on the `solaceListenerTaskExecutor` bean, a
+`SimpleAsyncTaskExecutor` with non-daemon threads named `solace-<listener-id>-<n>`; replace that bean
+to use your own executor, propagate MDC, or switch to virtual threads.
+
+Because those threads are non-daemon, `EXECUTOR` dispatch also keeps a consumer-only application
+alive on its own, so `solace.listener.keep-alive` can be turned off. (Virtual threads are daemon
+threads — if you swap in a virtual thread executor, leave keep-alive on.)
+
+> ⚠️ **`EXECUTOR` is rejected for transactional containers**, and deliberately so. A Solace
+> transacted session's `commit()` acknowledges *every* message delivered on that session so far, not
+> just the one in hand. Buffering messages off the delivery thread would let a commit cover messages
+> that have not been processed yet, and a rollback redeliver ones that have. Transactional listeners
+> stay `INLINE`; their parallelism already comes from running `concurrency` independent flows, each
+> with its own transacted session and its own delivery thread.
+
 ### Keeping a consumer-only application alive
 
 Every JCSMP thread is a daemon thread, so a listener-only Spring Boot service with no web server
@@ -217,6 +246,8 @@ solace:
     dmq-eligible: true
 
   listener:                        # defaults for every @SolaceListener container
+    dispatch: INLINE               # or EXECUTOR (non-transactional containers only)
+    dispatch-queue-capacity: 256   # per-flow hand-off bound in EXECUTOR dispatch
     keep-alive: true               # hold the JVM open; needed by consumer-only apps with no web server
     endpoint-mode: DURABLE_QUEUE
     concurrency: 10
@@ -250,6 +281,7 @@ transactional durable listener.
 ```
 solace-request-reply/
  ├── gradle/libs.versions.toml     # version catalog
+ ├── shared-dto/                   # Person, ReplyResult — the contract between client and server
  ├── solace-library/               # the Spring-for-Solace library (auto-configured starter)
  ├── client/                       # WebFlux REST service, requester
  ├── server/                       # @SolaceListener request handler

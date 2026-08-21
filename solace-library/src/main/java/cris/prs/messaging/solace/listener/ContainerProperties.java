@@ -35,6 +35,19 @@ public class ContainerProperties {
     private boolean ackOnError = true;
 
     /**
+     * Where the listener is invoked: on the JCSMP delivery thread (INLINE) or on a Spring
+     * {@code AsyncTaskExecutor} (EXECUTOR).
+     */
+    private DispatchMode dispatch = DispatchMode.INLINE;
+
+    /**
+     * Messages buffered per flow before the JCSMP delivery thread blocks, in EXECUTOR dispatch.
+     * The bound is what preserves the broker's flow control; raising it trades heap for burst
+     * tolerance.
+     */
+    private int dispatchQueueCapacity = 256;
+
+    /**
      * Hold the JVM open while this container runs. Needed by consumer-only applications that have
      * no web server, because every JCSMP thread is a daemon thread. Turn it off for containers that
      * should not by themselves keep an application alive, such as a request-reply reply container.
@@ -68,6 +81,24 @@ public class ContainerProperties {
             properties.setRespectsMsgTTL(this.respectsTtl);
             return properties;
         }
+    }
+
+    /** Where the listener is invoked. */
+    public enum DispatchMode {
+
+        /**
+         * Invoke the listener on the JCSMP delivery thread. Lowest latency, and the only correct
+         * choice for transacted flows, whose session must be driven by the delivering thread.
+         */
+        INLINE,
+
+        /**
+         * Invoke the listener on a Spring {@code AsyncTaskExecutor}, one invoker task per flow, as
+         * {@code DefaultMessageListenerContainer} does for JMS. The delivery thread stays free to
+         * receive while the listener works, and listeners run on Spring managed threads. Not
+         * available for transactional containers.
+         */
+        EXECUTOR
     }
 
     /** Endpoint access type; {@code NONEXCLUSIVE} is required for concurrency greater than one. */

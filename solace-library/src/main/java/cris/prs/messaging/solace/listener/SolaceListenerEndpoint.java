@@ -37,6 +37,9 @@ public class SolaceListenerEndpoint {
 
     private Boolean transactional;
 
+    /** {@code null} means "use the container factory default". */
+    private ContainerProperties.DispatchMode dispatch;
+
     private Boolean autoStartup;
 
     /** Append the instance id to the queue name, giving every pod its own endpoint. */
