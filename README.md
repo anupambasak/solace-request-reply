@@ -72,6 +72,10 @@ get:
 
 ### Producing
 
+`SolaceTemplate` is the primary bean, so an unqualified injection always gets the plain template
+even when request-reply is enabled (`ReplyingSolaceTemplate` extends it, so both beans match the
+supertype). Inject `ReplyingSolaceTemplate` by its own type when you want `sendAndReceive`.
+
 ```java
 @Autowired SolaceTemplate<Object> solace;
 

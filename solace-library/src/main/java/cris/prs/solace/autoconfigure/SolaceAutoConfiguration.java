@@ -30,6 +30,7 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Import;
+import org.springframework.context.annotation.Primary;
 import org.springframework.core.task.AsyncTaskExecutor;
 import org.springframework.core.task.SimpleAsyncTaskExecutor;
 
@@ -86,7 +87,16 @@ public class SolaceAutoConfiguration {
         return new SolaceTransactionManager(sessionFactory);
     }
 
+    /**
+     * The general purpose template.
+     *
+     * <p>Marked primary because {@code ReplyingSolaceTemplate} extends {@code SolaceTemplate}, so
+     * both beans match an unqualified {@code SolaceTemplate} injection point once request-reply is
+     * enabled. Application code that asks for a plain template wants this one; asking for the
+     * request-reply behaviour means injecting {@code ReplyingSolaceTemplate} by its own type.</p>
+     */
     @Bean
+    @Primary
     @ConditionalOnMissingBean(name = "solaceTemplate")
     public SolaceTemplate<Object> solaceTemplate(SolaceSessionFactory sessionFactory,
             SolaceMessageConverter messageConverter, SolaceHeaderMapper headerMapper,
@@ -125,7 +135,7 @@ public class SolaceAutoConfiguration {
             SolaceSessionFactory sessionFactory, SolaceMessageConverter messageConverter,
             SolaceHeaderMapper headerMapper, InstanceIdProvider instanceIdProvider,
             SolaceProperties properties, SolaceTransactionManager transactionManager,
-            SolaceTemplate<Object> solaceTemplate,
+            @Qualifier("solaceTemplate") SolaceTemplate<Object> solaceTemplate,
             @Qualifier("solaceListenerTaskExecutor") AsyncTaskExecutor listenerTaskExecutor) {
         DefaultSolaceListenerContainerFactory factory = new DefaultSolaceListenerContainerFactory(
                 sessionFactory, messageConverter, headerMapper, instanceIdProvider, properties.getListener());

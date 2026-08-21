@@ -260,10 +260,9 @@ public class DefaultSolaceMessageListenerContainer implements SolaceMessageListe
         }
         this.resolvedQueueName = queue.getName();
 
-        for (String topicName : this.endpoint.resolveTopics(this.instanceId)) {
-            addSubscription(session, queue, JCSMPFactory.onlyInstance().createTopic(topicName));
-        }
-
+        // Bind the flows before subscribing. A temporary queue is only created on the broker when a
+        // flow binds to it, so adding a subscription first fails with 503 Unknown Queue. Flows are
+        // created stopped, so nothing is delivered until the subscriptions are in place.
         int concurrency = concurrency();
         for (int i = 0; i < concurrency; i++) {
             ConsumerFlowProperties flowProperties = new ConsumerFlowProperties();
@@ -286,6 +285,13 @@ public class DefaultSolaceMessageListenerContainer implements SolaceMessageListe
                         flowProperties, endpointProperties);
             }
             this.flows.add(flow);
+        }
+
+        for (String topicName : this.endpoint.resolveTopics(this.instanceId)) {
+            addSubscription(session, queue, JCSMPFactory.onlyInstance().createTopic(topicName));
+        }
+
+        for (FlowReceiver flow : this.flows) {
             flow.start();
         }
     }
