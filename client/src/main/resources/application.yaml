@@ -1,45 +1,44 @@
 server:
   port: 8080
 
-spring:
-  cloud:
-    function:
-      definition: myReplyConsumer
-    stream:
-      bindings:
-        myReplyConsumer-in-0:
-          destination: bkgRep
-          group: bkgRepGrp
-          consumer:
-            concurrency: 10
-      binders:
-        local-solace:
-          type: solace
-          environment:
-            solace:
-              java:
-                host: tcp://broker-pubsubplus:55555
-                msgVpn: default
-                clientUsername: default
-                clientPassword: default
-      solace:
-        bindings:
-          myReplyConsumer-in-0:
-            consumer:
-              selector: "hostname = '${HOSTNAME}'"
-              queueAdditionalSubscriptions:
-                - bkgRep/trn
+app:
+  request:
+    topic: bkg/trn
 
-replyTopic: bkgRep/trn
+solace:
+  # Broker connection: solace-java-spring-boot-starter
+  java:
+    host: tcp://broker-pubsubplus:55555
+    msgVpn: default
+    clientUsername: default
+    clientPassword: default
+    connectRetries: -1
+    reconnectRetries: -1
+
+  # Identifier used to make this pod's reply destination unique.
+  # Defaults to $HOSTNAME, then $POD_NAME, then the local host name.
+  # instance-id: ${HOSTNAME}
+
+  template:
+    delivery-mode: PERSISTENT
+    dmq-eligible: true
+
+  request-reply:
+    enabled: true
+    # Replies for this pod arrive on <reply-topic-prefix>/<instance-id>, e.g. bkgRep/trn/client-7d9f4-abcde
+    reply-topic-prefix: bkgRep/trn
+    append-instance-id: true
+    # NON_DURABLE_QUEUE: guaranteed delivery on a temporary endpoint the broker removes on disconnect.
+    # DURABLE_QUEUE:     survives restarts, endpoint named bkgRep.trn.<instance-id>.
+    # DIRECT:            non-persistent topic subscription, lowest latency, at-most-once.
+    endpoint-mode: NON_DURABLE_QUEUE
+    concurrency: 1
+    reply-timeout: 30s
+    delivery-mode: PERSISTENT
 
 management:
   server:
     port: ${MANAGEMENT_SERVER_PORT:9090}
-  endpoint:
-#    env:
-#      show-values: ALWAYS
-#    configprops:
-#      show-values: ALWAYS
   endpoints:
     web:
       exposure:

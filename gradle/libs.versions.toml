@@ -9,6 +9,7 @@ guavaVersion="33.4.8-jre"
 hazelcastVersion="5.3.8"
 minioVersion="6.0.11"
 solaceVersion="10.27.2"
+solaceSpringBootVersion="2.5.0"
 asmVersion="9.8"
 springdocOpenapiVersion="2.8.9"
 jsonwebtokenApiVersion="0.10.5"
@@ -47,6 +48,9 @@ guava = { module = "com.google.guava:guava", version.ref = "guavaVersion" }
 hazelcast = { module = "com.hazelcast:hazelcast", version.ref = "hazelcastVersion" }
 minio = { module = "io.minio:minio", version.ref = "minioVersion" }
 solace = { module = "com.solacesystems:sol-jms-jakarta", version.ref = "solaceVersion"}
+solaceJcsmp = { module = "com.solacesystems:sol-jcsmp", version.ref = "solaceVersion"}
+solaceSpringBootBom = { module = "com.solace.spring.boot:solace-spring-boot-bom", version.ref = "solaceSpringBootVersion"}
+solaceJavaStarter = { module = "com.solace.spring.boot:solace-java-spring-boot-starter" }
 asm = { module = "org.ow2.asm:asm", version.ref = "asmVersion"}
 springdocOpenapi = { module = "org.springdoc:springdoc-openapi-starter-webflux-ui", version.ref = "springdocOpenapiVersion"}
 jsonwebtokenApi = { module = "io.jsonwebtoken:jjwt-api", version.ref = "jsonwebtokenApiVersion"}

@@ -1,11 +1,9 @@
 package cris.prs.messaging.spring.config;
 
-import org.springframework.context.annotation.Bean;
+import cris.prs.messaging.solace.annotation.EnableSolace;
 import org.springframework.context.annotation.Configuration;
 
-import java.util.function.Consumer;
-import java.util.function.Supplier;
-
+@EnableSolace
 @Configuration
 public class AppConfig {
 

@@ -42,6 +42,13 @@ spec:
           image: client
           imagePullPolicy: Always
           env:
+            # Used by the Solace library to build this pod's own reply topic,
+            # <reply-topic-prefix>/<instance-id>. HOSTNAME is set by Kubernetes as well;
+            # POD_NAME is declared explicitly so the value is unambiguous.
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
             - name: JAVA_OPTS
               value: |
                 --add-modules java.se --add-exports java.base/jdk.internal.ref=ALL-UNNAMED --add-opens java.base/java.lang=ALL-UNNAMED 

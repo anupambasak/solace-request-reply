@@ -11,7 +11,6 @@ plugins {
 
 ext{
     set('hazelcast.version', libs.versions.hazelcastVersion.get())
-    set('solaceSpringCloudVersion', "4.4.0")
 }
 
 semver {
@@ -37,8 +36,7 @@ java {
 dependencyManagement {
     imports {
         mavenBom org.springframework.boot.gradle.plugin.SpringBootPlugin.BOM_COORDINATES
-        mavenBom "${libs.springCloud.get()}"
-        mavenBom "com.solace.spring.cloud:solace-spring-cloud-bom:${solaceSpringCloudVersion}"
+        mavenBom "${libs.solaceSpringBootBom.get()}"
     }
 }
 
@@ -57,8 +55,10 @@ dependencies {
     api libs.logbackClassic
 
     api 'org.springframework.boot:spring-boot-starter-actuator'
-    api 'org.springframework.cloud:spring-cloud-stream'
-    api 'com.solace.spring.cloud:spring-cloud-starter-stream-solace'
+    api libs.solaceJavaStarter
+    api 'org.springframework:spring-messaging'
+    api 'org.springframework:spring-tx'
+    api 'com.fasterxml.jackson.core:jackson-databind'
 
     testImplementation platform('org.junit:junit-bom:5.10.0')
     testImplementation 'org.junit.jupiter:junit-jupiter'

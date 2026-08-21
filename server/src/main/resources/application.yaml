@@ -1,50 +1,48 @@
 server:
   port: 8080
 
-spring:
-  cloud:
-    function:
-      definition: booking
-    stream:
-      bindings:
-        booking-in-0:
-          destination: bkg
-          group: bkgGrp
-          consumer:
-            concurrency: 10
-      binders:
-        local-solace:
-          type: solace
-          environment:
-            solace:
-              java:
-                host: tcp://broker-pubsubplus:55555
-                msgVpn: default
-                clientUsername: default
-                clientPassword: default
-      solace:
-        bindings:
-          booking-in-0:
-            consumer:
-              queueAdditionalSubscriptions:
-                - bkg/trn
-                - bkg/trn/>
+app:
+  request:
+    queue: bkg
+    group: bkgGrp
+    topic: bkg/trn
+    concurrency: 10
+    # Consume the request and publish the reply in one Solace local transaction
+    transactional: true
 
-#solace:
-#  java:
+solace:
+  # Broker connection: solace-java-spring-boot-starter
+  java:
 #    host: tcp://broker-pubsubplus:55555
-#    msgVpn: default
-#    clientUsername: default
-#    clientPassword: default
+    host: tcp://10.74.24.23:55555
+    msgVpn: default
+    clientUsername: default
+    clientPassword: default
+    connectRetries: -1
+    reconnectRetries: -1
+
+  template:
+    delivery-mode: PERSISTENT
+    dmq-eligible: true
+
+  listener:
+    endpoint-mode: DURABLE_QUEUE
+    concurrency: 10
+    transactional: true
+    provision-endpoint: true
+    endpoint:
+      access-type: NONEXCLUSIVE
+      permission: MODIFY_TOPIC
+      quota-mb: 100
+      respects-ttl: true
+
+  # The server never originates requests, so it needs no reply container.
+  request-reply:
+    enabled: false
 
 management:
   server:
     port: ${MANAGEMENT_SERVER_PORT:9090}
-  endpoint:
-#    env:
-#      show-values: ALWAYS
-#    configprops:
-#      show-values: ALWAYS
   endpoints:
     web:
       exposure:

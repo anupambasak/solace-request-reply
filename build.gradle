@@ -40,7 +40,7 @@ subprojects {
     dependencyManagement {
         imports {
             mavenBom org.springframework.boot.gradle.plugin.SpringBootPlugin.BOM_COORDINATES
-            mavenBom "${libs.springCloud.get()}"
+            mavenBom "${libs.solaceSpringBootBom.get()}"
         }
     }
 

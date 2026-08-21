@@ -17,4 +17,4 @@ build:
 manifests:
   rawYaml:
     - server/k8s/deployment.yaml
-    - client/k8s/deployment.yaml
+#    - client/k8s/deployment.yaml

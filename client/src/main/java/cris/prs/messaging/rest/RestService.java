@@ -2,51 +2,65 @@ package cris.prs.messaging.rest;
 
 import cris.prs.messaging.Person;
 import cris.prs.messaging.ReplyResult;
-import cris.prs.messaging.service.RequestReplyService;
+import cris.prs.messaging.service.BookingRequestService;
+import cris.prs.messaging.solace.requestreply.ReplyingSolaceTemplate;
+import cris.prs.messaging.solace.requestreply.RequestReplyFuture;
+import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import net.datafaker.Faker;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.messaging.Message;
-import org.springframework.messaging.support.MessageBuilder;
 import org.springframework.web.bind.annotation.GetMapping;
-import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 import reactor.core.scheduler.Schedulers;
 
-import java.util.concurrent.CompletableFuture;
-
+/**
+ * Reactive front end for the request-reply demo.
+ *
+ * <p>Replies arrive on this pod's own reply topic ({@code <prefix>/<hostname>}), so several
+ * replicas can serve requests concurrently without any broker side filtering.</p>
+ */
 @Slf4j
 @RestController
+@RequiredArgsConstructor
 public class RestService {
 
     private final Faker faker = new Faker();
 
-    @Value("${replyTopic}")
-    private String replyTopic;
+    private final ReplyingSolaceTemplate solace;
 
-    @Autowired
-    private RequestReplyService rrs;
+    private final BookingRequestService bookingRequestService;
+
+    @Value("${app.request.topic:bkg/trn}")
+    private String requestTopic;
 
     @GetMapping("/test")
-    public Mono<String> test(){
+    public Mono<String> test() {
         return Mono.just("OK Hello World");
     }
 
+    /** The destination this instance receives its replies on; handy when scaled out. */
+    @GetMapping("/reply-destination")
+    public Mono<String> replyDestination() {
+        return Mono.just(solace.getReplyDestination());
+    }
+
     @GetMapping("/sendperson")
-    public Mono<ReplyResult<Person>> sendperson(){
-        Person p = new Person();
-        p.setName(faker.name().fullName());
-        p.setAge(faker.number().numberBetween(18, 80));
-        final String topic = "bkg/trn";
-        CompletableFuture<ReplyResult<Person>> cc = rrs.sendAndReceive(topic, p, replyTopic, Person.class);
-        return Mono.fromFuture(cc).map(ss -> {
-            Person pp = ss.getPayload();
-            log.info("pp:  {}", pp);
-            return ss;
-        });
+    public Mono<ReplyResult<Person>> sendperson() {
+        RequestReplyFuture<Person> future = solace.sendAndReceive(this.requestTopic, randomPerson(), Person.class);
+        return toResult(future);
+    }
+
+    /**
+     * Same exchange, but the request is published inside a Solace local transaction driven by
+     * {@code @Transactional}; the reply is awaited after the transaction has committed.
+     */
+    @GetMapping("/sendperson-tx")
+    public Mono<ReplyResult<Person>> sendpersonTransactional() {
+        RequestReplyFuture<Person> future =
+                bookingRequestService.sendInTransaction(this.requestTopic, randomPerson());
+        return toResult(future);
     }
 
     @GetMapping("/send-bulk-stream")
@@ -54,15 +68,21 @@ public class RestService {
         int total = 100_000;
         int concurrency = 1000;
 
-        final String topic = "bkg/trn";
         return Flux.range(1, total)
-                .map(i -> {
-                    Person p = new Person();
-                    p.setName(faker.name().fullName());
-                    p.setAge(faker.number().numberBetween(18, 80));
-                    return p;
-                })
-                .flatMap(p -> Mono.fromFuture(rrs.sendAndReceive(topic, p, replyTopic, Person.class))
-                                .subscribeOn(Schedulers.boundedElastic()), concurrency);
+                .map(i -> randomPerson())
+                .flatMap(person -> toResult(solace.sendAndReceive(this.requestTopic, person, Person.class))
+                        .subscribeOn(Schedulers.boundedElastic()), concurrency);
+    }
+
+    private Mono<ReplyResult<Person>> toResult(RequestReplyFuture<Person> future) {
+        return Mono.fromFuture(future)
+                .map(reply -> new ReplyResult<>(reply, future.getSendTime(), future.getReceiveTime()));
+    }
+
+    private Person randomPerson() {
+        Person person = new Person();
+        person.setName(faker.name().fullName());
+        person.setAge(faker.number().numberBetween(18, 80));
+        return person;
     }
 }
