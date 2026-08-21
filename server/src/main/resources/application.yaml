@@ -41,6 +41,14 @@ solace:
       permission: MODIFY_TOPIC
       quota-mb: 100
       respects-ttl: true
+      # A transactional listener rolls back on failure, so a message it can never handle would be
+      # redelivered forever. After this many attempts the broker parks it on the dead message queue
+      # instead. 0 keeps the broker default of retrying without limit.
+      max-redelivery-count: 5
+      dead-message-queue:
+        provision: true
+        name: "#DEAD_MSG_QUEUE"
+        quota-mb: 100
 
   # The server never originates requests, so it needs no reply container.
   request-reply:

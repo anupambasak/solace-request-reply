@@ -2,6 +2,7 @@ package cris.prs.messaging.solace.listener;
 
 import com.solacesystems.jcsmp.BytesXMLMessage;
 import com.solacesystems.jcsmp.ConsumerFlowProperties;
+import com.solacesystems.jcsmp.Endpoint;
 import com.solacesystems.jcsmp.EndpointProperties;
 import com.solacesystems.jcsmp.FlowReceiver;
 import com.solacesystems.jcsmp.JCSMPErrorResponseException;
@@ -254,8 +255,8 @@ public class DefaultSolaceMessageListenerContainer implements SolaceMessageListe
         else {
             queue = JCSMPFactory.onlyInstance().createQueue(queueName);
             if (this.containerProperties.isProvisionEndpoint()) {
-                session.provision(queue, endpointProperties,
-                        JCSMPSession.FLAG_IGNORE_ALREADY_EXISTS | JCSMPSession.WAIT_FOR_CONFIRM);
+                provisionDeadMessageQueue(session);
+                provision(session, queue, endpointProperties, "queue");
             }
         }
         this.resolvedQueueName = queue.getName();
@@ -308,6 +309,52 @@ public class DefaultSolaceMessageListenerContainer implements SolaceMessageListe
         this.invokers.add(invoker);
         this.taskExecutor.execute(invoker);
         return invoker;
+    }
+
+    /**
+     * Create the message VPN's dead message queue if it is missing, so that messages exhausting
+     * {@code max-redelivery-count} have somewhere to land instead of being discarded.
+     */
+    private void provisionDeadMessageQueue(JCSMPSession session) throws JCSMPException {
+        ContainerProperties.DeadMessageQueue dmq = this.containerProperties.getEndpoint().getDeadMessageQueue();
+        if (!dmq.isProvision()) {
+            return;
+        }
+        provision(session, JCSMPFactory.onlyInstance().createQueue(dmq.getName()),
+                dmq.toEndpointProperties(), "dead message queue");
+    }
+
+    /**
+     * Provision an endpoint, reporting rather than hiding the case where it already exists.
+     *
+     * <p>The broker never reconfigures an existing endpoint on provision, so settings such as
+     * {@code max-redelivery-count} and the quota only take effect the first time an endpoint is
+     * created. Saying so in the log beats silently ignoring the mismatch, which makes a queue look
+     * configured when it is not.</p>
+     */
+    private void provision(JCSMPSession session, Endpoint endpoint, EndpointProperties properties,
+            String description) throws JCSMPException {
+        try {
+            session.provision(endpoint, properties, JCSMPSession.WAIT_FOR_CONFIRM);
+            log.info("Provisioned {} '{}' for container '{}'", description, endpoint.getName(),
+                    getListenerId());
+        }
+        catch (JCSMPErrorResponseException ex) {
+            int subcode = ex.getSubcodeEx();
+            if (subcode == JCSMPErrorResponseSubcodeEx.ENDPOINT_ALREADY_EXISTS) {
+                log.debug("The {} '{}' already exists", description, endpoint.getName());
+            }
+            else if (subcode == JCSMPErrorResponseSubcodeEx.ENDPOINT_PROPERTY_MISMATCH) {
+                log.warn("The {} '{}' already exists with different properties, and the broker keeps "
+                        + "the ones it has. Endpoint settings such as max-redelivery-count and quota "
+                        + "are only applied when the endpoint is first created: delete it on the "
+                        + "broker, or change it through the admin UI or SEMP, for '{}' to take effect.",
+                        description, endpoint.getName(), getListenerId());
+            }
+            else {
+                throw ex;
+            }
+        }
     }
 
     /**

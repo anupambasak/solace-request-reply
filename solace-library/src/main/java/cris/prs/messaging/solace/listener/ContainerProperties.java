@@ -73,12 +73,59 @@ public class ContainerProperties {
 
         private boolean respectsTtl = true;
 
+        /**
+         * Redeliveries allowed before the broker gives up on a message and moves it to the dead
+         * message queue. {@code 0} keeps the broker default of retrying forever, which turns a
+         * message the listener can never handle into an endless rollback loop. Valid range 0-255.
+         */
+        private int maxRedeliveryCount = 0;
+
+        private final DeadMessageQueue deadMessageQueue = new DeadMessageQueue();
+
         public EndpointProperties toEndpointProperties() {
             EndpointProperties properties = new EndpointProperties();
             properties.setAccessType(this.accessType.value());
             properties.setPermission(this.permission.value());
             properties.setQuota(this.quotaMb);
             properties.setRespectsMsgTTL(this.respectsTtl);
+            if (this.maxRedeliveryCount > 0) {
+                properties.setMaxMsgRedelivery(this.maxRedeliveryCount);
+            }
+            return properties;
+        }
+    }
+
+    /**
+     * The dead message queue that receives messages whose redelivery count is exhausted.
+     *
+     * <p>Solace has one DMQ per message VPN, and it must carry the well-known name
+     * {@code #DEAD_MSG_QUEUE}. A message only reaches it when it was published DMQ eligible
+     * ({@code SolaceTemplate} sets that by default), the consuming endpoint has a
+     * {@code max-redelivery-count}, and the DMQ exists.</p>
+     */
+    @Data
+    public static class DeadMessageQueue {
+
+        /** Create the DMQ at container startup if it is missing. */
+        private boolean provision = false;
+
+        /** Solace only recognises this name as the dead message queue. */
+        private String name = "#DEAD_MSG_QUEUE";
+
+        private int quotaMb = 100;
+
+        private AccessType accessType = AccessType.EXCLUSIVE;
+
+        private Permission permission = Permission.CONSUME;
+
+        public EndpointProperties toEndpointProperties() {
+            EndpointProperties properties = new EndpointProperties();
+            properties.setAccessType(this.accessType.value());
+            properties.setPermission(this.permission.value());
+            properties.setQuota(this.quotaMb);
+            // The broker rejects a DMQ provisioned with respectTTL enabled
+            // (subcode INVALID_PARAMETER_COMBINATION): expiry is what put the message here.
+            properties.setRespectsMsgTTL(false);
             return properties;
         }
     }

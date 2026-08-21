@@ -178,6 +178,38 @@ threads — if you swap in a virtual thread executor, leave keep-alive on.)
 > stay `INLINE`; their parallelism already comes from running `concurrency` independent flows, each
 > with its own transacted session and its own delivery thread.
 
+### Poison messages: max-redelivery-count and the dead message queue
+
+A transactional listener rolls back when the listener throws, and the broker redelivers. That is the
+right response to a transient failure and the wrong one for a message that can *never* be handled —
+a malformed payload redelivers forever. The cure is broker side:
+
+```yaml
+solace:
+  listener:
+    endpoint:
+      max-redelivery-count: 5      # 0 = broker default, retry without limit
+      dead-message-queue:
+        provision: true            # create #DEAD_MSG_QUEUE at startup if missing
+        name: "#DEAD_MSG_QUEUE"
+        quota-mb: 100
+```
+
+Three things must all hold for a message to reach the DMQ, and the library covers each:
+
+1. the message was published **DMQ eligible** — `SolaceTemplate` sets that by default
+   (`solace.template.dmq-eligible`)
+2. the consuming endpoint has a **max-redelivery-count**
+3. the **DMQ exists**. Solace allows exactly one per message VPN and it must be named
+   `#DEAD_MSG_QUEUE`; the container provisions it when `provision: true`. It is deliberately created
+   with `respectsTTL` disabled, because the broker rejects a DMQ that respects TTL — expiry is one of
+   the things that sends a message there in the first place.
+
+> ⚠️ **Endpoint properties apply only at creation.** Provisioning never reconfigures an endpoint that
+> already exists, so adding `max-redelivery-count` to a queue the broker already has changes nothing.
+> The container logs a warning when it detects this (`ENDPOINT_PROPERTY_MISMATCH`). To apply it,
+> delete the queue on the broker so it is recreated, or set it through the admin UI or SEMP.
+
 ### Keeping a consumer-only application alive
 
 Every JCSMP thread is a daemon thread, so a listener-only Spring Boot service with no web server
@@ -263,6 +295,11 @@ solace:
       permission: MODIFY_TOPIC
       quota-mb: 100
       respects-ttl: true
+      max-redelivery-count: 5      # 0 = retry forever
+      dead-message-queue:
+        provision: true
+        name: "#DEAD_MSG_QUEUE"
+        quota-mb: 100
 
   request-reply:
     enabled: true                  # false on services that never originate requests
