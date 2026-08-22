@@ -145,13 +145,13 @@ class ExchangePatternConfigurationTest {
         void sharesTheRequestEndpoint() {
             SolaceListenerEndpoint endpoint = new SolaceListenerEndpoint();
             endpoint.setPattern(ExchangePattern.REQUEST_REPLY);
-            endpoint.setQueue("bkg");
-            endpoint.setGroup("bkgGrp");
+            endpoint.setQueue("request-reply-queue-1");
+            endpoint.setGroup("request-reply-group-1");
 
             endpoint.applyPatternDefaults();
 
             assertThat(endpoint.getAppendInstanceIdToQueue()).isFalse();
-            assertThat(endpoint.resolveQueueName(INSTANCE_ID)).isEqualTo("bkg.bkgGrp");
+            assertThat(endpoint.resolveQueueName(INSTANCE_ID)).isEqualTo("request-reply-queue-1.request-reply-group-1");
         }
 
         @Test
@@ -187,7 +187,7 @@ class ExchangePatternConfigurationTest {
         @DisplayName("leave an endpoint with no pattern entirely to the container defaults")
         void areUntouchedWithoutAPattern() {
             SolaceListenerEndpoint endpoint = new SolaceListenerEndpoint();
-            endpoint.setQueue("bkg");
+            endpoint.setQueue("request-reply-queue-1");
 
             endpoint.applyPatternDefaults();
 

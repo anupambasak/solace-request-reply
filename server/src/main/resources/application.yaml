@@ -4,8 +4,8 @@ server:
 app:
   # request-reply: shared request endpoint, reply to the requester's own destination
   request:
-    queue: bkg
-    group: bkgGrp
+    queue: request-reply-queue-1
+    group: request-reply-group-1
     topic: bkg/trn
     concurrency: 10
     # Consume the request and publish the reply in one Solace local transaction

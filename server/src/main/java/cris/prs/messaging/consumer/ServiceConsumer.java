@@ -11,7 +11,7 @@ import org.springframework.transaction.annotation.Transactional;
 /**
  * Request handler.
  *
- * <p>The listener is bound to the durable queue {@code bkg.bkgGrp} with the topic subscriptions
+ * <p>The listener is bound to the durable queue {@code request-reply-queue-1.request-reply-group-1} with the topic subscriptions
  * {@code bkg/trn} and {@code bkg/trn/>}. The returned {@link Person} is published to the
  * destination carried in the request's {@code replyTo} field &mdash; the per-instance reply topic
  * of whichever client pod sent it &mdash; with the correlation id copied across.</p>
@@ -27,8 +27,8 @@ public class ServiceConsumer {
     @SolaceListener(
             id = "booking",
             pattern = "REQUEST_REPLY",
-            queue = "${app.request.queue:bkg}",
-            group = "${app.request.group:bkgGrp}",
+            queue = "${app.request.queue:request-reply-queue-1}",
+            group = "${app.request.group:request-reply-group-1}",
             topics = {"${app.request.topic:bkg/trn}", "${app.request.topic:bkg/trn}/>"},
             concurrency = "${app.request.concurrency:10}",
             transactional = "${app.request.transactional:true}")

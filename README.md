@@ -24,7 +24,7 @@ sequenceDiagram
     Web->>Client: GET /sendperson
     Client->>Client: DataFaker Person + UUID correlationId
     Client->>Solace: Publish to 'bkg/trn'<br/>correlationId, replyTo='bkgRep/trn/<pod>', instanceId
-    Solace->>Server: Deliver from queue bkg.bkgGrp
+    Solace->>Server: Deliver from queue request-reply-queue-1.request-reply-group-1
     Server->>Server: BEGIN Solace transaction
     Server->>Server: Uppercase name, age + 23
     Server->>Solace: Publish reply to message.replyTo
@@ -89,7 +89,7 @@ solace.send("bkg/trn", person, Map.of("tenant", "north"));   // extra headers be
 ```java
 @SolaceListener(
         id = "booking",
-        queue = "bkg", group = "bkgGrp",          // -> endpoint bkg.bkgGrp
+        queue = "request-reply-queue-1", group = "request-reply-group-1",   // -> endpoint request-reply-queue-1.request-reply-group-1
         topics = {"bkg/trn", "bkg/trn/>"},
         concurrency = "10",
         transactional = "true")
@@ -129,7 +129,8 @@ public void onNotification(Notification notification) { ... }
 @SolaceListener(pattern = "POINT_TO_POINT", topics = "task/submit", queue = "task", group = "workers")
 public void onTask(Task task) { ... }
 
-@SolaceListener(pattern = "REQUEST_REPLY", topics = "bkg/trn", queue = "bkg", group = "bkgGrp")
+@SolaceListener(pattern = "REQUEST_REPLY", topics = "bkg/trn",
+                queue = "request-reply-queue-1", group = "request-reply-group-1")
 public Person booking(Person person) { ... }      // return value goes back to the requester
 ```
 
@@ -141,7 +142,7 @@ is *how the consumers bind*, and that is the whole job of `pattern`:
 | :--- | :--- | :--- | :--- | :--- | :--- |
 | `PUBLISH_SUBSCRIBE` | **every** instance, its own copy | one per instance, `notification.<instance-id>`, non-durable | exclusive | 1 | more processing of the same messages |
 | `POINT_TO_POINT` | **exactly one** instance | one shared, `task.workers`, durable | non-exclusive | `concurrency` | more throughput |
-| `REQUEST_REPLY` | one instance, which replies | shared request endpoint `bkg.bkgGrp`; reply to the request's `replyTo` | non-exclusive | `concurrency` | more throughput |
+| `REQUEST_REPLY` | one instance, which replies | shared request endpoint `request-reply-queue-1.request-reply-group-1`; reply to the request's `replyTo` | non-exclusive | `concurrency` | more throughput |
 
 `PUBLISH_SUBSCRIBE` pins concurrency to one flow, because an exclusive endpoint admits a single
 consumer — binding more is not slow, it is refused (`503 Max clients exceeded for queue`).
