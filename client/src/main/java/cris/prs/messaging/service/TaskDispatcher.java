@@ -9,13 +9,14 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
 import java.util.UUID;
+import java.util.stream.IntStream;
 
 /**
  * Point-to-point producer.
  *
  * <p>Each task is picked up by exactly one worker, because the workers share a single non-exclusive
- * endpoint. {@link #dispatchBatch} publishes inside a Solace local transaction, so a batch either
- * reaches the queue whole or not at all.</p>
+ * endpoint. The producer does nothing to arrange that &mdash; it publishes to a topic like any
+ * other producer.</p>
  */
 @Slf4j
 @Service
@@ -39,9 +40,26 @@ public class TaskDispatcher {
         return task;
     }
 
+    /** Submit several tasks as independent publishes; each is queued as it is sent. */
+    public List<Task> dispatchMultiple(String description, int count) {
+        return descriptions(description, count).stream().map(this::dispatch).toList();
+    }
+
     /** Submit several tasks atomically: all of them are released at commit, or none are. */
+    @Transactional
+    public List<Task> dispatchBatch(String description, int count) {
+        return descriptions(description, count).stream().map(this::dispatch).toList();
+    }
+
+    /** Submit the given descriptions atomically. */
     @Transactional
     public List<Task> dispatchBatch(List<String> descriptions) {
         return descriptions.stream().map(this::dispatch).toList();
+    }
+
+    private List<String> descriptions(String description, int count) {
+        return IntStream.rangeClosed(1, count)
+                .mapToObj(i -> description + " (" + i + " of " + count + ")")
+                .toList();
     }
 }

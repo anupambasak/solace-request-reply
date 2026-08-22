@@ -5,8 +5,11 @@ import cris.prs.messaging.solace.core.SolaceTemplate;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
+import java.util.List;
 import java.util.UUID;
+import java.util.stream.IntStream;
 
 /**
  * Publish-subscribe producer.
@@ -29,12 +32,37 @@ public class NotificationPublisher {
         this.topic = topic;
     }
 
-    /** Broadcast a notification; every subscribing instance receives its own copy. */
+    /** Broadcast one notification; every subscribing instance receives its own copy. */
     public Notification publish(String message) {
         Notification notification =
                 new Notification(UUID.randomUUID().toString(), message, System.currentTimeMillis());
         this.solace.send(this.topic, notification);
         log.debug("Published notification {} to {}", notification.getId(), this.topic);
         return notification;
+    }
+
+    /**
+     * Broadcast several notifications as independent publishes.
+     *
+     * <p>Each reaches the broker as it is sent, so a failure part way through leaves the earlier
+     * ones delivered. Use {@link #publishBatch(String, int)} when that is not acceptable.</p>
+     */
+    public List<Notification> publishMultiple(String message, int count) {
+        return IntStream.rangeClosed(1, count)
+                .mapToObj(i -> publish(message + " (" + i + " of " + count + ")"))
+                .toList();
+    }
+
+    /**
+     * Broadcast several notifications in one Solace local transaction.
+     *
+     * <p>Nothing reaches the broker until the method returns and the transaction commits, so
+     * subscribers see the whole batch or none of it.</p>
+     */
+    @Transactional
+    public List<Notification> publishBatch(String message, int count) {
+        return IntStream.rangeClosed(1, count)
+                .mapToObj(i -> publish(message + " (" + i + " of " + count + ")"))
+                .toList();
     }
 }

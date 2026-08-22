@@ -21,7 +21,7 @@ sequenceDiagram
     participant Solace as Solace PubSub+ Broker
     participant Server as Server Service (@SolaceListener)
 
-    Web->>Client: GET /sendperson
+    Web->>Client: GET /request-reply/send
     Client->>Client: DataFaker Person + UUID correlationId
     Client->>Solace: Publish to 'request-reply/request-1'<br/>correlationId, replyTo='request-reply/reply-1/<pod>', instanceId
     Solace->>Server: Deliver from queue request-reply-queue-1.request-reply-group-1
@@ -167,10 +167,20 @@ what you left out:
 
 ### Seeing it work
 
+Each pattern has its own controller, and each offers the same three verbs:
+
 ```bash
-curl "http://localhost:8080/publish-notification?message=deploy+finished"   # fan-out
-curl "http://localhost:8080/submit-task?description=reindex"                # one worker
-curl "http://localhost:8080/submit-task-batch?count=5"                      # one transaction
+curl "http://localhost:8080/pub-sub/publish?message=deploy+finished"    # fan-out, one message
+curl "http://localhost:8080/pub-sub/publish-multiple?count=5"           # five independent publishes
+curl "http://localhost:8080/pub-sub/publish-batch?count=5"              # five in one transaction
+
+curl "http://localhost:8080/point-to-point/submit?description=reindex"  # one worker takes it
+curl "http://localhost:8080/point-to-point/submit-multiple?count=5"
+curl "http://localhost:8080/point-to-point/submit-batch?count=5"
+
+curl "http://localhost:8080/request-reply/send"                         # one exchange + latency
+curl "http://localhost:8080/request-reply/send-multiple?count=10"
+curl "http://localhost:8080/request-reply/send-batch?count=5"
 ```
 
 Scale the server to prove the distinction:
@@ -342,7 +352,8 @@ transactionTemplate.execute(status -> solace.sendAndReceive(topic, person, Perso
 
 > ⚠️ A message published in a transaction only reaches the broker at commit. Await the
 > `RequestReplyFuture` **after** the transactional method returns — waiting inside the transaction
-> would block on a request that has not been sent yet. `/sendperson-tx` shows the correct pattern.
+> would block on a request that has not been sent yet. `/request-reply/send-batch` shows the correct
+> pattern: the transactional call returns first, and only then are the futures awaited.
 
 ---
 
@@ -434,13 +445,40 @@ kubectl port-forward svc/client 8080:80 -n anupam
 | Endpoint | Description |
 | :--- | :--- |
 | `GET /test` | health check |
-| `GET /reply-destination` | the reply topic this pod is listening on |
-| `GET /sendperson` | one request-reply exchange, returns payload + latency |
-| `GET /sendperson-tx` | same, with the request published in a Solace transaction |
-| `GET /send-bulk-stream` | 100 000 exchanges at concurrency 1 000, streamed as they complete |
-| `GET /publish-notification?message=…` | publish-subscribe: broadcast to every server instance |
-| `GET /submit-task?description=…` | point-to-point: exactly one worker instance handles it |
-| `GET /submit-task-batch?count=…` | several tasks published in one Solace transaction |
+
+**Publish-subscribe** — every server instance receives every message.
+
+| Endpoint | Description |
+| :--- | :--- |
+| `GET /pub-sub/publish?message=…` | one notification |
+| `GET /pub-sub/publish-multiple?message=…&count=5` | several, published independently |
+| `GET /pub-sub/publish-batch?message=…&count=5` | several, published in one Solace transaction |
+
+**Point-to-point** — exactly one server instance handles each message.
+
+| Endpoint | Description |
+| :--- | :--- |
+| `GET /point-to-point/submit?description=…` | one task |
+| `GET /point-to-point/submit-multiple?description=…&count=5` | several, published independently |
+| `GET /point-to-point/submit-batch?description=…&count=5` | several, published in one Solace transaction |
+
+**Request-reply** — each reply returns to the instance that asked, with its latency.
+
+| Endpoint | Description |
+| :--- | :--- |
+| `GET /request-reply/send` | one exchange |
+| `GET /request-reply/send-multiple?count=10&concurrency=10` | several independent exchanges, streamed as replies arrive |
+| `GET /request-reply/send-batch?count=5` | requests published in one transaction, replies awaited after commit |
+| `GET /request-reply/benchmark?total=100000&concurrency=1000` | high-concurrency load test |
+| `GET /request-reply/reply-destination` | the reply topic this pod is listening on |
+
+Across all three patterns the three verbs mean the same thing:
+
+| | Publishing |
+| :--- | :--- |
+| **single** | one message |
+| **multiple** | N independent publishes — each on the wire as it is sent, so a failure part way through leaves the earlier ones delivered |
+| **batch** | N publishes in one Solace local transaction — nothing reaches the broker until commit, so consumers see all of them or none |
 
 ```json
 {
@@ -461,8 +499,9 @@ gradle :client:test :server:test
 
 | Test | Covers |
 | :--- | :--- |
-| `client` &middot; `NotificationPublisherTest` | the broadcast producer addresses a topic and stamps each notification with its own id |
-| `client` &middot; `TaskDispatcherTest` | one publish per task, single and batched |
+| `client` &middot; `NotificationPublisherTest` | the broadcast producer addresses a topic and stamps each notification with its own id; single, multiple and batch each emit one message per notification |
+| `client` &middot; `TaskDispatcherTest` | one publish per task across single, multiple and batch |
+| `client` &middot; `PersonFactoryTest` | the payload source shared by all three controllers |
 | `server` &middot; `NotificationSubscriberTest` | every delivered copy is processed; the handler returns void |
 | `server` &middot; `TaskWorkerTest` | each task handed to this instance is processed once |
 | `server` &middot; `ExchangePatternConfigurationTest` | the wiring each `pattern` implies — endpoint naming, durability and access type |

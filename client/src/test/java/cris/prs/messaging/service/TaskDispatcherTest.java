@@ -3,6 +3,7 @@ package cris.prs.messaging.service;
 import cris.prs.messaging.Task;
 import cris.prs.messaging.solace.core.SolaceTemplate;
 import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
@@ -25,28 +26,70 @@ class TaskDispatcherTest {
     @Mock
     private SolaceTemplate<Object> solaceTemplate;
 
-    @Test
-    @DisplayName("dispatches a single task to the work topic")
-    void dispatchesASingleTask() {
-        TaskDispatcher dispatcher = new TaskDispatcher(this.solaceTemplate, TOPIC);
-
-        Task task = dispatcher.dispatch("reindex catalogue");
-
-        assertThat(task.getDescription()).isEqualTo("reindex catalogue");
-        assertThat(task.getId()).isNotBlank();
-        verify(this.solaceTemplate).send(eq(TOPIC), any(Task.class));
+    private TaskDispatcher dispatcher() {
+        return new TaskDispatcher(this.solaceTemplate, TOPIC);
     }
 
-    @Test
-    @DisplayName("publishes one message per task in a batch")
-    void publishesEveryTaskInABatch() {
-        TaskDispatcher dispatcher = new TaskDispatcher(this.solaceTemplate, TOPIC);
+    @Nested
+    @DisplayName("single")
+    class Single {
 
-        List<Task> tasks = dispatcher.dispatchBatch(List.of("one", "two", "three"));
+        @Test
+        @DisplayName("dispatches a single task to the work topic")
+        void dispatchesASingleTask() {
+            Task task = dispatcher().dispatch("reindex catalogue");
 
-        assertThat(tasks).hasSize(3)
-                .extracting(Task::getDescription)
-                .containsExactly("one", "two", "three");
-        verify(this.solaceTemplate, times(3)).send(eq(TOPIC), any(Task.class));
+            assertThat(task.getDescription()).isEqualTo("reindex catalogue");
+            assertThat(task.getId()).isNotBlank();
+            verify(solaceTemplate).send(eq(TOPIC), any(Task.class));
+        }
+
+        @Test
+        @DisplayName("gives every task a distinct id, since exactly one worker will claim each")
+        void assignsADistinctIdPerTask() {
+            TaskDispatcher dispatcher = dispatcher();
+
+            assertThat(dispatcher.dispatch("one").getId())
+                    .isNotEqualTo(dispatcher.dispatch("two").getId());
+        }
+    }
+
+    @Nested
+    @DisplayName("multiple")
+    class Multiple {
+
+        @Test
+        @DisplayName("publishes one message per task")
+        void publishesOnePerTask() {
+            List<Task> tasks = dispatcher().dispatchMultiple("reindex", 3);
+
+            assertThat(tasks).hasSize(3)
+                    .extracting(Task::getDescription)
+                    .containsExactly("reindex (1 of 3)", "reindex (2 of 3)", "reindex (3 of 3)");
+            verify(solaceTemplate, times(3)).send(eq(TOPIC), any(Task.class));
+        }
+    }
+
+    @Nested
+    @DisplayName("batch")
+    class Batch {
+
+        @Test
+        @DisplayName("publishes one message per task, for the transaction to release together")
+        void publishesOnePerTask() {
+            List<Task> tasks = dispatcher().dispatchBatch("rebuild", 4);
+
+            assertThat(tasks).hasSize(4);
+            verify(solaceTemplate, times(4)).send(eq(TOPIC), any(Task.class));
+        }
+
+        @Test
+        @DisplayName("accepts explicit descriptions")
+        void acceptsExplicitDescriptions() {
+            List<Task> tasks = dispatcher().dispatchBatch(List.of("one", "two", "three"));
+
+            assertThat(tasks).extracting(Task::getDescription).containsExactly("one", "two", "three");
+            verify(solaceTemplate, times(3)).send(eq(TOPIC), any(Task.class));
+        }
     }
 }
