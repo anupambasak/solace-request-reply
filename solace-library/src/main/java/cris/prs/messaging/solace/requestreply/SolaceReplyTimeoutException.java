@@ -6,6 +6,8 @@ import cris.prs.messaging.solace.core.SolaceMessagingException;
 public class SolaceReplyTimeoutException extends SolaceMessagingException {
 
     /**
+     * Create a timeout exception.
+     *
      * @param message which correlation id timed out, and after how long
      */
     public SolaceReplyTimeoutException(String message) {

@@ -27,9 +27,12 @@ import org.springframework.transaction.support.TransactionSynchronizationUtils;
 @Slf4j
 public class SolaceTransactionManager extends AbstractPlatformTransactionManager implements ResourceTransactionManager {
 
+    /** Supplies transacted sessions, and keys the resources bound to each transaction. */
     private final SolaceSessionFactory sessionFactory;
 
     /**
+     * Create a transaction manager.
+     *
      * @param sessionFactory supplies transacted sessions, and is the key transactional resources are
      *                       bound under &mdash; templates and containers sharing transactions must
      *                       share this instance
@@ -40,48 +43,50 @@ public class SolaceTransactionManager extends AbstractPlatformTransactionManager
         setTransactionSynchronization(SYNCHRONIZATION_ON_ACTUAL_TRANSACTION);
     }
 
-    @Override
     /**
-     * @return the session factory, so that {@code TransactionSynchronizationManager} keys resources
-     *         the same way {@code SolaceTemplate} looks them up
+     * The resource key this manager binds transactions under.
+     *
+     * @return the session factory, so that {@code TransactionSynchronizationManager} keys resources the
+     *         same way {@code SolaceTemplate} looks them up
      */
+    @Override
     public Object getResourceFactory() {
         return this.sessionFactory;
     }
 
-    @Override
     /**
      * {@inheritDoc}
      *
      * <p>Picks up a holder already bound to the thread, which is how a listener container's own
      * transacted session becomes this transaction's resource.</p>
      */
+    @Override
     protected Object doGetTransaction() {
         SolaceTransactionObject txObject = new SolaceTransactionObject();
         txObject.setResourceHolder(SolaceTransactionUtils.getResourceHolder(this.sessionFactory));
         return txObject;
     }
 
-    @Override
     /**
      * {@inheritDoc}
      *
      * <p>A holder counts as an existing transaction only once it has been marked synchronized, so a
      * container-bound holder still causes a fresh transaction to begin.</p>
      */
+    @Override
     protected boolean isExistingTransaction(Object transaction) {
         SolaceTransactionObject txObject = (SolaceTransactionObject) transaction;
         return txObject.getResourceHolder() != null
                 && txObject.getResourceHolder().isSynchronizedWithTransaction();
     }
 
-    @Override
     /**
      * {@inheritDoc}
      *
      * <p>Creates and binds a transacted session when none is bound. Solace has no explicit "begin":
      * a transacted session is always in a transaction, so this only establishes the resource.</p>
      */
+    @Override
     protected void doBegin(Object transaction, TransactionDefinition definition) {
         SolaceTransactionObject txObject = (SolaceTransactionObject) transaction;
         try {
@@ -109,8 +114,8 @@ public class SolaceTransactionManager extends AbstractPlatformTransactionManager
         }
     }
 
-    @Override
     /** {@inheritDoc} */
+    @Override
     protected void doCommit(DefaultTransactionStatus status) {
         SolaceTransactionObject txObject = (SolaceTransactionObject) status.getTransaction();
         if (log.isTraceEnabled()) {
@@ -120,28 +125,28 @@ public class SolaceTransactionManager extends AbstractPlatformTransactionManager
         txObject.getResourceHolder().commit();
     }
 
-    @Override
     /** {@inheritDoc} */
+    @Override
     protected void doRollback(DefaultTransactionStatus status) {
         SolaceTransactionObject txObject = (SolaceTransactionObject) status.getTransaction();
         log.debug("Rolling back Solace transaction");
         txObject.getResourceHolder().rollback();
     }
 
-    @Override
     /** {@inheritDoc} */
+    @Override
     protected void doSetRollbackOnly(DefaultTransactionStatus status) {
         SolaceTransactionObject txObject = (SolaceTransactionObject) status.getTransaction();
         txObject.getResourceHolder().setRollbackOnly();
     }
 
-    @Override
     /**
      * {@inheritDoc}
      *
      * <p>Unbinds and closes only a session this manager created; a container's session is left open
      * for the next message.</p>
      */
+    @Override
     protected void doCleanupAfterCompletion(Object transaction) {
         SolaceTransactionObject txObject = (SolaceTransactionObject) transaction;
         SolaceResourceHolder holder = txObject.getResourceHolder();

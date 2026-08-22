@@ -74,41 +74,41 @@ public class SolaceTemplate<T> implements SolaceOperations<T> {
         this.messageConverter = messageConverter;
     }
 
-    @Override
     /**
      * {@inheritDoc}
      *
-     * <p>Publishes to {@link #getDefaultDestination()}.</p>
+     * <p>Publishes to the configured {@code defaultDestination}.</p>
      */
+    @Override
     public void send(T payload) {
         Assert.state(StringUtils.hasText(this.defaultDestination),
                 "No destination given and no 'defaultDestination' configured");
         send(this.defaultDestination, payload);
     }
 
-    @Override
     /** {@inheritDoc} */
+    @Override
     public void send(String destination, T payload) {
         send(destination, payload, null);
     }
 
-    @Override
     /** {@inheritDoc} */
+    @Override
     public void send(String destination, String correlationId, T payload) {
         Map<String, Object> headers = new HashMap<>();
         headers.put(SolaceHeaders.CORRELATION_ID, correlationId);
         send(destination, payload, headers);
     }
 
-    @Override
     /** {@inheritDoc} */
+    @Override
     public void send(String destination, T payload, Map<String, Object> headers) {
         XMLMessage message = createMessage(payload, headers);
         send(DefaultSolaceHeaderMapper.toDestination(destination), message);
     }
 
-    @Override
     /** {@inheritDoc} */
+    @Override
     public void send(Message<?> message) {
         Map<String, Object> headers = DefaultSolaceHeaderMapper.sanitize(message.getHeaders());
         Object target = headers.remove(SolaceHeaders.TARGET_DESTINATION);
@@ -119,7 +119,6 @@ public class SolaceTemplate<T> implements SolaceOperations<T> {
         send(DefaultSolaceHeaderMapper.toDestination(destination), solaceMessage);
     }
 
-    @Override
     /**
      * {@inheritDoc}
      *
@@ -127,6 +126,7 @@ public class SolaceTemplate<T> implements SolaceOperations<T> {
      * this returns once JCSMP has accepted the message, and a broker-side failure is reported to
      * the producer's event handler rather than thrown from here.</p>
      */
+    @Override
     public void send(Destination destination, XMLMessage message) {
         try {
             producer().send(message, destination);
@@ -140,13 +140,13 @@ public class SolaceTemplate<T> implements SolaceOperations<T> {
         }
     }
 
-    @Override
     /**
      * {@inheritDoc}
      *
      * <p>When a transaction is already bound to this thread the callback simply runs inside it;
      * otherwise a transacted session is created, bound, committed and closed around the callback.</p>
      */
+    @Override
     public <R> R executeInTransaction(TransactionCallback<T, R> callback) {
         SolaceResourceHolder existing = SolaceTransactionUtils.getActiveResourceHolder(this.sessionFactory);
         if (existing != null) {
@@ -170,7 +170,16 @@ public class SolaceTemplate<T> implements SolaceOperations<T> {
         }
     }
 
-    /** Build a Solace message for the given payload, applying the template defaults and headers. */
+    /**
+     * Build a Solace message for the given payload, applying the template defaults.
+     *
+     * <p>Public so that a caller can pre-build a message once and publish it repeatedly through
+     * {@link #send(Destination, XMLMessage)}, avoiding repeated serialisation.</p>
+     *
+     * @param payload the payload to serialise; may be {@code null}, producing an empty body
+     * @param headers headers to apply; may be {@code null} or empty
+     * @return a message with delivery mode, DMQ eligibility, expiry and priority applied
+     */
     public XMLMessage createMessage(Object payload, Map<String, Object> headers) {
         XMLMessage message = this.messageConverter.toMessage(payload);
         message.setDeliveryMode(this.deliveryMode);
@@ -188,15 +197,25 @@ public class SolaceTemplate<T> implements SolaceOperations<T> {
     }
 
     /**
-     * The producer to publish through: the transacted producer when a Solace transaction is active
-     * on this thread, otherwise the shared session producer.
+     * The producer to publish through.
+     *
+     * <p>The transacted producer when a Solace transaction is active on this thread, otherwise the
+     * shared session producer. This single decision is what makes every {@code send} transactional
+     * inside {@code @Transactional} code without a separate API.</p>
+     *
+     * @return the producer appropriate to the current thread's transaction context
      */
     protected XMLMessageProducer producer() {
         SolaceResourceHolder holder = SolaceTransactionUtils.getActiveResourceHolder(this.sessionFactory);
         return holder != null ? holder.getProducer() : this.sessionFactory.getSharedProducer();
     }
 
-    /** Whether a Solace transaction is currently bound to the calling thread. */
+    /**
+     * Whether a Solace transaction is currently bound to the calling thread.
+     *
+     * @return {@code true} if the next {@code send} would join a transaction rather than publish
+     *         immediately
+     */
     public boolean isTransactionActive() {
         return SolaceTransactionUtils.getActiveResourceHolder(this.sessionFactory) != null;
     }

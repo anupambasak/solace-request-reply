@@ -43,6 +43,11 @@ import java.util.concurrent.atomic.AtomicInteger;
 public class SolaceListenerAnnotationBeanPostProcessor
         implements BeanPostProcessor, BeanFactoryAware, SmartInitializingSingleton, Ordered {
 
+    /** Create the annotation post-processor. Registered as an infrastructure bean by {@code @EnableSolace}. */
+    public SolaceListenerAnnotationBeanPostProcessor() {
+    }
+
+
     private final List<ListenerMethod> listenerMethods = new ArrayList<>();
 
     private final AtomicInteger counter = new AtomicInteger();
@@ -51,28 +56,27 @@ public class SolaceListenerAnnotationBeanPostProcessor
 
     private DefaultMessageHandlerMethodFactory handlerMethodFactory;
 
-    @Override
     /**
      * {@inheritDoc}
      *
      * @return {@code LOWEST_PRECEDENCE}, so beans are fully initialised before being scanned
      */
+    @Override
     public int getOrder() {
         return LOWEST_PRECEDENCE;
     }
 
-    @Override
     /**
      * {@inheritDoc}
      *
      * <p>The bean factory is used to resolve property placeholders in annotation attributes and to
      * look up container factories and the endpoint registry.</p>
      */
+    @Override
     public void setBeanFactory(BeanFactory beanFactory) throws BeansException {
         this.beanFactory = beanFactory;
     }
 
-    @Override
     /**
      * Collect {@code @SolaceListener} methods on this bean.
      *
@@ -84,6 +88,7 @@ public class SolaceListenerAnnotationBeanPostProcessor
      * @param beanName its name
      * @return the bean, unchanged
      */
+    @Override
     public Object postProcessAfterInitialization(Object bean, String beanName) throws BeansException {
         Class<?> targetClass = AopUtils.getTargetClass(bean);
         MethodIntrospector.selectMethods(targetClass,
@@ -94,7 +99,6 @@ public class SolaceListenerAnnotationBeanPostProcessor
         return bean;
     }
 
-    @Override
     /**
      * Turn every collected method into a registered listener container.
      *
@@ -105,6 +109,7 @@ public class SolaceListenerAnnotationBeanPostProcessor
      * @throws IllegalStateException if a listener declares neither topics nor a queue, or no container
      *                               factory can be resolved
      */
+    @Override
     public void afterSingletonsInstantiated() {
         this.handlerMethodFactory = new DefaultMessageHandlerMethodFactory();
         this.handlerMethodFactory.setBeanFactory(this.beanFactory);

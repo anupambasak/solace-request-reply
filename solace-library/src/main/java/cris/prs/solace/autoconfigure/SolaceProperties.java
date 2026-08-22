@@ -31,9 +31,17 @@ public class SolaceProperties {
 
     private final RequestReply requestReply = new RequestReply();
 
+    /** Create the properties with every value at its documented default. */
+    public SolaceProperties() {
+    }
+
     /** Defaults applied to the auto-configured {@code SolaceTemplate}. */
     @Data
     public static class Template {
+
+        /** Create template defaults with every value at its documented default. */
+        public Template() {
+        }
 
         /** Destination used by {@code send(payload)} when none is given. */
         private String defaultDestination;
@@ -54,11 +62,19 @@ public class SolaceProperties {
     @Data
     @EqualsAndHashCode(callSuper = true)
     public static class Listener extends ContainerProperties {
+
+        /** Create listener defaults with every value at its documented default. */
+        public Listener() {
+        }
     }
 
     /** Configuration of the auto-configured {@code ReplyingSolaceTemplate}. */
     @Data
     public static class RequestReply {
+
+        /** Create request-reply defaults with every value at its documented default. */
+        public RequestReply() {
+        }
 
         /** Create the ReplyingSolaceTemplate and its reply container. */
         private boolean enabled = true;

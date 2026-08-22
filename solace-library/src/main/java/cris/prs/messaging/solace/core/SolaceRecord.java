@@ -2,7 +2,6 @@ package cris.prs.messaging.solace.core;
 
 import com.solacesystems.jcsmp.BytesXMLMessage;
 import lombok.Getter;
-import lombok.RequiredArgsConstructor;
 import lombok.ToString;
 
 import java.util.Map;
@@ -26,7 +25,6 @@ import java.util.Map;
  */
 @Getter
 @ToString(exclude = "rawMessage")
-@RequiredArgsConstructor
 public class SolaceRecord<T> {
 
     /** The message body converted to the listener's payload type. */
@@ -49,6 +47,27 @@ public class SolaceRecord<T> {
 
     /** The underlying Solace message, for anything the mapped view does not expose. */
     private final BytesXMLMessage rawMessage;
+
+    /**
+     * Create a record.
+     *
+     * @param payload       the message body converted to the listener's payload type
+     * @param destination   name of the destination the message was received on, or {@code null}
+     * @param correlationId the message's native correlation id, or {@code null}
+     * @param replyTo       destination the sender expects a reply on, or {@code null} for a
+     *                      one-way message
+     * @param headers       native fields and SDT user properties
+     * @param rawMessage    the underlying Solace message
+     */
+    public SolaceRecord(T payload, String destination, String correlationId, String replyTo,
+            Map<String, Object> headers, BytesXMLMessage rawMessage) {
+        this.payload = payload;
+        this.destination = destination;
+        this.correlationId = correlationId;
+        this.replyTo = replyTo;
+        this.headers = headers;
+        this.rawMessage = rawMessage;
+    }
 
     /**
      * Whether the broker has delivered this message before.

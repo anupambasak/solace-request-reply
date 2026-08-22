@@ -8,8 +8,10 @@ package cris.prs.messaging.solace.support;
 public interface InstanceIdProvider {
 
     /**
-     * @return the identifier of this instance; must be stable for the life of the application and
-     *         safe to embed in a single Solace topic level
+     * Identify this application instance.
+     *
+     * @return the identifier; must be stable for the life of the application and safe to embed in a
+     *         single Solace topic level
      */
     String getInstanceId();
 }

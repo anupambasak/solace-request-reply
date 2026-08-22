@@ -30,6 +30,8 @@ public class DefaultSolaceSessionFactory implements SolaceSessionFactory, Dispos
     private final Map<JCSMPSession, XMLMessageProducer> producers = new ConcurrentHashMap<>();
 
     /**
+     * Create a session factory.
+     *
      * @param springJCSMPFactory the factory contributed by {@code solace-java-spring-boot-starter},
      *                           carrying the connection settings bound from {@code solace.java.*}
      */
@@ -37,8 +39,8 @@ public class DefaultSolaceSessionFactory implements SolaceSessionFactory, Dispos
         this.springJCSMPFactory = springJCSMPFactory;
     }
 
-    @Override
     /** {@inheritDoc} */
+    @Override
     public JCSMPSession getSharedSession() {
         JCSMPSession session = this.sharedSession;
         if (session == null) {
@@ -53,8 +55,8 @@ public class DefaultSolaceSessionFactory implements SolaceSessionFactory, Dispos
         return session;
     }
 
-    @Override
     /** {@inheritDoc} */
+    @Override
     public JCSMPSession createSession() {
         try {
             JCSMPSession session = this.springJCSMPFactory.createSession();
@@ -68,18 +70,18 @@ public class DefaultSolaceSessionFactory implements SolaceSessionFactory, Dispos
         }
     }
 
-    @Override
     /** {@inheritDoc} */
+    @Override
     public XMLMessageProducer getSharedProducer() {
         return getProducer(getSharedSession());
     }
 
-    @Override
     /**
      * {@inheritDoc}
      *
      * <p>One producer is cached per session, because the default-publisher rule is per connection.</p>
      */
+    @Override
     public XMLMessageProducer getProducer(JCSMPSession session) {
         return this.producers.computeIfAbsent(session, key -> {
             try {
@@ -91,14 +93,14 @@ public class DefaultSolaceSessionFactory implements SolaceSessionFactory, Dispos
         });
     }
 
-    @Override
     /** {@inheritDoc} */
+    @Override
     public TransactedSession createTransactedSession() {
         return createTransactedSession(getSharedSession());
     }
 
-    @Override
     /** {@inheritDoc} */
+    @Override
     public TransactedSession createTransactedSession(JCSMPSession session) {
         try {
             // JCSMP refuses to create additional publisher flows -- which is what a transacted
@@ -116,12 +118,12 @@ public class DefaultSolaceSessionFactory implements SolaceSessionFactory, Dispos
         }
     }
 
-    @Override
     /**
      * {@inheritDoc}
      *
      * <p>The shared session is never closed here; it is released by {@link #destroy()}.</p>
      */
+    @Override
     public void closeSession(JCSMPSession session) {
         if (session == null || session == this.sharedSession) {
             return;
@@ -130,12 +132,12 @@ public class DefaultSolaceSessionFactory implements SolaceSessionFactory, Dispos
         session.closeSession();
     }
 
-    @Override
     /**
      * Close every producer and every session this factory created.
      *
      * <p>Called by Spring when the application context shuts down.</p>
      */
+    @Override
     public void destroy() {
         this.producers.values().forEach(producer -> {
             try {
@@ -161,22 +163,31 @@ public class DefaultSolaceSessionFactory implements SolaceSessionFactory, Dispos
     /** Publish callback that surfaces asynchronous publish failures in the log. */
     public static class LoggingPublishEventHandler implements JCSMPStreamingPublishCorrelatingEventHandler {
 
-        @Override
+        /** Create a publish event handler that logs failures. */
+        public LoggingPublishEventHandler() {
+        }
+
+
         /**
-         * @param key the correlation key of a successfully published message, or {@code null}
+         * Record that the broker accepted a published message.
+         *
+         * @param key the correlation key of the message, or {@code null} when none was set
          */
+        @Override
         public void responseReceivedEx(Object key) {
             if (log.isTraceEnabled()) {
                 log.trace("Publish acknowledged for correlation key {}", key);
             }
         }
 
-        @Override
         /**
+         * Report a publish the broker rejected.
+         *
          * @param key       the correlation key of the failed message, or {@code null}
          * @param cause     why the broker rejected it
          * @param timestamp when the failure was reported
          */
+        @Override
         public void handleErrorEx(Object key, JCSMPException cause, long timestamp) {
             log.error("Publish failed for correlation key {} at {}", key, timestamp, cause);
         }

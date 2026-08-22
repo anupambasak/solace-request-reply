@@ -26,6 +26,8 @@ public class HostnameInstanceIdProvider implements InstanceIdProvider {
     }
 
     /**
+     * Resolve the instance id, honouring an explicit override.
+     *
      * @param override an explicit instance id; when it has no text the id is resolved from the
      *                 environment instead
      */
@@ -34,12 +36,12 @@ public class HostnameInstanceIdProvider implements InstanceIdProvider {
         log.info("Solace instance id resolved to '{}'", this.instanceId);
     }
 
-    @Override
     /**
      * {@inheritDoc}
      *
      * <p>Resolved once at construction, so it cannot change under a running listener.</p>
      */
+    @Override
     public String getInstanceId() {
         return this.instanceId;
     }
@@ -65,7 +67,15 @@ public class HostnameInstanceIdProvider implements InstanceIdProvider {
         }
     }
 
-    /** Make a value safe to embed in a single Solace topic level. */
+    /**
+     * Make a value safe to embed in a single Solace topic level.
+     *
+     * <p>Replaces {@code /}, {@code *}, {@code >} and whitespace with {@code -}. Without this a host
+     * name containing a slash would split into two topic levels and route replies elsewhere.</p>
+     *
+     * @param value the raw value
+     * @return the value with topic-significant characters replaced
+     */
     public static String sanitize(String value) {
         return value.replaceAll("[/*>\\s]", "-");
     }

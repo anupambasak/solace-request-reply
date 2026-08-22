@@ -16,6 +16,11 @@ import java.util.List;
 @Data
 public class SolaceListenerEndpoint {
 
+    /** Create an empty endpoint description; every unset field falls back to a container default. */
+    public SolaceListenerEndpoint() {
+    }
+
+
     /** Container id; defaults to a generated value when not set on {@code @SolaceListener}. */
     private String id;
 
@@ -123,8 +128,14 @@ public class SolaceListenerEndpoint {
     }
 
     /**
-     * Resolve the physical endpoint name from the queue, the consumer group and, when requested,
-     * the instance id.
+     * Resolve the physical endpoint name.
+     *
+     * <p>{@code <queue>[.<group>][.<instanceId>]}, falling back to the container id when no queue is
+     * set. Whether the instance id is appended is the difference between fan-out and competing
+     * consumers.</p>
+     *
+     * @param instanceId this instance's id; ignored unless {@code appendInstanceIdToQueue} is set
+     * @return the endpoint name to bind
      */
     public String resolveQueueName(String instanceId) {
         StringBuilder name = new StringBuilder(StringUtils.hasText(this.queue) ? this.queue : this.id);
@@ -137,7 +148,13 @@ public class SolaceListenerEndpoint {
         return name.toString();
     }
 
-    /** Resolve the topic subscriptions, appending the instance id level when requested. */
+    /**
+     * Resolve the topic subscriptions.
+     *
+     * @param instanceId this instance's id; appended as an extra topic level only when
+     *                   {@code appendInstanceIdToTopics} is set
+     * @return the subscriptions to add to the endpoint
+     */
     public List<String> resolveTopics(String instanceId) {
         if (!Boolean.TRUE.equals(this.appendInstanceIdToTopics) || !StringUtils.hasText(instanceId)) {
             return this.topics;

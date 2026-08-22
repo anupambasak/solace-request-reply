@@ -20,6 +20,11 @@ import java.util.Set;
 @Slf4j
 public class DefaultSolaceHeaderMapper implements SolaceHeaderMapper {
 
+    /** Create a header mapper. */
+    public DefaultSolaceHeaderMapper() {
+    }
+
+
     /** Prefix that turns a destination name into a queue rather than a topic. */
     public static final String QUEUE_PREFIX = "queue:";
 
@@ -32,8 +37,8 @@ public class DefaultSolaceHeaderMapper implements SolaceHeaderMapper {
             "id",
             "timestamp");
 
-    @Override
     /** {@inheritDoc} */
+    @Override
     public void fromHeaders(Map<String, Object> headers, XMLMessage message) {
         if (headers == null || headers.isEmpty()) {
             return;
@@ -67,13 +72,13 @@ public class DefaultSolaceHeaderMapper implements SolaceHeaderMapper {
         }
     }
 
-    @Override
     /**
      * {@inheritDoc}
      *
      * <p>Includes the native correlation id, reply-to, destination, application message id, sender
      * timestamp and redelivered flag, followed by every SDT user property.</p>
      */
+    @Override
     public Map<String, Object> toHeaders(BytesXMLMessage message) {
         Map<String, Object> headers = new LinkedHashMap<>();
         if (message.getCorrelationId() != null) {
@@ -106,8 +111,11 @@ public class DefaultSolaceHeaderMapper implements SolaceHeaderMapper {
     }
 
     /**
-     * Convert a destination name into a Solace {@link Destination}; names prefixed with
-     * {@value #QUEUE_PREFIX} resolve to a queue, everything else to a topic.
+     * Convert a destination name into a Solace {@link Destination}.
+     *
+     * @param value a {@code Destination}, or a name. A name prefixed {@value #QUEUE_PREFIX} resolves
+     *              to a queue; anything else to a topic
+     * @return the resolved destination
      */
     public static Destination toDestination(Object value) {
         if (value instanceof Destination destination) {
@@ -149,7 +157,12 @@ public class DefaultSolaceHeaderMapper implements SolaceHeaderMapper {
         return value instanceof Number number ? number.intValue() : Integer.parseInt(value.toString());
     }
 
-    /** Copy the given headers into a mutable map, dropping framework-internal entries. */
+    /**
+     * Copy a header map without the framework-internal entries.
+     *
+     * @param headers the headers to copy
+     * @return a mutable copy with {@code solace_rawMessage}, {@code id} and {@code timestamp} removed
+     */
     public static Map<String, Object> sanitize(Map<String, Object> headers) {
         Map<String, Object> copy = new HashMap<>(headers);
         copy.remove(SolaceHeaders.RAW_MESSAGE);

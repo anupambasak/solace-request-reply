@@ -40,17 +40,25 @@ public class SolaceResourceHolder extends ResourceHolderSupport {
     }
 
     /**
+     * Create a holder, stating who owns the transacted session.
+     *
      * @param transactedSession the session backing this transaction
      * @param externallyManaged {@code true} when a listener container owns the session, so the
-     *                          transaction manager commits it but never closes it &mdash; the
-     *                          container reuses it for the next message
+     *                          transaction manager commits it but never closes it &mdash; the container
+     *                          reuses it for the next message
      */
     public SolaceResourceHolder(TransactedSession transactedSession, boolean externallyManaged) {
         this.transactedSession = transactedSession;
         this.externallyManaged = externallyManaged;
     }
 
-    /** The producer bound to this transaction, created lazily on first publish. */
+    /**
+     * The producer bound to this transaction, created on first publish.
+     *
+     * <p>Anything published through it is released only at commit.</p>
+     *
+     * @return the transacted producer
+     */
     public XMLMessageProducer getProducer() {
         if (this.producer == null) {
             try {

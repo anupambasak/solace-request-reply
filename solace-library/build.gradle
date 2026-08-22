@@ -67,3 +67,11 @@ dependencies {
 test {
     useJUnitPlatform()
 }
+
+javadoc {
+    options.encoding = 'UTF-8'
+    // Lombok-generated members are invisible to javadoc, so never {@link} to one: the reference
+    // cannot be resolved and doclint reports it as an error.
+    options.addStringOption('Xdoclint:all', '-quiet')
+    options.addStringOption('Xmaxwarns', '1000')
+}

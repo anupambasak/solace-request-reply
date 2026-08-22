@@ -14,4 +14,9 @@ import org.springframework.context.annotation.Configuration;
 @ConditionalOnMissingBean(SolaceListenerAnnotationBeanPostProcessor.class)
 @EnableSolace
 public class SolaceAnnotationDrivenConfiguration {
+
+    /** Create the configuration. Instantiated by Spring Boot, not by application code. */
+    public SolaceAnnotationDrivenConfiguration() {
+    }
+
 }

@@ -6,7 +6,9 @@ import org.springframework.context.SmartLifecycle;
 public interface SolaceMessageListenerContainer extends SmartLifecycle {
 
     /**
-     * @return this container's id, as used in logs and to look it up in the
+     * This container's identity.
+     *
+     * @return the container id, as used in logs and to look it up in the
      *         {@code SolaceListenerEndpointRegistry}
      */
     String getListenerId();

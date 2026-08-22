@@ -25,6 +25,8 @@ public class RequestReplyFuture<R> extends CompletableFuture<R> {
     private volatile long receiveTime;
 
     /**
+     * Create a future for one outstanding request.
+     *
      * @param correlationId      correlation id sent with the request, used to match the reply
      * @param sendTime           millisecond epoch at which the request was published
      * @param requestDestination topic the request was published to
@@ -42,7 +44,14 @@ public class RequestReplyFuture<R> extends CompletableFuture<R> {
         this.receiveTime = receiveTime;
     }
 
-    /** Round-trip latency in milliseconds, valid once the future has completed with a reply. */
+    /**
+     * Round-trip latency in milliseconds.
+     *
+     * <p>Meaningful only once the future has completed with a reply; before that the receive time is
+     * zero and the result is negative.</p>
+     *
+     * @return the receive time minus the send time
+     */
     public long getLatency() {
         return this.receiveTime - this.sendTime;
     }

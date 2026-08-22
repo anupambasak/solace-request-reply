@@ -115,6 +115,8 @@ public interface SolaceOperations<T> {
     interface TransactionCallback<T, R> {
 
         /**
+         * Perform the transactional work.
+         *
          * @param operations the same operations instance, whose sends now join the transaction
          * @return the result to hand back to the caller; may be {@code null}
          */

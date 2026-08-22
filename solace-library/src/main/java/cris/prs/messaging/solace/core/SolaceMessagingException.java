@@ -12,6 +12,8 @@ import org.springframework.core.NestedRuntimeException;
 public class SolaceMessagingException extends NestedRuntimeException {
 
     /**
+     * Create an exception with no underlying cause.
+     *
      * @param message description of what the library was attempting
      */
     public SolaceMessagingException(String message) {
@@ -19,6 +21,8 @@ public class SolaceMessagingException extends NestedRuntimeException {
     }
 
     /**
+     * Wrap an underlying messaging failure.
+     *
      * @param message description of what the library was attempting
      * @param cause   the underlying failure, typically a {@code JCSMPException}
      */

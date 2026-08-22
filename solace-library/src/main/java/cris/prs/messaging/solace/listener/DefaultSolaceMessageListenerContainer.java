@@ -67,7 +67,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * listener works; because the queue blocks when full, the broker's flow control is preserved rather
  * than being replaced by unbounded buffering. Listeners then run on Spring managed, non-daemon
  * threads, which also keeps a consumer-only application alive without
- * {@link ContainerProperties#isKeepAlive()}.</p>
+ * {@code solace.listener.keep-alive}.</p>
  */
 @Slf4j
 public class DefaultSolaceMessageListenerContainer implements SolaceMessageListenerContainer {
@@ -116,11 +116,12 @@ public class DefaultSolaceMessageListenerContainer implements SolaceMessageListe
     private boolean keepAliveHeld;
 
     /**
+     * Create a container.
+     *
      * @param sessionFactory      supplies the connection, and keys transactions
-     * @param endpoint            what to bind to, with pattern defaults already applied
+     * @param endpoint            what to bind to, with its pattern defaults already applied
      * @param containerProperties defaults for anything the endpoint leaves unset
      * @param instanceId          this instance's id, used in per-instance endpoint and topic names
-     * @throws IllegalArgumentException if any argument except {@code instanceId} is {@code null}
      */
     public DefaultSolaceMessageListenerContainer(SolaceSessionFactory sessionFactory,
             SolaceListenerEndpoint endpoint, ContainerProperties containerProperties, String instanceId) {
@@ -134,14 +135,14 @@ public class DefaultSolaceMessageListenerContainer implements SolaceMessageListe
         this.messageListener = endpoint.getMessageListener();
     }
 
-    @Override
     /** {@inheritDoc} */
+    @Override
     public String getListenerId() {
         return this.endpoint.getId();
     }
 
-    @Override
     /** {@inheritDoc} */
+    @Override
     public void setupMessageListener(SolaceMessageListener listener) {
         this.messageListener = listener;
     }
@@ -170,35 +171,34 @@ public class DefaultSolaceMessageListenerContainer implements SolaceMessageListe
                 : this.containerProperties.getDispatch();
     }
 
-    @Override
     /**
      * {@inheritDoc}
      *
      * @return the endpoint's setting when it has one, otherwise the container default
      */
+    @Override
     public boolean isAutoStartup() {
         return this.endpoint.getAutoStartup() != null
                 ? this.endpoint.getAutoStartup()
                 : this.containerProperties.isAutoStartup();
     }
 
-    @Override
     /**
      * {@inheritDoc}
      *
      * @return {@code containerProperties.phase}, by default {@code Integer.MAX_VALUE - 100}
      */
+    @Override
     public int getPhase() {
         return this.containerProperties.getPhase();
     }
 
-    @Override
     /** {@inheritDoc} */
+    @Override
     public boolean isRunning() {
         return this.running.get();
     }
 
-    @Override
     /**
      * Validate the configuration, bind the endpoint and start consuming.
      *
@@ -212,6 +212,7 @@ public class DefaultSolaceMessageListenerContainer implements SolaceMessageListe
      *                                  limit, or {@code EXECUTOR} dispatch combined with transactions
      * @throws SolaceMessagingException if the broker rejects provisioning, subscribing or binding
      */
+    @Override
     public void start() {
         if (!this.running.compareAndSet(false, true)) {
             return;
@@ -457,12 +458,12 @@ public class DefaultSolaceMessageListenerContainer implements SolaceMessageListe
         }
     }
 
-    @Override
     /**
      * Stop consuming and release everything this container holds.
      *
      * <p>Idempotent, and safe to call on a container that never started.</p>
      */
+    @Override
     public void stop() {
         if (!this.running.compareAndSet(true, false)) {
             return;
@@ -522,12 +523,12 @@ public class DefaultSolaceMessageListenerContainer implements SolaceMessageListe
         }
     }
 
-    @Override
     /**
      * {@inheritDoc}
      *
      * @param callback run once the container has stopped
      */
+    @Override
     public void stop(Runnable callback) {
         stop();
         callback.run();

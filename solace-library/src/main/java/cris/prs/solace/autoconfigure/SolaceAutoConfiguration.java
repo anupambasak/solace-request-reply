@@ -56,8 +56,11 @@ import java.util.List;
 @Import(SolaceAnnotationDrivenConfiguration.class)
 public class SolaceAutoConfiguration {
 
-    @Bean
-    @ConditionalOnMissingBean
+    /** Create the auto-configuration. Instantiated by Spring Boot, not by application code. */
+    public SolaceAutoConfiguration() {
+    }
+
+
     /**
      * Identifies this application instance, seeding every per-instance destination name.
      *
@@ -65,12 +68,12 @@ public class SolaceAutoConfiguration {
      * @return a provider resolving the id from the override, {@code $HOSTNAME}, {@code $POD_NAME} or
      *         the local host name
      */
+    @Bean
+    @ConditionalOnMissingBean
     public InstanceIdProvider solaceInstanceIdProvider(SolaceProperties properties) {
         return new HostnameInstanceIdProvider(properties.getInstanceId());
     }
 
-    @Bean
-    @ConditionalOnMissingBean
     /**
      * JSON payload conversion.
      *
@@ -78,23 +81,25 @@ public class SolaceAutoConfiguration {
      *                     strategies match the rest of the application; a default mapper otherwise
      * @return the converter used by every template and listener
      */
+    @Bean
+    @ConditionalOnMissingBean
     public SolaceMessageConverter solaceMessageConverter(ObjectProvider<ObjectMapper> objectMapper) {
         ObjectMapper mapper = objectMapper.getIfAvailable(ObjectMapper::new);
         return new JacksonSolaceMessageConverter(mapper);
     }
 
-    @Bean
-    @ConditionalOnMissingBean
     /**
+     * Header mapping between Spring headers and Solace message fields.
+     *
      * @return the mapper translating between Spring headers, native Solace fields and SDT user
      *         properties
      */
+    @Bean
+    @ConditionalOnMissingBean
     public SolaceHeaderMapper solaceHeaderMapper() {
         return new DefaultSolaceHeaderMapper();
     }
 
-    @Bean
-    @ConditionalOnMissingBean
     /**
      * The connection factory every other bean here builds on.
      *
@@ -102,18 +107,20 @@ public class SolaceAutoConfiguration {
      *                           {@code solace.java.*}
      * @return the session factory, which is also the key Solace transactions bind under
      */
+    @Bean
+    @ConditionalOnMissingBean
     public SolaceSessionFactory solaceSessionFactory(SpringJCSMPFactory springJCSMPFactory) {
         return new DefaultSolaceSessionFactory(springJCSMPFactory);
     }
 
-    @Bean
-    @ConditionalOnMissingBean
     /**
      * Enables {@code @Transactional} and {@code TransactionTemplate} over Solace local transactions.
      *
      * @param sessionFactory supplies transacted sessions
      * @return the transaction manager
      */
+    @Bean
+    @ConditionalOnMissingBean
     public SolaceTransactionManager solaceTransactionManager(SolaceSessionFactory sessionFactory) {
         return new SolaceTransactionManager(sessionFactory);
     }
@@ -126,9 +133,6 @@ public class SolaceAutoConfiguration {
      * enabled. Application code that asks for a plain template wants this one; asking for the
      * request-reply behaviour means injecting {@code ReplyingSolaceTemplate} by its own type.</p>
      */
-    @Bean
-    @Primary
-    @ConditionalOnMissingBean(name = "solaceTemplate")
     /**
      * The general purpose template, configured from {@code solace.template.*}.
      *
@@ -144,6 +148,9 @@ public class SolaceAutoConfiguration {
      *                         default destination
      * @return the primary template
      */
+    @Bean
+    @Primary
+    @ConditionalOnMissingBean(name = "solaceTemplate")
     public SolaceTemplate<Object> solaceTemplate(SolaceSessionFactory sessionFactory,
             SolaceMessageConverter messageConverter, SolaceHeaderMapper headerMapper,
             SolaceProperties properties) {
@@ -167,8 +174,6 @@ public class SolaceAutoConfiguration {
      * without {@code solace.listener.keep-alive}. Replacing this bean with a virtual thread
      * executor is fine, but virtual threads are daemon threads, so keep-alive must stay on.</p>
      */
-    @Bean(name = "solaceListenerTaskExecutor")
-    @ConditionalOnMissingBean(name = "solaceListenerTaskExecutor")
     /**
      * Executor backing {@code dispatch: EXECUTOR} listener containers.
      *
@@ -181,14 +186,14 @@ public class SolaceAutoConfiguration {
      *
      * @return the executor listener invokers run on
      */
+    @Bean(name = "solaceListenerTaskExecutor")
+    @ConditionalOnMissingBean(name = "solaceListenerTaskExecutor")
     public AsyncTaskExecutor solaceListenerTaskExecutor() {
         SimpleAsyncTaskExecutor executor = new SimpleAsyncTaskExecutor("solace-listener-");
         executor.setDaemon(false);
         return executor;
     }
 
-    @Bean(name = SolaceListenerConfigUtils.DEFAULT_SOLACE_LISTENER_CONTAINER_FACTORY_BEAN_NAME)
-    @ConditionalOnMissingBean(name = SolaceListenerConfigUtils.DEFAULT_SOLACE_LISTENER_CONTAINER_FACTORY_BEAN_NAME)
     /**
      * The default container factory, used by every {@code @SolaceListener} that does not name another.
      *
@@ -203,6 +208,8 @@ public class SolaceAutoConfiguration {
      * @param listenerTaskExecutor runs invokers under {@code EXECUTOR} dispatch
      * @return the container factory
      */
+    @Bean(name = SolaceListenerConfigUtils.DEFAULT_SOLACE_LISTENER_CONTAINER_FACTORY_BEAN_NAME)
+    @ConditionalOnMissingBean(name = SolaceListenerConfigUtils.DEFAULT_SOLACE_LISTENER_CONTAINER_FACTORY_BEAN_NAME)
     public DefaultSolaceListenerContainerFactory solaceListenerContainerFactory(
             SolaceSessionFactory sessionFactory, SolaceMessageConverter messageConverter,
             SolaceHeaderMapper headerMapper, InstanceIdProvider instanceIdProvider,
@@ -218,26 +225,22 @@ public class SolaceAutoConfiguration {
     }
 
     /**
-     * The per-instance reply container. Its endpoint carries the instance id, both in the topic
-     * subscription and, for queue based modes, in the endpoint name.
-     */
-    @Bean(name = "solaceReplyContainer")
-    @ConditionalOnMissingBean(name = "solaceReplyContainer")
-    @ConditionalOnProperty(prefix = "solace.request-reply", name = "enabled", havingValue = "true",
-            matchIfMissing = true)
-    /**
      * The per-instance reply container.
      *
-     * <p>Its endpoint carries the instance id in the topic subscription and, for queue-based modes, in
-     * the endpoint name. Built directly rather than through the container factory because its listener
-     * is supplied by {@code ReplyingSolaceTemplate}, which also starts and stops it &mdash; so no reply
-     * can arrive before the correlation map exists.</p>
+     * <p>Its endpoint carries the instance id in the topic subscription and, for queue-based modes,
+     * in the endpoint name. Built directly rather than through the container factory because its
+     * listener is supplied by {@code ReplyingSolaceTemplate}, which also starts and stops it
+     * &mdash; so no reply can arrive before the correlation map exists.</p>
      *
      * @param sessionFactory     supplies the connection
      * @param properties         supplies {@code solace.request-reply.*}
      * @param instanceIdProvider supplies this instance's id
      * @return the reply container, not auto-started
      */
+    @Bean(name = "solaceReplyContainer")
+    @ConditionalOnMissingBean(name = "solaceReplyContainer")
+    @ConditionalOnProperty(prefix = "solace.request-reply", name = "enabled", havingValue = "true",
+            matchIfMissing = true)
     public SolaceMessageListenerContainer solaceReplyContainer(SolaceSessionFactory sessionFactory,
             SolaceProperties properties, InstanceIdProvider instanceIdProvider) {
         SolaceProperties.RequestReply requestReply = properties.getRequestReply();
@@ -275,22 +278,22 @@ public class SolaceAutoConfiguration {
                 instanceId);
     }
 
-    @Bean
-    @ConditionalOnMissingBean
-    @ConditionalOnProperty(prefix = "solace.request-reply", name = "enabled", havingValue = "true",
-            matchIfMissing = true)
     /**
      * Request-reply support, publishing requests that ask for replies on this instance's own
      * destination.
      *
-     * @param sessionFactory      supplies the connection
-     * @param messageConverter    converts requests and replies
-     * @param headerMapper        applies headers
-     * @param properties          supplies the reply destination, timeout and delivery mode
-     * @param instanceIdProvider  supplies the id stamped on every request
+     * @param sessionFactory       supplies the connection
+     * @param messageConverter     converts requests and replies
+     * @param headerMapper         applies headers
+     * @param properties           supplies the reply destination, timeout and delivery mode
+     * @param instanceIdProvider   supplies the id stamped on every request
      * @param solaceReplyContainer the container consuming this instance's replies
      * @return the request-reply template
      */
+    @Bean
+    @ConditionalOnMissingBean
+    @ConditionalOnProperty(prefix = "solace.request-reply", name = "enabled", havingValue = "true",
+            matchIfMissing = true)
     public ReplyingSolaceTemplate replyingSolaceTemplate(SolaceSessionFactory sessionFactory,
             SolaceMessageConverter messageConverter, SolaceHeaderMapper headerMapper,
             SolaceProperties properties, InstanceIdProvider instanceIdProvider,

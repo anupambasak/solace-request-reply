@@ -35,7 +35,6 @@ public class JacksonSolaceMessageConverter implements SolaceMessageConverter {
         this.objectMapper = objectMapper;
     }
 
-    @Override
     /**
      * {@inheritDoc}
      *
@@ -43,6 +42,7 @@ public class JacksonSolaceMessageConverter implements SolaceMessageConverter {
      * {@code byte[]} and {@code String} payloads are written through untouched; everything else is
      * serialised as JSON.</p>
      */
+    @Override
     public XMLMessage toMessage(Object payload) {
         byte[] body;
         if (payload == null) {
@@ -68,13 +68,13 @@ public class JacksonSolaceMessageConverter implements SolaceMessageConverter {
         return message;
     }
 
-    @Override
     /**
      * {@inheritDoc}
      *
      * <p>A {@code null}, {@code Object} or {@code BytesXMLMessage} target type returns the raw
      * message unconverted; {@code byte[]} and {@code String} return the body as-is.</p>
      */
+    @Override
     public Object fromMessage(BytesXMLMessage message, Class<?> targetType) {
         byte[] body = extractBody(message);
         if (targetType == null || Object.class.equals(targetType) || BytesXMLMessage.class.isAssignableFrom(targetType)) {

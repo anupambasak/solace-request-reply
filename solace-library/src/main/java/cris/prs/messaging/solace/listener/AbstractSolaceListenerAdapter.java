@@ -22,8 +22,10 @@ import java.util.Map;
 @Slf4j
 public abstract class AbstractSolaceListenerAdapter implements SolaceMessageListener {
 
+    /** Converts the message body into the listener's payload type. */
     protected final SolaceMessageConverter messageConverter;
 
+    /** Maps native message fields and SDT user properties into headers. */
     protected final SolaceHeaderMapper headerMapper;
 
     /** Type the body is converted into before invoking the listener. */
@@ -39,6 +41,8 @@ public abstract class AbstractSolaceListenerAdapter implements SolaceMessageList
     protected String replyDestination;
 
     /**
+     * Create an adapter.
+     *
      * @param messageConverter converts the message body into the listener's payload type
      * @param headerMapper     maps native fields and user properties into headers
      */
@@ -75,7 +79,19 @@ public abstract class AbstractSolaceListenerAdapter implements SolaceMessageList
                 headers, message);
     }
 
-    /** Publish the listener's return value as a reply, if there is anywhere to send it. */
+    /**
+     * Publish the listener's return value as a reply, if there is anywhere to send it.
+     *
+     * <p>The destination is resolved from, in order: a {@code solace_targetDestination} header on a
+     * returned {@code Message}, the configured reply destination, and the request's {@code replyTo}.
+     * The correlation id and the {@code instanceId} and {@code requestSendTime} properties are carried
+     * across so the requester can match the reply and measure latency.</p>
+     *
+     * @param result  what the listener returned. {@code null} means a one-way listener and publishes
+     *                nothing; a value with nowhere to go is logged and dropped rather than thrown,
+     *                since the message itself was handled successfully
+     * @param request the message being replied to
+     */
     protected void handleResult(Object result, BytesXMLMessage request) {
         if (result == null) {
             return;

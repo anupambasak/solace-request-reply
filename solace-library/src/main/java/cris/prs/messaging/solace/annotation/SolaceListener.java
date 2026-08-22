@@ -24,7 +24,11 @@ import java.lang.annotation.Target;
 @Documented
 public @interface SolaceListener {
 
-    /** Container id; generated when not set. */
+    /**
+     * Container id; generated when not set.
+     *
+     * @return the container id
+     */
     String id() default "";
 
     /**
@@ -32,48 +36,101 @@ public @interface SolaceListener {
      * wiring that realises the pattern &mdash; a per-instance endpoint for fan-out, one shared
      * non-exclusive endpoint for competing consumers. Attributes set explicitly here always win;
      * empty leaves every default to the container factory.
+     *
+     * @return the exchange pattern name, or empty for none
      */
     String pattern() default "";
 
-    /** Topic subscriptions, e.g. {@code "orders/created"} or {@code "orders/>"}. */
+    /**
+     * Topic subscriptions, e.g. {@code "orders/created"} or {@code "orders/>"}.
+     *
+     * @return the topic subscriptions
+     */
     String[] topics() default {};
 
-    /** Queue (endpoint) name. Ignored when {@link #endpointMode()} is {@code DIRECT}. */
+    /**
+     * Queue (endpoint) name. Ignored when {@link #endpointMode()} is {@code DIRECT}.
+     *
+     * @return the endpoint name
+     */
     String queue() default "";
 
-    /** Consumer group, appended to the queue name as {@code <queue>.<group>}. */
+    /**
+     * Consumer group, appended to the queue name as {@code <queue>.<group>}.
+     *
+     * @return the consumer group segment
+     */
     String group() default "";
 
-    /** {@code DURABLE_QUEUE}, {@code NON_DURABLE_QUEUE} or {@code DIRECT}; empty uses the default. */
+    /**
+     * {@code DURABLE_QUEUE}, {@code NON_DURABLE_QUEUE} or {@code DIRECT}; empty uses the default.
+     *
+     * @return the endpoint mode name, or empty for the container default
+     */
     String endpointMode() default "";
 
-    /** Number of consumer flows bound to the endpoint. */
+    /**
+     * Number of consumer flows bound to the endpoint.
+     *
+     * @return the number of consumer flows, or empty for the container default
+     */
     String concurrency() default "";
 
-    /** Broker side selector over the message's user properties. */
+    /**
+     * Broker side selector over the message's user properties.
+     *
+     * @return the broker-side selector, or empty for none
+     */
     String selector() default "";
 
-    /** Consume and reply inside a Solace local transaction. */
+    /**
+     * Consume and reply inside a Solace local transaction.
+     *
+     * @return whether to consume transactionally, or empty for the container default
+     */
     String transactional() default "";
 
     /**
      * {@code INLINE} to invoke this listener on the JCSMP delivery thread, {@code EXECUTOR} to
      * invoke it on the Solace listener task executor. Empty uses the default. {@code EXECUTOR}
      * cannot be combined with {@code transactional = "true"}.
+     *
+     * @return the dispatch mode name, or empty for the container default
      */
     String dispatch() default "";
 
+    /**
+     * Whether the container starts with the application context.
+     *
+     * @return whether to start automatically, or empty for the container default
+     */
     String autoStartup() default "";
 
-    /** Give this instance its own endpoint by appending the instance id to the queue name. */
+    /**
+     * Give this instance its own endpoint by appending the instance id to the queue name.
+     *
+     * @return whether the endpoint name carries the instance id
+     */
     String appendInstanceIdToQueue() default "";
 
-    /** Give this instance its own subscription by appending the instance id as a topic level. */
+    /**
+     * Give this instance its own subscription by appending the instance id as a topic level.
+     *
+     * @return whether each subscription carries the instance id
+     */
     String appendInstanceIdToTopics() default "";
 
-    /** Fixed reply destination; when empty, replies follow the request's {@code replyTo}. */
+    /**
+     * Fixed reply destination; when empty, replies follow the request's {@code replyTo}.
+     *
+     * @return the fixed reply destination, or empty to follow the request
+     */
     String replyDestination() default "";
 
-    /** Bean name of the {@code SolaceListenerContainerFactory} to use. */
+    /**
+     * Bean name of the {@code SolaceListenerContainerFactory} to use.
+     *
+     * @return the container factory bean name, or empty for the default
+     */
     String containerFactory() default "";
 }

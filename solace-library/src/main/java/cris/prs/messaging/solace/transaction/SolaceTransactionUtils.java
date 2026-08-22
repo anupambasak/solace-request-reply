@@ -11,11 +11,13 @@ public final class SolaceTransactionUtils {
     }
 
     /** The resource holder bound to the current thread, or {@code null} when no transaction is active. */
-    @Nullable
     /**
+     * The Solace resources bound to the current thread, whether or not a transaction has begun.
+     *
      * @param sessionFactory the resource key
      * @return the holder bound to the current thread, or {@code null} when none is
      */
+    @Nullable
     public static SolaceResourceHolder getResourceHolder(SolaceSessionFactory sessionFactory) {
         return (SolaceResourceHolder) TransactionSynchronizationManager.getResource(sessionFactory);
     }
@@ -24,7 +26,6 @@ public final class SolaceTransactionUtils {
      * The resource holder of an <em>active</em> transaction &mdash; one that a transaction manager
      * has actually begun. Producers must only join such a transaction.
      */
-    @Nullable
     /**
      * The holder of an <em>active</em> transaction &mdash; one a transaction manager has actually
      * begun.
@@ -35,6 +36,7 @@ public final class SolaceTransactionUtils {
      * @param sessionFactory the resource key
      * @return the active holder, or {@code null}
      */
+    @Nullable
     public static SolaceResourceHolder getActiveResourceHolder(SolaceSessionFactory sessionFactory) {
         SolaceResourceHolder holder = getResourceHolder(sessionFactory);
         return (holder != null && holder.isSynchronizedWithTransaction()) ? holder : null;

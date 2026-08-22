@@ -41,13 +41,14 @@ public class DefaultSolaceListenerContainerFactory implements SolaceListenerCont
     private org.springframework.core.task.AsyncTaskExecutor taskExecutor;
 
     /**
+     * Create a container factory.
+     *
      * @param sessionFactory      supplies connections to every container built here
      * @param messageConverter    converts message bodies
      * @param headerMapper        maps headers
      * @param instanceIdProvider  supplies the id used in per-instance endpoint names
      * @param containerProperties defaults shared by every container from this factory; an endpoint may
      *                            override them individually
-     * @throws IllegalArgumentException if the session factory is {@code null}
      */
     public DefaultSolaceListenerContainerFactory(SolaceSessionFactory sessionFactory,
             SolaceMessageConverter messageConverter, SolaceHeaderMapper headerMapper,
@@ -60,7 +61,6 @@ public class DefaultSolaceListenerContainerFactory implements SolaceListenerCont
         this.containerProperties = containerProperties;
     }
 
-    @Override
     /**
      * {@inheritDoc}
      *
@@ -69,6 +69,7 @@ public class DefaultSolaceListenerContainerFactory implements SolaceListenerCont
      *
      * @throws IllegalStateException if the endpoint has neither a listener nor a handler method
      */
+    @Override
     public SolaceMessageListenerContainer createListenerContainer(SolaceListenerEndpoint endpoint) {
         SolaceMessageListener listener = endpoint.getMessageListener();
         if (listener == null) {
@@ -99,6 +100,8 @@ public class DefaultSolaceListenerContainerFactory implements SolaceListenerCont
     }
 
     /**
+     * The defaults every container from this factory starts with.
+     *
      * @return the shared defaults, mutable so that a configurer can adjust them before any container
      *         is created
      */

@@ -137,6 +137,19 @@ long latency = future.getLatency();
 Replies arrive on `<reply-topic-prefix>/<instance-id>`, unique to this pod, so several replicas can
 issue requests concurrently without a broker-side filter.
 
+### API documentation
+
+```bash
+gradle :solace-library:javadoc      # build/docs/javadoc/index.html
+```
+
+Every public and protected member carries javadoc with its parameters, return value and defaults.
+The task runs with `-Xdoclint:all`, so a broken reference fails the build.
+
+> Lombok-generated accessors do not exist in the source javadoc reads, so never write
+> `{@link #getSomething()}` for a field with `@Getter` — the reference cannot be resolved and
+> doclint reports it as an error. Use `{@code something}` instead.
+
 ---
 
 ## Design notes

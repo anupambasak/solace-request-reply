@@ -10,6 +10,11 @@ import java.time.Duration;
 @Data
 public class ContainerProperties {
 
+    /** Create container properties with every value at its documented default. */
+    public ContainerProperties() {
+    }
+
+
     /** How the consumer binds to the broker: durable queue, temporary queue or direct topic. */
     private EndpointMode endpointMode = EndpointMode.DURABLE_QUEUE;
 
@@ -72,6 +77,11 @@ public class ContainerProperties {
     @Data
     public static class Endpoint {
 
+        /** Create endpoint properties with every value at its documented default. */
+        public Endpoint() {
+        }
+
+
         private AccessType accessType = AccessType.NONEXCLUSIVE;
 
         private Permission permission = Permission.MODIFY_TOPIC;
@@ -100,8 +110,14 @@ public class ContainerProperties {
         }
 
         /**
+         * Build the JCSMP endpoint properties, letting an exchange pattern impose the access type.
+         *
+         * <p>{@code maxRedeliveryCount} is applied only when greater than zero, so leaving it at the
+         * default does not override the broker's own.</p>
+         *
          * @param accessTypeOverride the access type the endpoint's exchange pattern requires, or
          *                           {@code null} to use the configured default
+         * @return properties applied when the endpoint is provisioned and when a flow binds
          */
         public EndpointProperties toEndpointProperties(AccessType accessTypeOverride) {
             EndpointProperties properties = new EndpointProperties();
@@ -127,6 +143,11 @@ public class ContainerProperties {
      */
     @Data
     public static class DeadMessageQueue {
+
+        /** Create dead message queue properties with every value at its documented default. */
+        public DeadMessageQueue() {
+        }
+
 
         /** Create the DMQ at container startup if it is missing. */
         private boolean provision = false;
@@ -178,7 +199,10 @@ public class ContainerProperties {
     /** Endpoint access type; {@code NONEXCLUSIVE} is required for concurrency greater than one. */
     public enum AccessType {
 
+        /** One consumer at a time; further flows are standby at best. Required for fan-out. */
         EXCLUSIVE(EndpointProperties.ACCESSTYPE_EXCLUSIVE),
+
+        /** Several consumers compete for messages. Required for concurrency above one. */
         NONEXCLUSIVE(EndpointProperties.ACCESSTYPE_NONEXCLUSIVE);
 
         private final int value;
@@ -188,6 +212,8 @@ public class ContainerProperties {
         }
 
         /**
+         * The JCSMP constant this value maps to.
+         *
          * @return the corresponding {@code EndpointProperties} constant
          */
         public int value() {
@@ -198,10 +224,19 @@ public class ContainerProperties {
     /** Endpoint permission granted to other clients. */
     public enum Permission {
 
+        /** No access for other clients. */
         NONE(EndpointProperties.PERMISSION_NONE),
+
+        /** Other clients may browse the endpoint but not consume from it. */
         READ_ONLY(EndpointProperties.PERMISSION_READ_ONLY),
+
+        /** Other clients may consume from the endpoint. */
         CONSUME(EndpointProperties.PERMISSION_CONSUME),
+
+        /** Other clients may consume and change the endpoint's topic subscriptions. */
         MODIFY_TOPIC(EndpointProperties.PERMISSION_MODIFY_TOPIC),
+
+        /** Other clients may consume, modify subscriptions, and delete the endpoint. */
         DELETE(EndpointProperties.PERMISSION_DELETE);
 
         private final int value;
@@ -211,6 +246,8 @@ public class ContainerProperties {
         }
 
         /**
+         * The JCSMP constant this value maps to.
+         *
          * @return the corresponding {@code EndpointProperties} constant
          */
         public int value() {
