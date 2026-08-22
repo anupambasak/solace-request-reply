@@ -3,7 +3,7 @@ server:
 
 app:
   request:
-    topic: bkg/trn
+    topic: request-reply/request-1
   notification:
     topic: notification/broadcast
   task:
@@ -30,11 +30,11 @@ solace:
 
   request-reply:
     enabled: true
-    # Replies for this pod arrive on <reply-topic-prefix>/<instance-id>, e.g. bkgRep/trn/client-7d9f4-abcde
-    reply-topic-prefix: bkgRep/trn
+    # Replies for this pod arrive on <reply-topic-prefix>/<instance-id>, e.g. request-reply/reply-1/client-7d9f4-abcde
+    reply-topic-prefix: request-reply/reply-1
     append-instance-id: true
     # NON_DURABLE_QUEUE: guaranteed delivery on a temporary endpoint the broker removes on disconnect.
-    # DURABLE_QUEUE:     survives restarts, endpoint named bkgRep.trn.<instance-id>.
+    # DURABLE_QUEUE:     survives restarts, endpoint named request-reply.reply-1.<instance-id>.
     # DIRECT:            non-persistent topic subscription, lowest latency, at-most-once.
     endpoint-mode: NON_DURABLE_QUEUE
     concurrency: 1

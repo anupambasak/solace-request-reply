@@ -20,16 +20,26 @@ public class HostnameInstanceIdProvider implements InstanceIdProvider {
 
     private final String instanceId;
 
+    /** Resolve the instance id with no configured override. */
     public HostnameInstanceIdProvider() {
         this(null);
     }
 
+    /**
+     * @param override an explicit instance id; when it has no text the id is resolved from the
+     *                 environment instead
+     */
     public HostnameInstanceIdProvider(String override) {
         this.instanceId = sanitize(resolve(override));
         log.info("Solace instance id resolved to '{}'", this.instanceId);
     }
 
     @Override
+    /**
+     * {@inheritDoc}
+     *
+     * <p>Resolved once at construction, so it cannot change under a running listener.</p>
+     */
     public String getInstanceId() {
         return this.instanceId;
     }

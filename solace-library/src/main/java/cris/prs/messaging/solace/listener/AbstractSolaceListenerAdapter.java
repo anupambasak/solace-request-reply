@@ -38,16 +38,34 @@ public abstract class AbstractSolaceListenerAdapter implements SolaceMessageList
     @Setter
     protected String replyDestination;
 
+    /**
+     * @param messageConverter converts the message body into the listener's payload type
+     * @param headerMapper     maps native fields and user properties into headers
+     */
     protected AbstractSolaceListenerAdapter(SolaceMessageConverter messageConverter,
             SolaceHeaderMapper headerMapper) {
         this.messageConverter = messageConverter;
         this.headerMapper = headerMapper;
     }
 
+    /**
+     * Convert the message body into {@code payloadType}.
+     *
+     * @param message the received message
+     * @return the converted payload, or the raw message when the payload type is {@code Object}
+     */
     protected Object convertPayload(BytesXMLMessage message) {
         return this.messageConverter.fromMessage(message, this.payloadType);
     }
 
+    /**
+     * Build the record handed to listeners that ask for one.
+     *
+     * @param payload the converted payload
+     * @param message the received message
+     * @param headers the mapped headers
+     * @return a record combining payload, delivery metadata and the raw message
+     */
     protected SolaceRecord<Object> toRecord(Object payload, BytesXMLMessage message,
             Map<String, Object> headers) {
         return new SolaceRecord<>(payload,

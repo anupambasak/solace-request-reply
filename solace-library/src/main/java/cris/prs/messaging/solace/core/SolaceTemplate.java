@@ -59,6 +59,14 @@ public class SolaceTemplate<T> implements SolaceOperations<T> {
     @Setter
     private boolean dmqEligible = true;
 
+    /**
+     * Create a template.
+     *
+     * @param sessionFactory supplies the connection and, as the transaction resource key, decides
+     *                       which transactions this template joins
+     * @param messageConverter serialises payloads into message bodies
+     * @throws IllegalArgumentException if either argument is {@code null}
+     */
     public SolaceTemplate(SolaceSessionFactory sessionFactory, SolaceMessageConverter messageConverter) {
         Assert.notNull(sessionFactory, "'sessionFactory' must not be null");
         Assert.notNull(messageConverter, "'messageConverter' must not be null");
@@ -67,6 +75,11 @@ public class SolaceTemplate<T> implements SolaceOperations<T> {
     }
 
     @Override
+    /**
+     * {@inheritDoc}
+     *
+     * <p>Publishes to {@link #getDefaultDestination()}.</p>
+     */
     public void send(T payload) {
         Assert.state(StringUtils.hasText(this.defaultDestination),
                 "No destination given and no 'defaultDestination' configured");
@@ -74,11 +87,13 @@ public class SolaceTemplate<T> implements SolaceOperations<T> {
     }
 
     @Override
+    /** {@inheritDoc} */
     public void send(String destination, T payload) {
         send(destination, payload, null);
     }
 
     @Override
+    /** {@inheritDoc} */
     public void send(String destination, String correlationId, T payload) {
         Map<String, Object> headers = new HashMap<>();
         headers.put(SolaceHeaders.CORRELATION_ID, correlationId);
@@ -86,12 +101,14 @@ public class SolaceTemplate<T> implements SolaceOperations<T> {
     }
 
     @Override
+    /** {@inheritDoc} */
     public void send(String destination, T payload, Map<String, Object> headers) {
         XMLMessage message = createMessage(payload, headers);
         send(DefaultSolaceHeaderMapper.toDestination(destination), message);
     }
 
     @Override
+    /** {@inheritDoc} */
     public void send(Message<?> message) {
         Map<String, Object> headers = DefaultSolaceHeaderMapper.sanitize(message.getHeaders());
         Object target = headers.remove(SolaceHeaders.TARGET_DESTINATION);
@@ -103,6 +120,13 @@ public class SolaceTemplate<T> implements SolaceOperations<T> {
     }
 
     @Override
+    /**
+     * {@inheritDoc}
+     *
+     * <p>The terminal publish that every other overload funnels into. Publishing is asynchronous:
+     * this returns once JCSMP has accepted the message, and a broker-side failure is reported to
+     * the producer's event handler rather than thrown from here.</p>
+     */
     public void send(Destination destination, XMLMessage message) {
         try {
             producer().send(message, destination);
@@ -117,6 +141,12 @@ public class SolaceTemplate<T> implements SolaceOperations<T> {
     }
 
     @Override
+    /**
+     * {@inheritDoc}
+     *
+     * <p>When a transaction is already bound to this thread the callback simply runs inside it;
+     * otherwise a transacted session is created, bound, committed and closed around the callback.</p>
+     */
     public <R> R executeInTransaction(TransactionCallback<T, R> callback) {
         SolaceResourceHolder existing = SolaceTransactionUtils.getActiveResourceHolder(this.sessionFactory);
         if (existing != null) {

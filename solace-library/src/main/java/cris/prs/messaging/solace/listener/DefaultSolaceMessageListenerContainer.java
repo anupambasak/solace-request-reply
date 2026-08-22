@@ -115,6 +115,13 @@ public class DefaultSolaceMessageListenerContainer implements SolaceMessageListe
 
     private boolean keepAliveHeld;
 
+    /**
+     * @param sessionFactory      supplies the connection, and keys transactions
+     * @param endpoint            what to bind to, with pattern defaults already applied
+     * @param containerProperties defaults for anything the endpoint leaves unset
+     * @param instanceId          this instance's id, used in per-instance endpoint and topic names
+     * @throws IllegalArgumentException if any argument except {@code instanceId} is {@code null}
+     */
     public DefaultSolaceMessageListenerContainer(SolaceSessionFactory sessionFactory,
             SolaceListenerEndpoint endpoint, ContainerProperties containerProperties, String instanceId) {
         Assert.notNull(sessionFactory, "'sessionFactory' must not be null");
@@ -128,11 +135,13 @@ public class DefaultSolaceMessageListenerContainer implements SolaceMessageListe
     }
 
     @Override
+    /** {@inheritDoc} */
     public String getListenerId() {
         return this.endpoint.getId();
     }
 
     @Override
+    /** {@inheritDoc} */
     public void setupMessageListener(SolaceMessageListener listener) {
         this.messageListener = listener;
     }
@@ -162,6 +171,11 @@ public class DefaultSolaceMessageListenerContainer implements SolaceMessageListe
     }
 
     @Override
+    /**
+     * {@inheritDoc}
+     *
+     * @return the endpoint's setting when it has one, otherwise the container default
+     */
     public boolean isAutoStartup() {
         return this.endpoint.getAutoStartup() != null
                 ? this.endpoint.getAutoStartup()
@@ -169,16 +183,35 @@ public class DefaultSolaceMessageListenerContainer implements SolaceMessageListe
     }
 
     @Override
+    /**
+     * {@inheritDoc}
+     *
+     * @return {@code containerProperties.phase}, by default {@code Integer.MAX_VALUE - 100}
+     */
     public int getPhase() {
         return this.containerProperties.getPhase();
     }
 
     @Override
+    /** {@inheritDoc} */
     public boolean isRunning() {
         return this.running.get();
     }
 
     @Override
+    /**
+     * Validate the configuration, bind the endpoint and start consuming.
+     *
+     * <p>Idempotent: a second call on a running container does nothing. If any step fails, everything
+     * already opened is released before the exception propagates, so a failed start leaves no flows
+     * or sessions behind.</p>
+     *
+     * @throws IllegalStateException    if the configuration is inconsistent &mdash; no listener, a
+     *                                  transactional container without a transaction manager or on a
+     *                                  direct endpoint, a concurrency exceeding the transacted-session
+     *                                  limit, or {@code EXECUTOR} dispatch combined with transactions
+     * @throws SolaceMessagingException if the broker rejects provisioning, subscribing or binding
+     */
     public void start() {
         if (!this.running.compareAndSet(false, true)) {
             return;
@@ -425,6 +458,11 @@ public class DefaultSolaceMessageListenerContainer implements SolaceMessageListe
     }
 
     @Override
+    /**
+     * Stop consuming and release everything this container holds.
+     *
+     * <p>Idempotent, and safe to call on a container that never started.</p>
+     */
     public void stop() {
         if (!this.running.compareAndSet(true, false)) {
             return;
@@ -485,6 +523,11 @@ public class DefaultSolaceMessageListenerContainer implements SolaceMessageListe
     }
 
     @Override
+    /**
+     * {@inheritDoc}
+     *
+     * @param callback run once the container has stopped
+     */
     public void stop(Runnable callback) {
         stop();
         callback.run();

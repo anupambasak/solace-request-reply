@@ -24,6 +24,12 @@ public class RequestReplyFuture<R> extends CompletableFuture<R> {
 
     private volatile long receiveTime;
 
+    /**
+     * @param correlationId      correlation id sent with the request, used to match the reply
+     * @param sendTime           millisecond epoch at which the request was published
+     * @param requestDestination topic the request was published to
+     * @param replyDestination   destination the reply is expected on
+     */
     public RequestReplyFuture(String correlationId, long sendTime, String requestDestination,
             String replyDestination) {
         this.correlationId = correlationId;

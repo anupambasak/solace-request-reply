@@ -20,15 +20,29 @@ public class JacksonSolaceMessageConverter implements SolaceMessageConverter {
 
     private final ObjectMapper objectMapper;
 
+    /** Create a converter with its own {@code ObjectMapper} using Jackson's defaults. */
     public JacksonSolaceMessageConverter() {
         this(new ObjectMapper());
     }
 
+    /**
+     * Create a converter sharing an existing mapper, so that modules, naming strategies and
+     * date handling match the rest of the application.
+     *
+     * @param objectMapper the mapper to serialise and deserialise payloads with
+     */
     public JacksonSolaceMessageConverter(ObjectMapper objectMapper) {
         this.objectMapper = objectMapper;
     }
 
     @Override
+    /**
+     * {@inheritDoc}
+     *
+     * <p>Produces a {@code BytesMessage} whose <em>binary attachment</em> holds the body.
+     * {@code byte[]} and {@code String} payloads are written through untouched; everything else is
+     * serialised as JSON.</p>
+     */
     public XMLMessage toMessage(Object payload) {
         byte[] body;
         if (payload == null) {
@@ -55,6 +69,12 @@ public class JacksonSolaceMessageConverter implements SolaceMessageConverter {
     }
 
     @Override
+    /**
+     * {@inheritDoc}
+     *
+     * <p>A {@code null}, {@code Object} or {@code BytesXMLMessage} target type returns the raw
+     * message unconverted; {@code byte[]} and {@code String} return the body as-is.</p>
+     */
     public Object fromMessage(BytesXMLMessage message, Class<?> targetType) {
         byte[] body = extractBody(message);
         if (targetType == null || Object.class.equals(targetType) || BytesXMLMessage.class.isAssignableFrom(targetType)) {

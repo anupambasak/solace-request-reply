@@ -35,7 +35,7 @@ public @interface SolaceListener {
      */
     String pattern() default "";
 
-    /** Topic subscriptions, e.g. {@code "bkg/trn"} or {@code "bkg/trn/>"}. */
+    /** Topic subscriptions, e.g. {@code "orders/created"} or {@code "orders/>"}. */
     String[] topics() default {};
 
     /** Queue (endpoint) name. Ignored when {@link #endpointMode()} is {@code DIRECT}. */

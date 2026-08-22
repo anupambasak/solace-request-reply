@@ -40,6 +40,15 @@ public class DefaultSolaceListenerContainerFactory implements SolaceListenerCont
     @Setter
     private org.springframework.core.task.AsyncTaskExecutor taskExecutor;
 
+    /**
+     * @param sessionFactory      supplies connections to every container built here
+     * @param messageConverter    converts message bodies
+     * @param headerMapper        maps headers
+     * @param instanceIdProvider  supplies the id used in per-instance endpoint names
+     * @param containerProperties defaults shared by every container from this factory; an endpoint may
+     *                            override them individually
+     * @throws IllegalArgumentException if the session factory is {@code null}
+     */
     public DefaultSolaceListenerContainerFactory(SolaceSessionFactory sessionFactory,
             SolaceMessageConverter messageConverter, SolaceHeaderMapper headerMapper,
             InstanceIdProvider instanceIdProvider, ContainerProperties containerProperties) {
@@ -52,6 +61,14 @@ public class DefaultSolaceListenerContainerFactory implements SolaceListenerCont
     }
 
     @Override
+    /**
+     * {@inheritDoc}
+     *
+     * <p>Builds a {@link MethodSolaceListenerAdapter} for an annotated method, or uses the endpoint's
+     * own listener, then wires the container with the shared collaborators.</p>
+     *
+     * @throws IllegalStateException if the endpoint has neither a listener nor a handler method
+     */
     public SolaceMessageListenerContainer createListenerContainer(SolaceListenerEndpoint endpoint) {
         SolaceMessageListener listener = endpoint.getMessageListener();
         if (listener == null) {
@@ -81,6 +98,10 @@ public class DefaultSolaceListenerContainerFactory implements SolaceListenerCont
         return container;
     }
 
+    /**
+     * @return the shared defaults, mutable so that a configurer can adjust them before any container
+     *         is created
+     */
     public ContainerProperties getContainerProperties() {
         return this.containerProperties;
     }

@@ -33,6 +33,7 @@ public class DefaultSolaceHeaderMapper implements SolaceHeaderMapper {
             "timestamp");
 
     @Override
+    /** {@inheritDoc} */
     public void fromHeaders(Map<String, Object> headers, XMLMessage message) {
         if (headers == null || headers.isEmpty()) {
             return;
@@ -67,6 +68,12 @@ public class DefaultSolaceHeaderMapper implements SolaceHeaderMapper {
     }
 
     @Override
+    /**
+     * {@inheritDoc}
+     *
+     * <p>Includes the native correlation id, reply-to, destination, application message id, sender
+     * timestamp and redelivered flag, followed by every SDT user property.</p>
+     */
     public Map<String, Object> toHeaders(BytesXMLMessage message) {
         Map<String, Object> headers = new LinkedHashMap<>();
         if (message.getCorrelationId() != null) {

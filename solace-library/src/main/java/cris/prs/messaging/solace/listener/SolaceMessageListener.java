@@ -9,5 +9,13 @@ import com.solacesystems.jcsmp.BytesXMLMessage;
 @FunctionalInterface
 public interface SolaceMessageListener {
 
+    /**
+     * Handle one message.
+     *
+     * @param message the received message
+     * @throws Exception to signal failure. The container then either acknowledges anyway
+     *                   ({@code ackOnError}), leaves the message unacknowledged, or rolls the
+     *                   transaction back so the broker redelivers
+     */
     void onMessage(BytesXMLMessage message) throws Exception;
 }

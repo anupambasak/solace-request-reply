@@ -16,6 +16,15 @@ import org.springframework.core.type.AnnotationMetadata;
 public class SolaceBootstrapConfiguration implements ImportBeanDefinitionRegistrar {
 
     @Override
+    /**
+     * Register the annotation processor and endpoint registry as infrastructure beans.
+     *
+     * <p>Both registrations are guarded by a presence check, so importing {@code @EnableSolace} more
+     * than once is harmless.</p>
+     *
+     * @param importingClassMetadata metadata of the class carrying {@code @EnableSolace}
+     * @param registry               the registry to add the definitions to
+     */
     public void registerBeanDefinitions(AnnotationMetadata importingClassMetadata, BeanDefinitionRegistry registry) {
         if (!registry.containsBeanDefinition(
                 SolaceListenerConfigUtils.SOLACE_LISTENER_ANNOTATION_PROCESSOR_BEAN_NAME)) {

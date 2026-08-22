@@ -23,6 +23,17 @@ public class SolaceListenerEndpointRegistry implements SmartLifecycle, Disposabl
 
     private volatile boolean running;
 
+    /**
+     * Create and register a container for an endpoint.
+     *
+     * <p>If the registry is already running, an auto-startup container is started immediately, which
+     * is what allows listeners to be added after the context has refreshed.</p>
+     *
+     * @param endpoint the endpoint description
+     * @param factory  the factory to build the container with
+     * @return the registered container
+     * @throws IllegalStateException if the id is blank or already registered
+     */
     public SolaceMessageListenerContainer registerListenerContainer(SolaceListenerEndpoint endpoint,
             SolaceListenerContainerFactory factory) {
         Assert.hasText(endpoint.getId(), "Endpoint id must not be empty");
@@ -36,19 +47,26 @@ public class SolaceListenerEndpointRegistry implements SmartLifecycle, Disposabl
         return container;
     }
 
+    /**
+     * @param id the container id, as given by {@code @SolaceListener(id = ...)}
+     * @return the container, or {@code null} if no listener is registered under that id
+     */
     public SolaceMessageListenerContainer getListenerContainer(String id) {
         return this.containers.get(id);
     }
 
+    /** @return the ids of every registered container */
     public Set<String> getListenerContainerIds() {
         return this.containers.keySet();
     }
 
+    /** @return every registered container */
     public Collection<SolaceMessageListenerContainer> getListenerContainers() {
         return this.containers.values();
     }
 
     @Override
+    /** Start every auto-startup container, in lifecycle phase order. */
     public void start() {
         this.containers.values().stream()
                 .filter(SolaceMessageListenerContainer::isAutoStartup)
@@ -58,6 +76,7 @@ public class SolaceListenerEndpointRegistry implements SmartLifecycle, Disposabl
     }
 
     @Override
+    /** Stop every container, logging rather than propagating individual failures. */
     public void stop() {
         this.running = false;
         this.containers.values().forEach(container -> {
@@ -81,6 +100,7 @@ public class SolaceListenerEndpointRegistry implements SmartLifecycle, Disposabl
     }
 
     @Override
+    /** Stop every container and forget them. */
     public void destroy() {
         stop();
         this.containers.clear();

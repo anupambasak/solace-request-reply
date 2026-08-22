@@ -65,7 +65,7 @@ public class SolaceProperties {
 
         /**
          * Base reply topic. The instance id is appended as a further topic level when
-         * {@code append-instance-id} is set, e.g. {@code bkgRep/trn/client-7d9f-abcde}.
+         * {@code append-instance-id} is set, e.g. {@code app/reply/client-7d9f-abcde}.
          */
         private String replyTopicPrefix = "reply";
 

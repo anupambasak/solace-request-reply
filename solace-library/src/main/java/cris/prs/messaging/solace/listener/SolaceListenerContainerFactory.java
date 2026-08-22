@@ -4,5 +4,11 @@ package cris.prs.messaging.solace.listener;
 @FunctionalInterface
 public interface SolaceListenerContainerFactory {
 
+    /**
+     * Build a container for an endpoint.
+     *
+     * @param endpoint the endpoint description, with its pattern defaults already applied
+     * @return a container, not yet started
+     */
     SolaceMessageListenerContainer createListenerContainer(SolaceListenerEndpoint endpoint);
 }

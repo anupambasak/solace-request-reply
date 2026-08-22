@@ -29,6 +29,11 @@ public class SolaceTransactionManager extends AbstractPlatformTransactionManager
 
     private final SolaceSessionFactory sessionFactory;
 
+    /**
+     * @param sessionFactory supplies transacted sessions, and is the key transactional resources are
+     *                       bound under &mdash; templates and containers sharing transactions must
+     *                       share this instance
+     */
     public SolaceTransactionManager(SolaceSessionFactory sessionFactory) {
         this.sessionFactory = sessionFactory;
         setNestedTransactionAllowed(false);
@@ -36,11 +41,21 @@ public class SolaceTransactionManager extends AbstractPlatformTransactionManager
     }
 
     @Override
+    /**
+     * @return the session factory, so that {@code TransactionSynchronizationManager} keys resources
+     *         the same way {@code SolaceTemplate} looks them up
+     */
     public Object getResourceFactory() {
         return this.sessionFactory;
     }
 
     @Override
+    /**
+     * {@inheritDoc}
+     *
+     * <p>Picks up a holder already bound to the thread, which is how a listener container's own
+     * transacted session becomes this transaction's resource.</p>
+     */
     protected Object doGetTransaction() {
         SolaceTransactionObject txObject = new SolaceTransactionObject();
         txObject.setResourceHolder(SolaceTransactionUtils.getResourceHolder(this.sessionFactory));
@@ -48,6 +63,12 @@ public class SolaceTransactionManager extends AbstractPlatformTransactionManager
     }
 
     @Override
+    /**
+     * {@inheritDoc}
+     *
+     * <p>A holder counts as an existing transaction only once it has been marked synchronized, so a
+     * container-bound holder still causes a fresh transaction to begin.</p>
+     */
     protected boolean isExistingTransaction(Object transaction) {
         SolaceTransactionObject txObject = (SolaceTransactionObject) transaction;
         return txObject.getResourceHolder() != null
@@ -55,6 +76,12 @@ public class SolaceTransactionManager extends AbstractPlatformTransactionManager
     }
 
     @Override
+    /**
+     * {@inheritDoc}
+     *
+     * <p>Creates and binds a transacted session when none is bound. Solace has no explicit "begin":
+     * a transacted session is always in a transaction, so this only establishes the resource.</p>
+     */
     protected void doBegin(Object transaction, TransactionDefinition definition) {
         SolaceTransactionObject txObject = (SolaceTransactionObject) transaction;
         try {
@@ -83,6 +110,7 @@ public class SolaceTransactionManager extends AbstractPlatformTransactionManager
     }
 
     @Override
+    /** {@inheritDoc} */
     protected void doCommit(DefaultTransactionStatus status) {
         SolaceTransactionObject txObject = (SolaceTransactionObject) status.getTransaction();
         if (log.isTraceEnabled()) {
@@ -93,6 +121,7 @@ public class SolaceTransactionManager extends AbstractPlatformTransactionManager
     }
 
     @Override
+    /** {@inheritDoc} */
     protected void doRollback(DefaultTransactionStatus status) {
         SolaceTransactionObject txObject = (SolaceTransactionObject) status.getTransaction();
         log.debug("Rolling back Solace transaction");
@@ -100,12 +129,19 @@ public class SolaceTransactionManager extends AbstractPlatformTransactionManager
     }
 
     @Override
+    /** {@inheritDoc} */
     protected void doSetRollbackOnly(DefaultTransactionStatus status) {
         SolaceTransactionObject txObject = (SolaceTransactionObject) status.getTransaction();
         txObject.getResourceHolder().setRollbackOnly();
     }
 
     @Override
+    /**
+     * {@inheritDoc}
+     *
+     * <p>Unbinds and closes only a session this manager created; a container's session is left open
+     * for the next message.</p>
+     */
     protected void doCleanupAfterCompletion(Object transaction) {
         SolaceTransactionObject txObject = (SolaceTransactionObject) transaction;
         SolaceResourceHolder holder = txObject.getResourceHolder();

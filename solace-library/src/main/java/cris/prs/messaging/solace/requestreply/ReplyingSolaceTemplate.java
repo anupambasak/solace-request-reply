@@ -68,6 +68,15 @@ public class ReplyingSolaceTemplate extends SolaceTemplate<Object>
 
     private ScheduledExecutorService timeoutScheduler;
 
+    /**
+     * @param sessionFactory   supplies the connection and keys transactions
+     * @param messageConverter converts request payloads and reply bodies
+     * @param replyContainer   the container consuming this instance's reply destination. Started and
+     *                         stopped by this template, so it should not be auto-started itself
+     * @param replyDestination the destination requests ask replies to be sent to; normally ends with
+     *                         this instance's id
+     * @throws IllegalArgumentException if the container is {@code null} or the destination is blank
+     */
     public ReplyingSolaceTemplate(SolaceSessionFactory sessionFactory, SolaceMessageConverter messageConverter,
             SolaceMessageListenerContainer replyContainer, String replyDestination) {
         super(sessionFactory, messageConverter);
@@ -78,16 +87,40 @@ public class ReplyingSolaceTemplate extends SolaceTemplate<Object>
     }
 
     @Override
+    /** Register the reply listener with the reply container. */
     public void afterPropertiesSet() {
         this.replyContainer.setupMessageListener(this::onReply);
     }
 
     // --- request/reply -------------------------------------------------------------------
 
+    /**
+     * Publish a request and return a future for its reply, using the default reply timeout.
+     *
+     * @param destination the request topic
+     * @param payload     the request payload
+     * @param replyType   the type the reply body is converted into
+     * @param <T>         the reply type
+     * @return a future completing with the reply, or failing with
+     *         {@link SolaceReplyTimeoutException} if none arrives in time
+     * @throws IllegalStateException if the template is not running
+     */
     public <T> RequestReplyFuture<T> sendAndReceive(String destination, Object payload, Class<T> replyType) {
         return sendAndReceive(destination, payload, null, replyType, this.defaultReplyTimeout);
     }
 
+    /**
+     * Publish a request with an explicit reply timeout.
+     *
+     * @param destination  the request topic
+     * @param payload      the request payload
+     * @param replyType    the type the reply body is converted into
+     * @param replyTimeout how long to wait; {@code null} uses the default, zero or negative waits
+     *                     indefinitely
+     * @param <T>          the reply type
+     * @return a future completing with the reply
+     * @throws IllegalStateException if the template is not running
+     */
     public <T> RequestReplyFuture<T> sendAndReceive(String destination, Object payload, Class<T> replyType,
             Duration replyTimeout) {
         return sendAndReceive(destination, payload, null, replyType, replyTimeout);
@@ -155,6 +188,14 @@ public class ReplyingSolaceTemplate extends SolaceTemplate<Object>
 
     /** Reply listener: matches the correlation id and completes the waiting future. */
     @SuppressWarnings("unchecked")
+    /**
+     * Reply listener: match the correlation id and complete the waiting future.
+     *
+     * <p>A reply with no outstanding request is logged and dropped, which is what a reply arriving
+     * after its timeout looks like. Override to add tracing or metrics.</p>
+     *
+     * @param message the reply message
+     */
     protected void onReply(BytesXMLMessage message) {
         String correlationId = message.getCorrelationId();
         PendingRequest pendingRequest = correlationId != null ? this.pending.remove(correlationId) : null;
@@ -181,6 +222,12 @@ public class ReplyingSolaceTemplate extends SolaceTemplate<Object>
     // --- lifecycle -----------------------------------------------------------------------
 
     @Override
+    /**
+     * Start the timeout scheduler and the reply container.
+     *
+     * <p>Runs in a later lifecycle phase than the listener containers, so the correlation map is
+     * live before any reply can arrive.</p>
+     */
     public void start() {
         if (this.running) {
             return;
@@ -196,6 +243,12 @@ public class ReplyingSolaceTemplate extends SolaceTemplate<Object>
     }
 
     @Override
+    /**
+     * Stop the reply container and fail every outstanding future.
+     *
+     * <p>Failing them is deliberate: leaving callers blocked on replies that can no longer arrive
+     * would turn shutdown into a hang.</p>
+     */
     public void stop() {
         if (!this.running) {
             return;
@@ -227,6 +280,7 @@ public class ReplyingSolaceTemplate extends SolaceTemplate<Object>
     }
 
     @Override
+    /** Delegates to {@link #stop()}. */
     public void destroy() {
         stop();
     }

@@ -11,7 +11,7 @@ public final class ReplyDestinationResolver {
     private ReplyDestinationResolver() {
     }
 
-    /** {@code bkgRep/trn} + {@code client-7d9f} &rarr; {@code bkgRep/trn/client-7d9f}. */
+    /** {@code app/reply} + {@code client-7d9f} &rarr; {@code app/reply/client-7d9f}. */
     public static String resolveTopic(String prefix, boolean appendInstanceId, String instanceId) {
         String base = trimTrailingSlash(prefix);
         if (!appendInstanceId || !StringUtils.hasText(instanceId)) {
@@ -20,7 +20,7 @@ public final class ReplyDestinationResolver {
         return base + "/" + HostnameInstanceIdProvider.sanitize(instanceId);
     }
 
-    /** {@code bkgRep/trn} &rarr; {@code bkgRep.trn}, a legal Solace endpoint name. */
+    /** {@code app/reply} &rarr; {@code app.reply}, a legal Solace endpoint name. */
     public static String resolveQueueBaseName(String configuredQueue, String topicPrefix) {
         if (StringUtils.hasText(configuredQueue)) {
             return configuredQueue;

@@ -30,10 +30,21 @@ public class SolaceResourceHolder extends ResourceHolderSupport {
 
     private XMLMessageProducer producer;
 
+    /**
+     * A holder the transaction manager owns: its session is closed after the transaction completes.
+     *
+     * @param transactedSession the session backing this transaction
+     */
     public SolaceResourceHolder(TransactedSession transactedSession) {
         this(transactedSession, false);
     }
 
+    /**
+     * @param transactedSession the session backing this transaction
+     * @param externallyManaged {@code true} when a listener container owns the session, so the
+     *                          transaction manager commits it but never closes it &mdash; the
+     *                          container reuses it for the next message
+     */
     public SolaceResourceHolder(TransactedSession transactedSession, boolean externallyManaged) {
         this.transactedSession = transactedSession;
         this.externallyManaged = externallyManaged;
@@ -53,6 +64,12 @@ public class SolaceResourceHolder extends ResourceHolderSupport {
         return this.producer;
     }
 
+    /**
+     * Commit the transaction: acknowledge every message delivered on this session and release
+     * everything published through it.
+     *
+     * @throws SolaceMessagingException if the broker rolled the transaction back or the commit failed
+     */
     public void commit() {
         try {
             this.transactedSession.commit();
@@ -65,6 +82,12 @@ public class SolaceResourceHolder extends ResourceHolderSupport {
         }
     }
 
+    /**
+     * Roll the transaction back, discarding published messages and returning consumed ones for
+     * redelivery.
+     *
+     * @throws SolaceMessagingException if the rollback failed
+     */
     public void rollback() {
         try {
             this.transactedSession.rollback();

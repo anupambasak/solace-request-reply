@@ -52,16 +52,38 @@ public class SolaceListenerAnnotationBeanPostProcessor
     private DefaultMessageHandlerMethodFactory handlerMethodFactory;
 
     @Override
+    /**
+     * {@inheritDoc}
+     *
+     * @return {@code LOWEST_PRECEDENCE}, so beans are fully initialised before being scanned
+     */
     public int getOrder() {
         return LOWEST_PRECEDENCE;
     }
 
     @Override
+    /**
+     * {@inheritDoc}
+     *
+     * <p>The bean factory is used to resolve property placeholders in annotation attributes and to
+     * look up container factories and the endpoint registry.</p>
+     */
     public void setBeanFactory(BeanFactory beanFactory) throws BeansException {
         this.beanFactory = beanFactory;
     }
 
     @Override
+    /**
+     * Collect {@code @SolaceListener} methods on this bean.
+     *
+     * <p>Registration is deferred to {@link #afterSingletonsInstantiated()} so that container
+     * factories and the registry are guaranteed to exist. Methods are looked up on the target class,
+     * so proxied beans are handled.</p>
+     *
+     * @param bean     the initialised bean
+     * @param beanName its name
+     * @return the bean, unchanged
+     */
     public Object postProcessAfterInitialization(Object bean, String beanName) throws BeansException {
         Class<?> targetClass = AopUtils.getTargetClass(bean);
         MethodIntrospector.selectMethods(targetClass,
@@ -73,6 +95,16 @@ public class SolaceListenerAnnotationBeanPostProcessor
     }
 
     @Override
+    /**
+     * Turn every collected method into a registered listener container.
+     *
+     * <p>Attribute placeholders are resolved, the payload type derived from the method signature, the
+     * exchange pattern's defaults applied last, and the endpoint registered with its container
+     * factory.</p>
+     *
+     * @throws IllegalStateException if a listener declares neither topics nor a queue, or no container
+     *                               factory can be resolved
+     */
     public void afterSingletonsInstantiated() {
         this.handlerMethodFactory = new DefaultMessageHandlerMethodFactory();
         this.handlerMethodFactory.setBeanFactory(this.beanFactory);

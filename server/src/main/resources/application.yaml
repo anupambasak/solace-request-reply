@@ -6,7 +6,7 @@ app:
   request:
     queue: request-reply-queue-1
     group: request-reply-group-1
-    topic: bkg/trn
+    topic: request-reply/request-1
     concurrency: 10
     # Consume the request and publish the reply in one Solace local transaction
     transactional: true

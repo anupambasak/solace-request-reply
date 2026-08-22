@@ -43,7 +43,7 @@ public class RestService {
 
     private final TaskDispatcher taskDispatcher;
 
-    @Value("${app.request.topic:bkg/trn}")
+    @Value("${app.request.topic:request-reply/request-1}")
     private String requestTopic;
 
     @GetMapping("/test")

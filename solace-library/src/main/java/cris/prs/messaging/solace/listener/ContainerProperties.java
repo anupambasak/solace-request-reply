@@ -90,6 +90,11 @@ public class ContainerProperties {
 
         private final DeadMessageQueue deadMessageQueue = new DeadMessageQueue();
 
+        /**
+         * Build the JCSMP endpoint properties, using the configured access type.
+         *
+         * @return properties applied when the endpoint is provisioned and when a flow binds
+         */
         public EndpointProperties toEndpointProperties() {
             return toEndpointProperties(null);
         }
@@ -135,6 +140,11 @@ public class ContainerProperties {
 
         private Permission permission = Permission.CONSUME;
 
+        /**
+         * Build the JCSMP endpoint properties for the dead message queue.
+         *
+         * @return properties with {@code respectsTTL} disabled, which the broker requires of a DMQ
+         */
         public EndpointProperties toEndpointProperties() {
             EndpointProperties properties = new EndpointProperties();
             properties.setAccessType(this.accessType.value());
@@ -177,6 +187,9 @@ public class ContainerProperties {
             this.value = value;
         }
 
+        /**
+         * @return the corresponding {@code EndpointProperties} constant
+         */
         public int value() {
             return this.value;
         }
@@ -197,6 +210,9 @@ public class ContainerProperties {
             this.value = value;
         }
 
+        /**
+         * @return the corresponding {@code EndpointProperties} constant
+         */
         public int value() {
             return this.value;
         }

@@ -20,6 +20,11 @@ public class MethodSolaceListenerAdapter extends AbstractSolaceListenerAdapter {
 
     private final InvocableHandlerMethod handlerMethod;
 
+    /**
+     * @param handlerMethod    the resolved {@code @SolaceListener} method
+     * @param messageConverter converts the message body
+     * @param headerMapper     maps headers for {@code @Header} resolution
+     */
     public MethodSolaceListenerAdapter(InvocableHandlerMethod handlerMethod,
             SolaceMessageConverter messageConverter, SolaceHeaderMapper headerMapper) {
         super(messageConverter, headerMapper);
@@ -27,6 +32,12 @@ public class MethodSolaceListenerAdapter extends AbstractSolaceListenerAdapter {
     }
 
     @Override
+    /**
+     * {@inheritDoc}
+     *
+     * <p>The raw message and a {@link SolaceRecord} are offered as provided arguments, so a listener
+     * can declare either without a custom argument resolver.</p>
+     */
     public void onMessage(BytesXMLMessage message) throws Exception {
         Object payload = convertPayload(message);
         Map<String, Object> headers = this.headerMapper.toHeaders(message);

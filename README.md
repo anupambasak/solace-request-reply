@@ -23,7 +23,7 @@ sequenceDiagram
 
     Web->>Client: GET /sendperson
     Client->>Client: DataFaker Person + UUID correlationId
-    Client->>Solace: Publish to 'bkg/trn'<br/>correlationId, replyTo='bkgRep/trn/<pod>', instanceId
+    Client->>Solace: Publish to 'request-reply/request-1'<br/>correlationId, replyTo='request-reply/reply-1/<pod>', instanceId
     Solace->>Server: Deliver from queue request-reply-queue-1.request-reply-group-1
     Server->>Server: BEGIN Solace transaction
     Server->>Server: Uppercase name, age + 23
@@ -37,6 +37,11 @@ sequenceDiagram
 ---
 
 ## 🧩 The Solace library (`solace-library`)
+
+> **The library has its own documentation set:** [`solace-library/README.md`](solace-library/README.md),
+> with a [class reference](solace-library/docs/), an [architecture guide](solace-library/docs/architecture.md),
+> a [configuration reference](solace-library/docs/configuration.md) and
+> [troubleshooting](solace-library/docs/troubleshooting.md). What follows is the short version.
 
 Everything lives under `cris.prs.messaging.solace`.
 
@@ -79,9 +84,9 @@ supertype). Inject `ReplyingSolaceTemplate` by its own type when you want `sendA
 ```java
 @Autowired SolaceTemplate<Object> solace;
 
-solace.send("bkg/trn", person);
-solace.send("bkg/trn", correlationId, person);
-solace.send("bkg/trn", person, Map.of("tenant", "north"));   // extra headers become SDT properties
+solace.send("request-reply/request-1", person);
+solace.send("request-reply/request-1", correlationId, person);
+solace.send("request-reply/request-1", person, Map.of("tenant", "north"));   // extra headers become SDT properties
 ```
 
 ### Consuming
@@ -90,7 +95,7 @@ solace.send("bkg/trn", person, Map.of("tenant", "north"));   // extra headers be
 @SolaceListener(
         id = "booking",
         queue = "request-reply-queue-1", group = "request-reply-group-1",   // -> endpoint request-reply-queue-1.request-reply-group-1
-        topics = {"bkg/trn", "bkg/trn/>"},
+        topics = {"request-reply/request-1", "request-reply/request-1/>"},
         concurrency = "10",
         transactional = "true")
 public Person booking(Person person,
@@ -110,7 +115,7 @@ the request's `replyTo` (or to `replyDestination` when set on the annotation).
 ```java
 @Autowired ReplyingSolaceTemplate solace;
 
-RequestReplyFuture<Person> future = solace.sendAndReceive("bkg/trn", person, Person.class);
+RequestReplyFuture<Person> future = solace.sendAndReceive("request-reply/request-1", person, Person.class);
 Person reply = future.get();          // or Mono.fromFuture(future)
 long latency = future.getLatency();
 ```
@@ -129,7 +134,7 @@ public void onNotification(Notification notification) { ... }
 @SolaceListener(pattern = "POINT_TO_POINT", topics = "task/submit", queue = "task", group = "workers")
 public void onTask(Task task) { ... }
 
-@SolaceListener(pattern = "REQUEST_REPLY", topics = "bkg/trn",
+@SolaceListener(pattern = "REQUEST_REPLY", topics = "request-reply/request-1",
                 queue = "request-reply-queue-1", group = "request-reply-group-1")
 public Person booking(Person person) { ... }      // return value goes back to the requester
 ```
@@ -190,8 +195,8 @@ That id becomes the last level of the reply topic and, for queue based modes, pa
 endpoint name:
 
 ```
-reply topic     bkgRep/trn/client-7d9f4c8b6-xk2mp
-reply endpoint  bkgRep.trn.client-7d9f4c8b6-xk2mp
+reply topic     request-reply/reply-1/client-7d9f4c8b6-xk2mp
+reply endpoint  request-reply.reply-1.client-7d9f4c8b6-xk2mp
 ```
 
 Each request carries that topic in its `replyTo` field, so the server replies to the exact pod that
@@ -389,7 +394,7 @@ solace:
 
   request-reply:
     enabled: true                  # false on services that never originate requests
-    reply-topic-prefix: bkgRep/trn
+    reply-topic-prefix: request-reply/reply-1
     append-instance-id: true
     endpoint-mode: NON_DURABLE_QUEUE
     concurrency: 1

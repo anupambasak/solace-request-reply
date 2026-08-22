@@ -20,6 +20,11 @@ public class RecordSolaceListenerAdapter<T, R> extends AbstractSolaceListenerAda
 
     private final Function<SolaceRecord<T>, R> handler;
 
+    /**
+     * @param handler          receives each record; a non-null return value is published as a reply
+     * @param messageConverter converts the message body
+     * @param headerMapper     maps native fields and user properties into headers
+     */
     public RecordSolaceListenerAdapter(Function<SolaceRecord<T>, R> handler,
             SolaceMessageConverter messageConverter, SolaceHeaderMapper headerMapper) {
         super(messageConverter, headerMapper);
@@ -28,6 +33,7 @@ public class RecordSolaceListenerAdapter<T, R> extends AbstractSolaceListenerAda
 
     @Override
     @SuppressWarnings("unchecked")
+    /** {@inheritDoc} */
     public void onMessage(BytesXMLMessage message) {
         Object payload = convertPayload(message);
         Map<String, Object> headers = this.headerMapper.toHeaders(message);

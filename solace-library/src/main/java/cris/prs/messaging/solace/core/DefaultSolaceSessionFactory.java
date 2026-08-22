@@ -29,11 +29,16 @@ public class DefaultSolaceSessionFactory implements SolaceSessionFactory, Dispos
     /** The default publisher of each session, which JCSMP requires before any other publisher flow. */
     private final Map<JCSMPSession, XMLMessageProducer> producers = new ConcurrentHashMap<>();
 
+    /**
+     * @param springJCSMPFactory the factory contributed by {@code solace-java-spring-boot-starter},
+     *                           carrying the connection settings bound from {@code solace.java.*}
+     */
     public DefaultSolaceSessionFactory(SpringJCSMPFactory springJCSMPFactory) {
         this.springJCSMPFactory = springJCSMPFactory;
     }
 
     @Override
+    /** {@inheritDoc} */
     public JCSMPSession getSharedSession() {
         JCSMPSession session = this.sharedSession;
         if (session == null) {
@@ -49,6 +54,7 @@ public class DefaultSolaceSessionFactory implements SolaceSessionFactory, Dispos
     }
 
     @Override
+    /** {@inheritDoc} */
     public JCSMPSession createSession() {
         try {
             JCSMPSession session = this.springJCSMPFactory.createSession();
@@ -63,11 +69,17 @@ public class DefaultSolaceSessionFactory implements SolaceSessionFactory, Dispos
     }
 
     @Override
+    /** {@inheritDoc} */
     public XMLMessageProducer getSharedProducer() {
         return getProducer(getSharedSession());
     }
 
     @Override
+    /**
+     * {@inheritDoc}
+     *
+     * <p>One producer is cached per session, because the default-publisher rule is per connection.</p>
+     */
     public XMLMessageProducer getProducer(JCSMPSession session) {
         return this.producers.computeIfAbsent(session, key -> {
             try {
@@ -80,11 +92,13 @@ public class DefaultSolaceSessionFactory implements SolaceSessionFactory, Dispos
     }
 
     @Override
+    /** {@inheritDoc} */
     public TransactedSession createTransactedSession() {
         return createTransactedSession(getSharedSession());
     }
 
     @Override
+    /** {@inheritDoc} */
     public TransactedSession createTransactedSession(JCSMPSession session) {
         try {
             // JCSMP refuses to create additional publisher flows -- which is what a transacted
@@ -103,6 +117,11 @@ public class DefaultSolaceSessionFactory implements SolaceSessionFactory, Dispos
     }
 
     @Override
+    /**
+     * {@inheritDoc}
+     *
+     * <p>The shared session is never closed here; it is released by {@link #destroy()}.</p>
+     */
     public void closeSession(JCSMPSession session) {
         if (session == null || session == this.sharedSession) {
             return;
@@ -112,6 +131,11 @@ public class DefaultSolaceSessionFactory implements SolaceSessionFactory, Dispos
     }
 
     @Override
+    /**
+     * Close every producer and every session this factory created.
+     *
+     * <p>Called by Spring when the application context shuts down.</p>
+     */
     public void destroy() {
         this.producers.values().forEach(producer -> {
             try {
@@ -138,6 +162,9 @@ public class DefaultSolaceSessionFactory implements SolaceSessionFactory, Dispos
     public static class LoggingPublishEventHandler implements JCSMPStreamingPublishCorrelatingEventHandler {
 
         @Override
+        /**
+         * @param key the correlation key of a successfully published message, or {@code null}
+         */
         public void responseReceivedEx(Object key) {
             if (log.isTraceEnabled()) {
                 log.trace("Publish acknowledged for correlation key {}", key);
@@ -145,6 +172,11 @@ public class DefaultSolaceSessionFactory implements SolaceSessionFactory, Dispos
         }
 
         @Override
+        /**
+         * @param key       the correlation key of the failed message, or {@code null}
+         * @param cause     why the broker rejected it
+         * @param timestamp when the failure was reported
+         */
         public void handleErrorEx(Object key, JCSMPException cause, long timestamp) {
             log.error("Publish failed for correlation key {} at {}", key, timestamp, cause);
         }
