@@ -62,6 +62,7 @@ Plus what Solace makes possible and Kafka does not:
 | [Transactions](docs/transactions.md) | What a commit covers, atomic consume-and-reply, poison messages, the transaction API |
 | [Configuration reference](docs/configuration.md) | Every property, type and default |
 | [Troubleshooting](docs/troubleshooting.md) | Broker errors and startup failures, what each means, and the fix |
+| [Feature backlog](docs/feature-backlog.md) | Solace platform capabilities not yet implemented, assessed against the JCSMP feature matrix |
 
 ### Class reference
 
