@@ -9,6 +9,7 @@ import com.solacesystems.jcsmp.transaction.TransactedSession;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.DisposableBean;
 
+import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -25,7 +26,8 @@ public class DefaultSolaceSessionFactory implements SolaceSessionFactory, Dispos
 
     private volatile JCSMPSession sharedSession;
 
-    private volatile XMLMessageProducer sharedProducer;
+    /** The default publisher of each session, which JCSMP requires before any other publisher flow. */
+    private final Map<JCSMPSession, XMLMessageProducer> producers = new ConcurrentHashMap<>();
 
     public DefaultSolaceSessionFactory(SpringJCSMPFactory springJCSMPFactory) {
         this.springJCSMPFactory = springJCSMPFactory;
@@ -62,37 +64,41 @@ public class DefaultSolaceSessionFactory implements SolaceSessionFactory, Dispos
 
     @Override
     public XMLMessageProducer getSharedProducer() {
-        XMLMessageProducer producer = this.sharedProducer;
-        if (producer == null) {
-            synchronized (this) {
-                producer = this.sharedProducer;
-                if (producer == null) {
-                    try {
-                        producer = getSharedSession().getMessageProducer(new LoggingPublishEventHandler());
-                        this.sharedProducer = producer;
-                    }
-                    catch (JCSMPException ex) {
-                        throw new SolaceMessagingException("Unable to create the shared Solace producer", ex);
-                    }
-                }
+        return getProducer(getSharedSession());
+    }
+
+    @Override
+    public XMLMessageProducer getProducer(JCSMPSession session) {
+        return this.producers.computeIfAbsent(session, key -> {
+            try {
+                return key.getMessageProducer(new LoggingPublishEventHandler());
             }
-        }
-        return producer;
+            catch (JCSMPException ex) {
+                throw new SolaceMessagingException("Unable to create the Solace default publisher", ex);
+            }
+        });
     }
 
     @Override
     public TransactedSession createTransactedSession() {
+        return createTransactedSession(getSharedSession());
+    }
+
+    @Override
+    public TransactedSession createTransactedSession(JCSMPSession session) {
         try {
             // JCSMP refuses to create additional publisher flows -- which is what a transacted
-            // session's producer is -- until the session's default publisher exists ("May not
+            // session's producer is -- until this session's default publisher exists ("May not
             // create additional publisher flows until the default publisher has been created").
             // A consume-and-reply service never publishes outside a transaction, so nothing else
-            // would ever trigger it; force it here, on the session the transacted session belongs to.
-            getSharedProducer();
-            return getSharedSession().createTransactedSession();
+            // would ever trigger it.
+            getProducer(session);
+            return session.createTransactedSession();
         }
         catch (JCSMPException ex) {
-            throw new SolaceMessagingException("Unable to create a Solace transacted session", ex);
+            throw new SolaceMessagingException("Unable to create a Solace transacted session. Solace "
+                    + "limits transacted sessions per client connection (10 by default), so this can "
+                    + "mean the connection is full rather than misconfigured.", ex);
         }
     }
 
@@ -107,11 +113,15 @@ public class DefaultSolaceSessionFactory implements SolaceSessionFactory, Dispos
 
     @Override
     public void destroy() {
-        XMLMessageProducer producer = this.sharedProducer;
-        if (producer != null) {
-            producer.close();
-            this.sharedProducer = null;
-        }
+        this.producers.values().forEach(producer -> {
+            try {
+                producer.close();
+            }
+            catch (Exception ex) {
+                log.debug("Error closing a Solace producer", ex);
+            }
+        });
+        this.producers.clear();
         this.ownedSessions.forEach(session -> {
             try {
                 session.closeSession();

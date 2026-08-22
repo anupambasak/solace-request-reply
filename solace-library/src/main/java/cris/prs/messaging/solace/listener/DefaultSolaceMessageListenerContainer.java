@@ -194,6 +194,14 @@ public class DefaultSolaceMessageListenerContainer implements SolaceMessageListe
                         "Transactions require a queue based endpoint mode for container '"
                                 + getListenerId() + "'");
                 this.transactionTemplate = new TransactionTemplate(this.transactionManager);
+                int maxTransactedSessions = this.containerProperties.getMaxTransactedSessionsPerConnection();
+                Assert.state(concurrency() <= maxTransactedSessions,
+                        "Container '" + getListenerId() + "' needs one transacted session per flow, "
+                                + "but concurrency is " + concurrency() + " and Solace allows "
+                                + maxTransactedSessions + " transacted sessions per connection. "
+                                + "Lower the concurrency, or raise max-transacted-sessions on the "
+                                + "broker's client profile and solace.listener."
+                                + "max-transacted-sessions-per-connection to match.");
             }
             if (dispatch() == ContainerProperties.DispatchMode.EXECUTOR) {
                 Assert.state(this.taskExecutor != null,
@@ -219,8 +227,8 @@ public class DefaultSolaceMessageListenerContainer implements SolaceMessageListe
                 ContainerKeepAlive.acquire();
                 this.keepAliveHeld = true;
             }
-            log.info("Started Solace listener container '{}' [mode={}, endpoint={}, topics={}, concurrency={}, transactional={}, dispatch={}]",
-                    getListenerId(), endpointMode(), this.resolvedQueueName,
+            log.info("Started Solace listener container '{}' [pattern={}, mode={}, endpoint={}, topics={}, concurrency={}, transactional={}, dispatch={}]",
+                    getListenerId(), this.endpoint.getPattern(), endpointMode(), this.resolvedQueueName,
                     this.endpoint.resolveTopics(this.instanceId), concurrency(), transactional(), dispatch());
         }
         catch (JCSMPException | RuntimeException ex) {
@@ -246,7 +254,10 @@ public class DefaultSolaceMessageListenerContainer implements SolaceMessageListe
 
     private void startQueue() throws JCSMPException {
         JCSMPSession session = this.sessionFactory.getSharedSession();
-        EndpointProperties endpointProperties = this.containerProperties.getEndpoint().toEndpointProperties();
+        // The exchange pattern decides exclusive (fan-out, one endpoint per instance) versus
+        // non-exclusive (competing consumers on a shared endpoint).
+        EndpointProperties endpointProperties = this.containerProperties.getEndpoint()
+                .toEndpointProperties(this.endpoint.getAccessType());
         String queueName = this.endpoint.resolveQueueName(this.instanceId);
         Queue queue;
         if (endpointMode() == EndpointMode.NON_DURABLE_QUEUE) {
@@ -265,6 +276,16 @@ public class DefaultSolaceMessageListenerContainer implements SolaceMessageListe
         // flow binds to it, so adding a subscription first fails with 503 Unknown Queue. Flows are
         // created stopped, so nothing is delivered until the subscriptions are in place.
         int concurrency = concurrency();
+        ContainerProperties.AccessType accessType = this.endpoint.getAccessType() != null
+                ? this.endpoint.getAccessType()
+                : this.containerProperties.getEndpoint().getAccessType();
+        if (accessType == ContainerProperties.AccessType.EXCLUSIVE && concurrency > 1) {
+            log.warn("Container '{}' binds {} flows to the exclusive endpoint '{}'. Only one can be "
+                    + "active; the rest are standby at best, and a temporary endpoint rejects them "
+                    + "with '503 Max clients exceeded for queue'. Set concurrency to 1, or use a "
+                    + "non-exclusive endpoint to consume in parallel.",
+                    getListenerId(), concurrency, this.resolvedQueueName);
+        }
         for (int i = 0; i < concurrency; i++) {
             ConsumerFlowProperties flowProperties = new ConsumerFlowProperties();
             flowProperties.setEndpoint(queue);
@@ -274,7 +295,8 @@ public class DefaultSolaceMessageListenerContainer implements SolaceMessageListe
             }
             FlowReceiver flow;
             if (transactional()) {
-                TransactedSession transactedSession = this.sessionFactory.createTransactedSession();
+                TransactedSession transactedSession =
+                        this.sessionFactory.createTransactedSession(transactedConnection());
                 this.transactedSessions.add(transactedSession);
                 SolaceResourceHolder holder = new SolaceResourceHolder(transactedSession, true);
                 flow = transactedSession.createFlow(new ContainerMessageListener(holder, null),
@@ -295,6 +317,22 @@ public class DefaultSolaceMessageListenerContainer implements SolaceMessageListe
         for (FlowReceiver flow : this.flows) {
             flow.start();
         }
+    }
+
+    /**
+     * The connection this container's transacted sessions are taken from.
+     *
+     * <p>Solace caps transacted sessions per client connection, so a transactional container opens
+     * its own connection rather than competing for the shared session's allowance with every other
+     * container in the application. Two transactional listeners at concurrency 10 and 5 need 15
+     * transacted sessions between them, which no single connection will give at the default limit
+     * of 10.</p>
+     */
+    private JCSMPSession transactedConnection() {
+        if (this.ownSession == null) {
+            this.ownSession = this.sessionFactory.createSession();
+        }
+        return this.ownSession;
     }
 
     /**

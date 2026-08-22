@@ -117,6 +117,65 @@ long latency = future.getLatency();
 
 ---
 
+## 🔀 Message exchange patterns
+
+The three [Solace message exchange patterns](https://docs.solace.com/Get-Started/message-exchange-patterns.htm)
+are declared on the listener, not assembled from configuration:
+
+```java
+@SolaceListener(pattern = "PUBLISH_SUBSCRIBE", topics = "notification/broadcast", queue = "notification")
+public void onNotification(Notification notification) { ... }
+
+@SolaceListener(pattern = "POINT_TO_POINT", topics = "task/submit", queue = "task", group = "workers")
+public void onTask(Task task) { ... }
+
+@SolaceListener(pattern = "REQUEST_REPLY", topics = "bkg/trn", queue = "bkg", group = "bkgGrp")
+public Person booking(Person person) { ... }      // return value goes back to the requester
+```
+
+**Publishing is pattern agnostic.** A producer sends to a topic and is done — `solace.send(topic, payload)`
+is identical in all three cases. What makes a message fan out to everyone or go to exactly one worker
+is *how the consumers bind*, and that is the whole job of `pattern`:
+
+| | Who receives a message | Endpoint | Access type | Flows | Scaling out means |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| `PUBLISH_SUBSCRIBE` | **every** instance, its own copy | one per instance, `notification.<instance-id>`, non-durable | exclusive | 1 | more processing of the same messages |
+| `POINT_TO_POINT` | **exactly one** instance | one shared, `task.workers`, durable | non-exclusive | `concurrency` | more throughput |
+| `REQUEST_REPLY` | one instance, which replies | shared request endpoint `bkg.bkgGrp`; reply to the request's `replyTo` | non-exclusive | `concurrency` | more throughput |
+
+`PUBLISH_SUBSCRIBE` pins concurrency to one flow, because an exclusive endpoint admits a single
+consumer — binding more is not slow, it is refused (`503 Max clients exceeded for queue`).
+Parallelism in fan-out comes from running more instances, which is the whole point of the pattern.
+The other two share a non-exclusive endpoint, so they consume with `solace.listener.concurrency`
+flows each.
+
+The difference between the first two rows is a single decision — whether each instance gets its own
+endpoint or they all share one — which is exactly why it is worth naming once rather than expressing
+as three flags that have to agree. Anything you set explicitly still wins; the pattern only fills in
+what you left out:
+
+```java
+// Fan-out that survives restarts: still one endpoint per instance, but durable.
+@SolaceListener(pattern = "PUBLISH_SUBSCRIBE", endpointMode = "DURABLE_QUEUE", ...)
+```
+
+### Seeing it work
+
+```bash
+curl "http://localhost:8080/publish-notification?message=deploy+finished"   # fan-out
+curl "http://localhost:8080/submit-task?description=reindex"                # one worker
+curl "http://localhost:8080/submit-task-batch?count=5"                      # one transaction
+```
+
+Scale the server to prove the distinction:
+
+```bash
+kubectl scale deployment/server --replicas=3 -n anupam
+kubectl logs -l app=server -n anupam --tail=50 | grep -E "Notification|Task"
+```
+
+One notification appears in **all three** pods' logs; one task appears in **exactly one**.
+
 ## 🌐 Multi-instance handling: the reply topic carries the pod name
 
 Every instance resolves an **instance id** (`HostnameInstanceIdProvider`) from, in order:
@@ -210,6 +269,31 @@ Three things must all hold for a message to reach the DMQ, and the library cover
 > The container logs a warning when it detects this (`ENDPOINT_PROPERTY_MISMATCH`). To apply it,
 > delete the queue on the broker so it is recreated, or set it through the admin UI or SEMP.
 
+### Transacted sessions are a per-connection budget
+
+A transactional container takes **one transacted session per flow**, and Solace allows only so many
+per client connection — 10 by default. Two transactional listeners at concurrency 10 and 5 need 15
+between them, which one connection will not give (`503 Max Transacted Sessions Exceeded`).
+
+So each transactional container opens its **own connection** for its transacted sessions, rather
+than competing for the shared session's allowance with every other container in the application.
+Non-transactional containers and all publishing stay on the shared session.
+
+That leaves one rule to respect: a single container's `concurrency` must fit inside the per-connection
+limit. The container checks this at startup and refuses with an explanatory message rather than
+letting the broker reject the 11th bind:
+
+```yaml
+solace:
+  listener:
+    concurrency: 10
+    max-transacted-sessions-per-connection: 10   # match the broker's client profile
+```
+
+The `SolaceTransactionManager` path — `@Transactional` on the requesting side — takes transacted
+sessions from the shared session for the life of each transaction, so the limit there applies to
+*concurrent in-flight transactions*, not to configuration.
+
 ### Keeping a consumer-only application alive
 
 Every JCSMP thread is a daemon thread, so a listener-only Spring Boot service with no web server
@@ -282,6 +366,7 @@ solace:
     dmq-eligible: true
 
   listener:                        # defaults for every @SolaceListener container
+    max-transacted-sessions-per-connection: 10   # match the broker's client profile
     dispatch: INLINE               # or EXECUTOR (non-transactional containers only)
     dispatch-queue-capacity: 256   # per-flow hand-off bound in EXECUTOR dispatch
     keep-alive: true               # hold the JVM open; needed by consumer-only apps with no web server
@@ -322,7 +407,7 @@ transactional durable listener.
 ```
 solace-request-reply/
  ├── gradle/libs.versions.toml     # version catalog
- ├── shared-dto/                   # Person, ReplyResult — the contract between client and server
+ ├── shared-dto/                   # Person, Notification, Task, ReplyResult — the client/server contract
  ├── solace-library/               # the Spring-for-Solace library (auto-configured starter)
  ├── client/                       # WebFlux REST service, requester
  ├── server/                       # @SolaceListener request handler
@@ -347,6 +432,9 @@ kubectl port-forward svc/client 8080:80 -n anupam
 | `GET /sendperson` | one request-reply exchange, returns payload + latency |
 | `GET /sendperson-tx` | same, with the request published in a Solace transaction |
 | `GET /send-bulk-stream` | 100 000 exchanges at concurrency 1 000, streamed as they complete |
+| `GET /publish-notification?message=…` | publish-subscribe: broadcast to every server instance |
+| `GET /submit-task?description=…` | point-to-point: exactly one worker instance handles it |
+| `GET /submit-task-batch?count=…` | several tasks published in one Solace transaction |
 
 ```json
 {
@@ -358,6 +446,29 @@ kubectl port-forward svc/client 8080:80 -n anupam
 ```
 
 ---
+
+## 🧪 Tests
+
+```bash
+gradle :client:test :server:test
+```
+
+| Test | Covers |
+| :--- | :--- |
+| `client` &middot; `NotificationPublisherTest` | the broadcast producer addresses a topic and stamps each notification with its own id |
+| `client` &middot; `TaskDispatcherTest` | one publish per task, single and batched |
+| `server` &middot; `NotificationSubscriberTest` | every delivered copy is processed; the handler returns void |
+| `server` &middot; `TaskWorkerTest` | each task handed to this instance is processed once |
+| `server` &middot; `ExchangePatternConfigurationTest` | the wiring each `pattern` implies — endpoint naming, durability and access type |
+
+`ExchangePatternConfigurationTest` is the one worth reading. It pins down the difference between the
+patterns at the level where it can silently go wrong: that `POINT_TO_POINT` resolves to the *same*
+endpoint name on every instance (`task.workers` regardless of host) while `PUBLISH_SUBSCRIBE`
+resolves to a different one per instance. Get that backwards and nothing throws — the service just
+quietly duplicates every task, or drops two thirds of them.
+
+The tests need no broker: they exercise the handlers and the endpoint resolution directly, with the
+template mocked. End-to-end behaviour is verified by scaling the deployment as shown above.
 
 ## 📋 Technology Stack
 

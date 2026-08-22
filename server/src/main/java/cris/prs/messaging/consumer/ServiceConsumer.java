@@ -26,6 +26,7 @@ public class ServiceConsumer {
 
     @SolaceListener(
             id = "booking",
+            pattern = "REQUEST_REPLY",
             queue = "${app.request.queue:bkg}",
             group = "${app.request.group:bkgGrp}",
             topics = {"${app.request.topic:bkg/trn}", "${app.request.topic:bkg/trn}/>"},

@@ -54,6 +54,14 @@ public class ContainerProperties {
      */
     private boolean keepAlive = true;
 
+    /**
+     * Transacted sessions Solace allows on one client connection. A transactional container takes
+     * one per flow, so it opens its own connection and refuses to start if {@code concurrency}
+     * exceeds this. Matches the broker's client-profile default; raise both together if you raise
+     * it on the broker.
+     */
+    private int maxTransactedSessionsPerConnection = 10;
+
     private Duration shutdownTimeout = Duration.ofSeconds(10);
 
     private int phase = Integer.MAX_VALUE - 100;
@@ -83,8 +91,17 @@ public class ContainerProperties {
         private final DeadMessageQueue deadMessageQueue = new DeadMessageQueue();
 
         public EndpointProperties toEndpointProperties() {
+            return toEndpointProperties(null);
+        }
+
+        /**
+         * @param accessTypeOverride the access type the endpoint's exchange pattern requires, or
+         *                           {@code null} to use the configured default
+         */
+        public EndpointProperties toEndpointProperties(AccessType accessTypeOverride) {
             EndpointProperties properties = new EndpointProperties();
-            properties.setAccessType(this.accessType.value());
+            properties.setAccessType(
+                    (accessTypeOverride != null ? accessTypeOverride : this.accessType).value());
             properties.setPermission(this.permission.value());
             properties.setQuota(this.quotaMb);
             properties.setRespectsMsgTTL(this.respectsTtl);

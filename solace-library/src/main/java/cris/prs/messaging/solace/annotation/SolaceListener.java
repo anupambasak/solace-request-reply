@@ -27,6 +27,14 @@ public @interface SolaceListener {
     /** Container id; generated when not set. */
     String id() default "";
 
+    /**
+     * {@code PUBLISH_SUBSCRIBE}, {@code POINT_TO_POINT} or {@code REQUEST_REPLY}. Sets the endpoint
+     * wiring that realises the pattern &mdash; a per-instance endpoint for fan-out, one shared
+     * non-exclusive endpoint for competing consumers. Attributes set explicitly here always win;
+     * empty leaves every default to the container factory.
+     */
+    String pattern() default "";
+
     /** Topic subscriptions, e.g. {@code "bkg/trn"} or {@code "bkg/trn/>"}. */
     String[] topics() default {};
 

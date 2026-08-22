@@ -2,12 +2,26 @@ server:
   port: 8080
 
 app:
+  # request-reply: shared request endpoint, reply to the requester's own destination
   request:
     queue: bkg
     group: bkgGrp
     topic: bkg/trn
     concurrency: 10
     # Consume the request and publish the reply in one Solace local transaction
+    transactional: true
+
+  # publish-subscribe: every instance binds its own endpoint and receives every notification
+  notification:
+    queue: notification
+    topic: notification/broadcast
+
+  # point-to-point: all instances compete over the one shared endpoint task.workers
+  task:
+    queue: task
+    group: workers
+    topic: task/submit
+    concurrency: 5
     transactional: true
 
 solace:
@@ -27,7 +41,11 @@ solace:
 
   listener:
     endpoint-mode: DURABLE_QUEUE
+    # A transactional container takes one transacted session per flow, and Solace allows 10 per
+    # client connection by default. Each transactional container therefore opens its own connection,
+    # so this only has to fit within the limit per container, not across all of them.
     concurrency: 10
+    max-transacted-sessions-per-connection: 10
     transactional: true
     # INLINE runs the listener on the JCSMP delivery thread. EXECUTOR would hand it to the
     # solaceListenerTaskExecutor instead, but it is rejected while transactional is true: a Solace

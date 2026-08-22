@@ -1,8 +1,12 @@
 package cris.prs.messaging.rest;
 
+import cris.prs.messaging.Notification;
 import cris.prs.messaging.Person;
+import cris.prs.messaging.Task;
 import cris.prs.messaging.ReplyResult;
 import cris.prs.messaging.service.BookingRequestService;
+import cris.prs.messaging.service.NotificationPublisher;
+import cris.prs.messaging.service.TaskDispatcher;
 import cris.prs.messaging.solace.requestreply.ReplyingSolaceTemplate;
 import cris.prs.messaging.solace.requestreply.RequestReplyFuture;
 import lombok.RequiredArgsConstructor;
@@ -10,7 +14,10 @@ import lombok.extern.slf4j.Slf4j;
 import net.datafaker.Faker;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+import java.util.List;
+
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 import reactor.core.scheduler.Schedulers;
@@ -31,6 +38,10 @@ public class RestService {
     private final ReplyingSolaceTemplate solace;
 
     private final BookingRequestService bookingRequestService;
+
+    private final NotificationPublisher notificationPublisher;
+
+    private final TaskDispatcher taskDispatcher;
 
     @Value("${app.request.topic:bkg/trn}")
     private String requestTopic;
@@ -62,6 +73,32 @@ public class RestService {
                 bookingRequestService.sendInTransaction(this.requestTopic, randomPerson());
         return toResult(future);
     }
+
+    // --- publish-subscribe: every subscribing instance receives its own copy -------------
+
+    @GetMapping("/publish-notification")
+    public Mono<Notification> publishNotification(
+            @RequestParam(defaultValue = "hello from the client") String message) {
+        return Mono.fromCallable(() -> notificationPublisher.publish(message));
+    }
+
+    // --- point-to-point: exactly one worker instance handles each task -------------------
+
+    @GetMapping("/submit-task")
+    public Mono<Task> submitTask(@RequestParam(defaultValue = "process booking") String description) {
+        return Mono.fromCallable(() -> taskDispatcher.dispatch(description));
+    }
+
+    /** Submit a batch inside one Solace transaction: all tasks are released together, or none. */
+    @GetMapping("/submit-task-batch")
+    public Mono<List<Task>> submitTaskBatch(@RequestParam(defaultValue = "5") int count) {
+        List<String> descriptions = java.util.stream.IntStream.rangeClosed(1, count)
+                .mapToObj(i -> "batch task " + i)
+                .toList();
+        return Mono.fromCallable(() -> taskDispatcher.dispatchBatch(descriptions));
+    }
+
+    // --- request-reply -------------------------------------------------------------------
 
     @GetMapping("/send-bulk-stream")
     public Flux<ReplyResult<Person>> sendBulkStream() {

@@ -4,6 +4,10 @@ server:
 app:
   request:
     topic: bkg/trn
+  notification:
+    topic: notification/broadcast
+  task:
+    topic: task/submit
 
 solace:
   # Broker connection: solace-java-spring-boot-starter

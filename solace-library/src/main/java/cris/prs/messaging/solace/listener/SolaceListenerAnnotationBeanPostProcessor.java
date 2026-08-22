@@ -3,6 +3,7 @@ package cris.prs.messaging.solace.listener;
 import com.solacesystems.jcsmp.BytesXMLMessage;
 import cris.prs.messaging.solace.annotation.SolaceListener;
 import cris.prs.messaging.solace.core.EndpointMode;
+import cris.prs.messaging.solace.core.ExchangePattern;
 import cris.prs.messaging.solace.core.SolaceRecord;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.aop.support.AopUtils;
@@ -98,6 +99,11 @@ public class SolaceListenerAnnotationBeanPostProcessor
         endpoint.setSelector(resolve(annotation.selector()));
         endpoint.setReplyDestination(resolve(annotation.replyDestination()));
 
+        String pattern = resolve(annotation.pattern());
+        if (StringUtils.hasText(pattern)) {
+            endpoint.setPattern(ExchangePattern.valueOf(pattern.trim().toUpperCase()));
+        }
+
         String endpointMode = resolve(annotation.endpointMode());
         if (StringUtils.hasText(endpointMode)) {
             endpoint.setEndpointMode(EndpointMode.valueOf(endpointMode.trim().toUpperCase()));
@@ -109,8 +115,11 @@ public class SolaceListenerAnnotationBeanPostProcessor
         endpoint.setConcurrency(resolveInteger(annotation.concurrency()));
         endpoint.setTransactional(resolveBoolean(annotation.transactional()));
         endpoint.setAutoStartup(resolveBoolean(annotation.autoStartup()));
-        endpoint.setAppendInstanceIdToQueue(Boolean.TRUE.equals(resolveBoolean(annotation.appendInstanceIdToQueue())));
-        endpoint.setAppendInstanceIdToTopics(Boolean.TRUE.equals(resolveBoolean(annotation.appendInstanceIdToTopics())));
+        endpoint.setAppendInstanceIdToQueue(resolveBoolean(annotation.appendInstanceIdToQueue()));
+        endpoint.setAppendInstanceIdToTopics(resolveBoolean(annotation.appendInstanceIdToTopics()));
+
+        // Last, so that anything stated explicitly above wins over the pattern's defaults.
+        endpoint.applyPatternDefaults();
 
         endpoint.setPayloadType(resolvePayloadType(listenerMethod.method()));
         InvocableHandlerMethod handlerMethod = this.handlerMethodFactory
