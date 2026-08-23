@@ -39,9 +39,11 @@ sequenceDiagram
 ## 🧩 The Solace library (`solace-library`)
 
 > **The library has its own documentation set:** [`solace-library/README.md`](solace-library/README.md),
-> with a [class reference](solace-library/docs/), an [architecture guide](solace-library/docs/architecture.md),
-> a [configuration reference](solace-library/docs/configuration.md) and
-> [troubleshooting](solace-library/docs/troubleshooting.md). What follows is the short version.
+> as eighteen numbered guides under [`solace-library/docs/`](solace-library/docs/) — start with
+> [1. Overview](solace-library/docs/01-overview.md) and [2. Getting started](solace-library/docs/02-getting-started.md),
+> or go straight to [4. Spring integration](solace-library/docs/04-spring-integration.md),
+> [5. Configuration](solace-library/docs/05-configuration.md) or
+> [17. Troubleshooting](solace-library/docs/17-troubleshooting.md). What follows is the short version.
 
 Everything lives under `cris.prs.messaging.solace`.
 

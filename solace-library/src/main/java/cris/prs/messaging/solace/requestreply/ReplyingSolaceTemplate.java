@@ -195,7 +195,6 @@ public class ReplyingSolaceTemplate extends SolaceTemplate<Object>
         future.whenComplete((reply, error) -> scheduled.cancel(false));
     }
 
-    /** Reply listener: matches the correlation id and completes the waiting future. */
     /**
      * Reply listener: match the correlation id and complete the waiting future.
      *

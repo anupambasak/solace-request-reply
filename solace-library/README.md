@@ -1,182 +1,153 @@
 # solace-library
 
-Spring messaging for **Solace PubSub+**, modelled on
-[Spring for Apache Kafka](https://spring.io/projects/spring-kafka) and built directly on the Solace
-[JCSMP](https://docs.solace.com/API/API-Developer-Guide-Java/Java-API-Overview.htm) API.
+**A Spring integration library for Solace PubSub+, built on JCSMP.**
 
-```java
-@SolaceListener(pattern = "POINT_TO_POINT", topics = "work/submit",
-        queue = "work", group = "workers", transactional = "true")
-public void onWork(WorkItem item) {
-    process(item);
-}
-```
+The programming model Spring for Apache Kafka gives a Kafka application, for Solace: a template for
+sending, an annotation for receiving, a container that manages connections and threading, a
+`PlatformTransactionManager`, and auto-configuration that wires it all from `application.yaml`.
 
-```java
-@Autowired SolaceTemplate<Object> solace;
-solace.send("events/created", event);
-
-@Autowired ReplyingSolaceTemplate replying;
-Ack ack = replying.sendAndReceive("orders/place", order, Ack.class).get();
-```
-
-Put the module on the classpath, set `solace.java.host`, and the auto-configuration does the rest —
-no `@EnableSolace` required.
+No Spring Cloud Stream, no binder, no JMS.
 
 ---
 
-## What it gives you
+## Quick look
 
-| Spring for Apache Kafka | This library |
-| :--- | :--- |
-| `@EnableKafka` | `@EnableSolace` |
-| `@KafkaListener` | `@SolaceListener` |
-| `KafkaTemplate` | `SolaceTemplate` |
-| `ReplyingKafkaTemplate` | `ReplyingSolaceTemplate` |
-| `ProducerFactory` / `ConsumerFactory` | `SolaceSessionFactory` |
-| `ConcurrentKafkaListenerContainerFactory` | `DefaultSolaceListenerContainerFactory` |
-| `KafkaListenerEndpointRegistry` | `SolaceListenerEndpointRegistry` |
-| `KafkaTransactionManager` | `SolaceTransactionManager` |
-| `ConsumerRecord` | `SolaceRecord` |
+```yaml
+solace:
+  java:
+    host: tcp://localhost:55555
+    msg-vpn: default
+    client-username: default
+    client-password: default
+```
 
-Plus what Solace makes possible and Kafka does not:
+```java
+// send
+@Autowired SolaceTemplate<Object> solace;
+solace.send("orders/created", order);
 
-* **All three [exchange patterns](docs/exchange-patterns.md)** — publish-subscribe, point-to-point and
-  request-reply — declared as `@SolaceListener(pattern = ...)` rather than assembled from flags.
-* **[Local transactions](docs/transactions.md)** driven by `@Transactional` or a
-  `TransactionTemplate`, so consuming a request and publishing its reply commit as one unit.
-* **Per-instance reply destinations**, so request-reply works across a scaled deployment with no
-  broker-side selector.
-* **Three endpoint modes** — durable queue, temporary queue, direct topic subscription.
+// receive — one instance in the group gets each message
+@SolaceListener(pattern = "POINT_TO_POINT", queue = "orders", group = "workers",
+        topics = "orders/created", concurrency = "5")
+public void onOrder(Order order) { … }
+
+// receive — every instance gets a copy
+@SolaceListener(pattern = "PUBLISH_SUBSCRIBE", queue = "audit", topics = "orders/created")
+public void onOrderForAudit(Order order) { … }
+
+// respond — returning a value is the whole opt-in
+@SolaceListener(pattern = "REQUEST_REPLY", queue = "pricing", group = "v1", topics = "pricing/quote")
+public Quote quote(PriceRequest request) { return new Quote(...); }
+
+// request
+@Autowired ReplyingSolaceTemplate replying;
+RequestReplyFuture<Quote> future = replying.sendAndReceive("pricing/quote", request, Quote.class);
+Mono.fromFuture(future).subscribe(...);
+```
+
+No `@EnableSolace` step: auto-configuration turns annotation-driven listeners on, exactly as Spring
+Boot does for Kafka.
 
 ---
 
 ## Documentation
 
-### Concepts
+Read in order for a full picture, or jump to what you need.
 
-| Document | Contents |
+### Start here
+
+| | |
 | :--- | :--- |
-| [Architecture](docs/architecture.md) | Layering, startup sequence, message flow, threading model, connection budget, lifecycle phases |
-| [Exchange patterns](docs/exchange-patterns.md) | Publish-subscribe, point-to-point, request-reply, and the wiring each implies |
-| [Transactions](docs/transactions.md) | What a commit covers, atomic consume-and-reply, poison messages, the transaction API |
-| [Configuration reference](docs/configuration.md) | Every property, type and default |
-| [Troubleshooting](docs/troubleshooting.md) | Broker errors and startup failures, what each means, and the fix |
-| [Feature backlog](docs/feature-backlog.md) | Solace platform capabilities not yet implemented, assessed against the JCSMP feature matrix |
+| **[1. Overview](docs/01-overview.md)** | What it is, why it exists, the Spring-for-Kafka mapping, the Solace concepts you need, and what it deliberately does not do |
+| **[2. Getting started](docs/02-getting-started.md)** | Dependency, configuration, and complete working examples of all three patterns plus transactions |
+| **[3. Architecture](docs/03-architecture.md)** | Layers, the runtime object graph, startup and shutdown sequences, the send and receive paths, the threading model, session strategy |
 
-### Class reference
+### Spring and configuration
 
-| Package | Document | Classes |
-| :--- | :--- | :--- |
-| `…solace.annotation` | [annotations.md](docs/annotations.md) | `@EnableSolace`, `@SolaceListener` |
-| `…solace.core` | [core.md](docs/core.md) | `SolaceSessionFactory`, `DefaultSolaceSessionFactory`, `SolaceOperations`, `SolaceTemplate`, `SolaceMessageConverter`, `JacksonSolaceMessageConverter`, `SolaceHeaderMapper`, `DefaultSolaceHeaderMapper`, `SolaceHeaders`, `SolaceRecord`, `EndpointMode`, `ExchangePattern`, `SolaceMessagingException` |
-| `…solace.listener` | [listener.md](docs/listener.md) | `SolaceMessageListener`, `SolaceListenerErrorHandler`, `SolaceMessageListenerContainer`, `DefaultSolaceMessageListenerContainer`, `SolaceListenerEndpoint`, `ContainerProperties`, `ContainerKeepAlive`, `AbstractSolaceListenerAdapter`, `MethodSolaceListenerAdapter`, `RecordSolaceListenerAdapter`, `SolaceListenerContainerFactory`, `DefaultSolaceListenerContainerFactory`, `SolaceListenerEndpointRegistry`, `SolaceListenerAnnotationBeanPostProcessor`, `SolaceListenerConfigUtils` |
-| `…solace.requestreply` | [request-reply.md](docs/request-reply.md) | `ReplyingSolaceTemplate`, `RequestReplyFuture`, `ReplyEndpointSpec`, `ReplyingSolaceTemplateFactory`, `SolaceReplyTimeoutException` |
-| `…solace.transaction` | [transactions.md](docs/transactions.md#class-reference) | `SolaceTransactionManager`, `SolaceResourceHolder`, `SolaceTransactionUtils` |
-| `…solace.support` | [support.md](docs/support.md) | `InstanceIdProvider`, `HostnameInstanceIdProvider`, `ReplyDestinationResolver` |
-| `cris.prs.solace.autoconfigure` | [autoconfiguration.md](docs/autoconfiguration.md) | `SolaceAutoConfiguration`, `SolaceAnnotationDrivenConfiguration`, `SolaceBootstrapConfiguration`, `SolaceProperties` |
+| | |
+| :--- | :--- |
+| **[4. Spring integration](docs/04-spring-integration.md)** | Every framework contract the library implements: auto-configuration and its conditions, property binding, the `BeanPostProcessor`, listener method signatures, lifecycle phases, the transaction manager, and how to override any of it |
+| **[5. Configuration reference](docs/05-configuration.md)** | Every property, type, default and effect — plus precedence rules and environment-specific recipes |
+| **[6. Annotations](docs/06-annotations.md)** | `@EnableSolace` and `@SolaceListener`, attribute by attribute, with worked declarations |
+
+### Using it
+
+| | |
+| :--- | :--- |
+| **[7. Exchange patterns](docs/07-exchange-patterns.md)** | Publish-subscribe, point-to-point and request-reply: what each one wires up, and how to choose |
+| **[8. Producing messages](docs/08-producing-messages.md)** | `SolaceTemplate`, delivery defaults, headers, and the single/multiple/batch distinction |
+| **[9. Consuming messages](docs/09-consuming-messages.md)** | Containers, endpoint naming, provisioning, concurrency, dispatch modes, acknowledgement, redelivery and the DMQ |
+| **[10. Request-reply](docs/10-request-reply.md)** | Correlation, per-instance reply destinations, timeouts, futures, and when to give a service its own reply endpoint |
+| **[11. Transactions](docs/11-transactions.md)** | Solace local transactions through `@Transactional` and `TransactionTemplate`, the transacted-session budget, and the database interaction |
+
+### Reference
+
+| | |
+| :--- | :--- |
+| **[12. Conversion and headers](docs/12-conversion-and-headers.md)** | The converter and header-mapper SPIs, `SolaceHeaders`, `SolaceRecord`, and where the message body actually lives |
+| **[13. Multi-instance](docs/13-multi-instance.md)** | Instance ids, destination naming, and what changes when you scale |
+| **[14. Extension points](docs/14-extension-points.md)** | Every replaceable collaborator, with examples |
+| **[15. Class reference](docs/15-class-reference.md)** | Every public type, one table per package |
+| **[16. Operations](docs/16-operations.md)** | Logging, what to monitor, sizing, deployment, and a pre-flight checklist |
+| **[17. Troubleshooting](docs/17-troubleshooting.md)** | Symptom → cause → fix, for everything that has actually gone wrong |
+| **[18. Feature backlog](docs/18-feature-backlog.md)** | Solace platform capabilities assessed against what is implemented |
 
 ---
 
-## Getting started
+## Package layout
 
-### Dependency
+```
+cris.prs.messaging.solace
+ ├── core/           sessions, SolaceTemplate, converters, headers, records, enums
+ ├── listener/       containers, factory, registry, adapters, the annotation post-processor
+ ├── requestreply/   ReplyingSolaceTemplate, ReplyEndpointSpec, the factory, futures
+ ├── transaction/    SolaceTransactionManager, resource holder, utils
+ ├── support/        InstanceIdProvider, ReplyDestinationResolver
+ └── annotation/     @EnableSolace, @SolaceListener
 
-```groovy
-dependencies {
-    implementation project(":solace-library")
-}
+cris.prs.solace.autoconfigure     ← deliberately OUTSIDE cris.prs.messaging
+ └── SolaceAutoConfiguration, SolaceProperties, bootstrap and annotation-driven config
 ```
 
-The module brings `solace-java-spring-boot-starter`, `spring-messaging`, `spring-tx` and
-`jackson-databind` transitively.
+The auto-configuration package is separate on purpose. A component-scanned `@AutoConfiguration` class
+is evaluated too early — before the Solace starter has contributed `SpringJCSMPFactory` — and every
+bean silently disappears. [4.9](docs/04-spring-integration.md#49-why-the-auto-configuration-package-is-separate)
+explains it in full.
 
-### Minimum configuration
+---
 
-```yaml
-solace:
-  java:
-    host: tcp://broker:55555
-    msgVpn: default
-    clientUsername: app
-    clientPassword: secret
-```
+## The Spring for Kafka mapping
 
-Everything else has a default — see the [configuration reference](docs/configuration.md).
+| Spring for Apache Kafka | This library |
+| :--- | :--- |
+| `KafkaTemplate` | `SolaceTemplate` |
+| `ReplyingKafkaTemplate` | `ReplyingSolaceTemplate` |
+| `@KafkaListener` | `@SolaceListener` |
+| `@EnableKafka` | `@EnableSolace` |
+| `KafkaListenerEndpointRegistry` | `SolaceListenerEndpointRegistry` |
+| `ConcurrentMessageListenerContainer` | `DefaultSolaceMessageListenerContainer` |
+| `KafkaTransactionManager` | `SolaceTransactionManager` |
+| `ConsumerRecord` | `SolaceRecord` |
+| `spring.kafka.*` | `solace.*` |
 
-### Publish
+Full table, and where the two genuinely differ, in [1.2](docs/01-overview.md#12-the-spring-for-kafka-mapping).
 
-```java
-@Autowired SolaceTemplate<Object> solace;
+---
 
-solace.send("events/created", event);                              // topic
-solace.send("events/created", correlationId, event);               // with a correlation id
-solace.send("events/created", event, Map.of("tenant", "north"));   // extra SDT properties
-solace.send("queue:audit", event);                                 // straight to a queue
-```
-
-### Consume
-
-```java
-@SolaceListener(pattern = "PUBLISH_SUBSCRIBE", topics = "events/created", queue = "events")
-public void onEvent(Event event) { }
-```
-
-Methods may also take `Message<T>`, `SolaceRecord<T>`, the raw `BytesXMLMessage`, and
-`@Header` / `@Headers` parameters. A non-void return value is published to the request's `replyTo`.
-
-### Request-reply
-
-```java
-@Autowired ReplyingSolaceTemplate solace;
-
-RequestReplyFuture<Ack> future = solace.sendAndReceive("orders/place", order, Ack.class);
-Ack ack = future.get();
-long latency = future.getLatency();
-```
-
-Replies arrive on `<reply-topic-prefix>/<instance-id>`, unique to this pod, so several replicas can
-issue requests concurrently without a broker-side filter.
-
-### API documentation
+## Building
 
 ```bash
-gradle :solace-library:javadoc      # build/docs/javadoc/index.html
+gradle :solace-library:compileJava
+gradle :solace-library:test
+gradle :solace-library:javadoc        # -Xdoclint:all; a broken reference fails the build
 ```
 
-Every public and protected member carries javadoc with its parameters, return value and defaults.
-The task runs with `-Xdoclint:all`, so a broken reference fails the build.
-
-> Lombok-generated accessors do not exist in the source javadoc reads, so never write
-> `{@link #getSomething()}` for a field with `@Getter` — the reference cannot be resolved and
-> doclint reports it as an error. Use `{@code something}` instead.
-
----
-
-## Design notes
-
-Three decisions worth knowing before extending the library:
-
-**The exchange pattern is a policy, not a flag.** Fan-out and competing consumers differ only in
-whether each instance binds its own endpoint or they all share one. Expressed as three independent
-settings, the wrong combinations outnumber the right ones — and a wrong one fails silently by
-duplicating work or dropping most of it. `pattern` names the intent once and fills in the rest.
-
-**A commit covers the whole session.** A Solace transacted session's `commit()` acknowledges every
-message delivered on that session, not just the one in hand. That is why transacted flows are driven
-by the thread their messages arrive on, why `EXECUTOR` dispatch is refused for them, and why each
-transactional container gets its own connection.
-
-**Every JCSMP thread is a daemon thread.** A consumer-only application would otherwise start
-perfectly and exit immediately. The library holds the process open itself rather than relying on a
-web server being present.
+Javadoc lands in `build/docs/javadoc/index.html`. One editing rule: **never `{@link}` a
+Lombok-generated accessor** — Lombok generates after javadoc reads the source, so the reference cannot
+be resolved and doclint reports it as an error. Use `{@code …}`.
 
 ---
 
 ## Requirements
 
-| | |
-| :--- | :--- |
-| Java | 24 (source and target level of this build) |
-| Spring Boot | 3.5.x |
-| Solace JCSMP | 10.27.x, via `solace-spring-boot-bom` 2.5.0 |
+Java 21+ · Spring Boot 3.5.x · Solace JCSMP 10.27.x via `solace-java-spring-boot-starter` · Jackson

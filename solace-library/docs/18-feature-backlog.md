@@ -1,4 +1,4 @@
-# Feature backlog
+# 18. Feature backlog
 
 An assessment of what the [Solace platform](https://docs.solace.com/Get-Started/solace-platform.htm)
 offers against what `solace-library` implements today.
@@ -251,3 +251,7 @@ Stated explicitly so the list is honest about scope.
 
 Items 1–4 of that order are all small or medium and together remove every "you cannot express that"
 answer in the current error-handling and consumer-tuning story.
+
+---
+
+**Back to:** [README](../README.md)
