@@ -21,6 +21,9 @@ public final class SolaceMetricNames {
     /** Timer: listener invocations, tagged {@value #TAG_RESULT} and {@value #TAG_EXCEPTION}. */
     public static final String LISTENER_PROCESSING = "solace.listener.processing";
 
+    /** Counter: settlement outcomes applied to failed messages, tagged {@value #TAG_OUTCOME}. */
+    public static final String LISTENER_SETTLEMENT = "solace.listener.settlement";
+
     /** Gauge: {@code 1} while a container is running, {@code 0} otherwise. */
     public static final String LISTENER_RUNNING = "solace.listener.running";
 
@@ -57,6 +60,9 @@ public final class SolaceMetricNames {
 
     /** Tag: the request destination. */
     public static final String TAG_DESTINATION = "destination";
+
+    /** Tag: the {@code SettlementOutcome} applied &mdash; {@code ACCEPTED}, {@code FAILED}, {@code REJECTED} or {@code NONE}. */
+    public static final String TAG_OUTCOME = "outcome";
 
     /** Tag: {@code success} or {@code failure}. */
     public static final String TAG_RESULT = "result";

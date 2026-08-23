@@ -13,10 +13,12 @@ import com.solacesystems.jcsmp.JCSMPProperties;
 import com.solacesystems.jcsmp.JCSMPSession;
 import com.solacesystems.jcsmp.Queue;
 import com.solacesystems.jcsmp.Topic;
+import com.solacesystems.jcsmp.XMLMessage;
 import com.solacesystems.jcsmp.XMLMessageConsumer;
 import com.solacesystems.jcsmp.XMLMessageListener;
 import com.solacesystems.jcsmp.transaction.TransactedSession;
 import cris.prs.messaging.solace.core.EndpointMode;
+import cris.prs.messaging.solace.core.SettlementOutcome;
 import cris.prs.messaging.solace.core.SolaceMessagingException;
 import cris.prs.messaging.solace.core.SolaceSessionFactory;
 import cris.prs.messaging.solace.transaction.SolaceResourceHolder;
@@ -200,6 +202,43 @@ public class DefaultSolaceMessageListenerContainer implements SolaceMessageListe
         return configured;
     }
 
+    /**
+     * What to do with a message whose listener threw.
+     *
+     * <p>The endpoint's override wins, then the container's {@code errorOutcome}, then the deprecated
+     * {@code ackOnError} &mdash; {@code true} as {@code ACCEPTED}, {@code false} as {@code NONE}.</p>
+     *
+     * @return the outcome to apply when no error handler overrides it, never {@code null}
+     */
+    private SettlementOutcome errorOutcome() {
+        if (this.endpoint.getErrorOutcome() != null) {
+            return this.endpoint.getErrorOutcome();
+        }
+        if (this.containerProperties.getErrorOutcome() != null) {
+            return this.containerProperties.getErrorOutcome();
+        }
+        return this.containerProperties.isAckOnError()
+                ? SettlementOutcome.ACCEPTED
+                : SettlementOutcome.NONE;
+    }
+
+    /**
+     * Whether this container's flows negotiate the negative settlement outcomes at bind time.
+     *
+     * <p>Explicit configuration wins; otherwise it is derived from the resolved outcome, since a
+     * container that will never send {@code FAILED} or {@code REJECTED} should not ask the broker for
+     * capabilities it does not need.</p>
+     *
+     * @return {@code true} to request {@code FAILED} and {@code REJECTED} on every flow
+     */
+    private boolean negotiateSettlementOutcomes() {
+        Boolean configured = this.containerProperties.getNegativeAcknowledgement();
+        if (configured != null) {
+            return configured;
+        }
+        return errorOutcome().requiresNegotiation();
+    }
+
     private boolean transactional() {
         return this.endpoint.getTransactional() != null
                 ? this.endpoint.getTransactional()
@@ -365,6 +404,12 @@ public class DefaultSolaceMessageListenerContainer implements SolaceMessageListe
             ConsumerFlowProperties flowProperties = new ConsumerFlowProperties();
             flowProperties.setEndpoint(queue);
             flowProperties.setStartState(false);
+            if (negotiateSettlementOutcomes() && !transactional()) {
+                // A flow may only send an outcome it asked for when it bound. Requesting both keeps
+                // a per-message decision by an error handler possible without rebinding.
+                flowProperties.addRequiredSettlementOutcomes(
+                        XMLMessage.Outcome.FAILED, XMLMessage.Outcome.REJECTED);
+            }
             if (StringUtils.hasText(this.endpoint.getSelector())) {
                 flowProperties.setSelector(this.endpoint.getSelector());
             }
@@ -586,9 +631,76 @@ public class DefaultSolaceMessageListenerContainer implements SolaceMessageListe
         catch (Exception ex) {
             recordFailure(startedAt, ex);
             this.errorHandler.handleError(message, ex);
-            if (this.containerProperties.isAckOnError()) {
+            settle(message, ex);
+        }
+    }
+
+    /**
+     * Apply the settlement outcome for a failed message.
+     *
+     * <p>The error handler is asked first, so a per-failure policy can override the container's
+     * blanket one; {@code null} from the handler means "you decide". {@code NONE} sends nothing and
+     * leaves the message for redelivery on the next bind.</p>
+     *
+     * <p>A failure to settle is logged rather than rethrown. Rethrowing here would propagate into the
+     * JCSMP delivery thread, where nothing useful can be done with it, and the message is already in
+     * a state the broker will resolve by redelivering it.</p>
+     *
+     * @param message the message whose listener threw
+     * @param cause   what it threw
+     */
+    private void settle(BytesXMLMessage message, Exception cause) {
+        SettlementOutcome outcome = resolveOutcome(message, cause);
+        if (outcome == SettlementOutcome.NONE) {
+            recordSettlement(outcome);
+            return;
+        }
+        try {
+            if (outcome == SettlementOutcome.ACCEPTED) {
                 message.ackMessage();
             }
+            else {
+                message.settle(outcome.jcsmpOutcome());
+            }
+            recordSettlement(outcome);
+        }
+        catch (Exception ex) {
+            log.error("Container '{}' could not settle a message as {}. The flow must negotiate "
+                    + "FAILED and REJECTED at bind time: set "
+                    + "solace.listener.negative-acknowledgement=true, and check the broker supports "
+                    + "settlement outcomes. The message is left for redelivery.",
+                    getListenerId(), outcome, ex);
+        }
+    }
+
+    /**
+     * Ask the error handler for an outcome, falling back to the configured one.
+     *
+     * @param message the message whose listener threw
+     * @param cause   what it threw
+     * @return the outcome to apply, never {@code null}
+     */
+    private SettlementOutcome resolveOutcome(BytesXMLMessage message, Exception cause) {
+        try {
+            SettlementOutcome resolved = this.errorHandler.resolveOutcome(message, cause);
+            if (resolved != null) {
+                return resolved;
+            }
+        }
+        catch (RuntimeException ex) {
+            log.warn("Error handler of container '{}' failed to resolve an outcome; using the "
+                    + "configured one", getListenerId(), ex);
+        }
+        return errorOutcome();
+    }
+
+    /** Report a settlement decision. Guarded like {@link #recordReceived()}. */
+    private void recordSettlement(SettlementOutcome outcome) {
+        try {
+            this.listenerMetrics.recordSettlement(getListenerId(), outcome.name());
+        }
+        catch (RuntimeException ex) {
+            log.debug("Listener metrics failed for container '{}'", getListenerId(), ex);
         }
     }
 

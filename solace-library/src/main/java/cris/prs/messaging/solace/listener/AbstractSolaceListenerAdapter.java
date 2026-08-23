@@ -76,7 +76,7 @@ public abstract class AbstractSolaceListenerAdapter implements SolaceMessageList
                 message.getDestination() != null ? message.getDestination().getName() : null,
                 message.getCorrelationId(),
                 message.getReplyTo() != null ? message.getReplyTo().getName() : null,
-                headers, message);
+                headers, message, DefaultSolaceHeaderMapper.deliveryCountOf(message));
     }
 
     /**

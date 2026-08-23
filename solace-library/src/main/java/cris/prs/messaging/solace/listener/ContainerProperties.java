@@ -2,6 +2,7 @@ package cris.prs.messaging.solace.listener;
 
 import com.solacesystems.jcsmp.EndpointProperties;
 import cris.prs.messaging.solace.core.EndpointMode;
+import cris.prs.messaging.solace.core.SettlementOutcome;
 import lombok.Data;
 
 import java.time.Duration;
@@ -36,8 +37,45 @@ public class ContainerProperties {
      * Acknowledge a message whose listener threw. When {@code false} the message stays unacknowledged
      * and is redelivered after the flow is rebound. Ignored for transactional containers, which roll
      * the transaction back instead.
+     *
+     * @deprecated superseded by {@code errorOutcome}, which expresses the same two answers and two
+     *         more. Still honoured, but only when {@code errorOutcome} is unset: {@code true} maps to
+     *         {@code ACCEPTED} and {@code false} to {@code NONE}.
      */
+    @Deprecated(since = "0.2.0", forRemoval = true)
     private boolean ackOnError = true;
+
+    /**
+     * What to do with a message whose listener threw.
+     *
+     * <p>Unset by default, in which case the deprecated {@code ackOnError} decides:
+     * {@code true} behaves as {@code ACCEPTED}, {@code false} as {@code NONE}. Setting this
+     * explicitly takes precedence and is the preferred way to configure error handling.</p>
+     *
+     * <p>{@code FAILED} hands the message back for redelivery and increments its delivery count;
+     * {@code REJECTED} sends it to the dead message queue immediately, without consuming redelivery
+     * attempts. Both require the flow to negotiate the outcome at bind time, which
+     * {@code negativeAcknowledgement} handles. Ignored on a transactional container, where the
+     * rollback governs redelivery.</p>
+     *
+     * @see cris.prs.messaging.solace.core.SettlementOutcome
+     */
+    private SettlementOutcome errorOutcome;
+
+    /**
+     * Negotiate the negative settlement outcomes on every flow this container binds.
+     *
+     * <p>A flow must declare at bind time which outcomes it may send, so {@code FAILED} and
+     * {@code REJECTED} are unavailable unless they were requested up front. Unset by default, in
+     * which case the container derives it: negotiation happens when the resolved
+     * {@code errorOutcome} is {@code FAILED} or {@code REJECTED}, and not otherwise.</p>
+     *
+     * <p>Set it to {@code true} explicitly when a {@code SolaceListenerErrorHandler} decides the
+     * outcome per message &mdash; the container cannot know in advance what such a handler will
+     * return. Set it to {@code false} to force the old behaviour against a broker or client library
+     * that does not support settlement outcomes, where requesting them fails the bind.</p>
+     */
+    private Boolean negativeAcknowledgement;
 
     /**
      * Where the listener is invoked: on the JCSMP delivery thread (INLINE) or on a Spring

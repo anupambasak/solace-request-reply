@@ -4,6 +4,7 @@ import com.solacesystems.jcsmp.BytesXMLMessage;
 import cris.prs.messaging.solace.annotation.SolaceListener;
 import cris.prs.messaging.solace.core.EndpointMode;
 import cris.prs.messaging.solace.core.ExchangePattern;
+import cris.prs.messaging.solace.core.SettlementOutcome;
 import cris.prs.messaging.solace.core.SolaceRecord;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.aop.support.AopUtils;
@@ -148,6 +149,10 @@ public class SolaceListenerAnnotationBeanPostProcessor
         String dispatch = resolve(annotation.dispatch());
         if (StringUtils.hasText(dispatch)) {
             endpoint.setDispatch(ContainerProperties.DispatchMode.valueOf(dispatch.trim().toUpperCase()));
+        }
+        String errorOutcome = resolve(annotation.errorOutcome());
+        if (StringUtils.hasText(errorOutcome)) {
+            endpoint.setErrorOutcome(SettlementOutcome.valueOf(errorOutcome.trim().toUpperCase()));
         }
         endpoint.setConcurrency(resolveInteger(annotation.concurrency()));
         endpoint.setTransactional(resolveBoolean(annotation.transactional()));

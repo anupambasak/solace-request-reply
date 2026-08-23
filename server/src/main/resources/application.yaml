@@ -70,6 +70,14 @@ solace:
     # transacted session must be driven by the thread its messages arrive on, because commit()
     # acknowledges everything delivered on that session, not just the message being handled.
     dispatch: INLINE
+    # What happens to a message whose listener throws. ACCEPTED keeps the historical behaviour:
+    # the failure is recorded and the message is dropped. FAILED hands it back for redelivery and
+    # counts the attempt; REJECTED sends it straight to the dead message queue without burning
+    # through max-redelivery-count first. Both of those need the flow to negotiate the outcome at
+    # bind time, which the container derives from this value.
+    # Note: ignored on a transactional container, where the rollback governs redelivery — every
+    # request-reply listener here is transactional, so this applies to the non-transactional ones.
+    error-outcome: ACCEPTED
     keep-alive: true
     provision-endpoint: true
     endpoint:

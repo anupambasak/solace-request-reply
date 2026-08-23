@@ -106,6 +106,7 @@ Prefix `solace_` marks a Solace message field rather than a user property.
 | `APPLICATION_MESSAGE_ID` | `solace_applicationMessageId` | both | `setApplicationMessageId` |
 | `SENDER_TIMESTAMP` | `solace_senderTimestamp` | inbound only | `getSenderTimestamp()` |
 | `REDELIVERED` | `solace_redelivered` | inbound only | `getRedelivered()` |
+| `DELIVERY_COUNT` | `solace_deliveryCount` | inbound only | `getDeliveryCount()`, or `-1` when unsupported |
 | `TIME_TO_LIVE` | `solace_timeToLive` | outbound only | `setTimeToLive` — per message |
 | `PRIORITY` | `solace_priority` | outbound only | `setPriority` |
 | `TARGET_DESTINATION` | `solace_targetDestination` | routing only | Never written to the message |
@@ -122,8 +123,8 @@ responder, including one not written with this library.
 1. Recognised `solace_*` names set the corresponding message field.
 2. Everything else becomes an SDT user property, so `@Header("tenant")` works on the other side.
 3. These are **never** written: `solace_rawMessage`, `solace_destination`, `solace_redelivered`,
-   `solace_targetDestination`, and Spring's own `id` and `timestamp` — they are either inbound-only
-   metadata or routing instructions.
+   `solace_deliveryCount`, `solace_targetDestination`, and Spring's own `id` and `timestamp` — they
+   are either inbound-only metadata or routing instructions.
 4. `solace_replyTo` resolves through `DefaultSolaceHeaderMapper.toDestination`: a value prefixed
    `queue:` becomes a queue, anything else a topic.
 
@@ -155,6 +156,8 @@ not the payload.
 | `getHeaders()` | Every mapped header, including `solace_rawMessage` |
 | `getRawMessage()` | The `BytesXMLMessage`, for anything not surfaced |
 | `isRedelivered()` | **True on a retry** — the hook for idempotency |
+| `getDeliveryCount()` | How many times the broker has delivered it: `1` first time, `-1` when unsupported |
+| `isDeliveryCountSupported()` | Whether the count is real. **Check this before comparing the number** — `-1` reads as a first delivery |
 
 ```java
 @SolaceListener(pattern = "POINT_TO_POINT", queue = "orders", group = "workers")
@@ -162,9 +165,16 @@ public void onOrder(SolaceRecord<Order> record) {
     if (record.isRedelivered() && alreadyProcessed(record.getCorrelationId())) {
         return;                       // idempotent replay
     }
+    if (record.isDeliveryCountSupported() && record.getDeliveryCount() > 3) {
+        log.warn("Order {} is on attempt {}", record.getCorrelationId(), record.getDeliveryCount());
+    }
     process(record.getPayload());
 }
 ```
+
+`isRedelivered()` is the always-available boolean; the delivery count is the number, and it is a
+broker feature negotiated per message. Use the boolean for "have I seen this before", the count when
+the policy depends on *how many times* — see [9.7](09-consuming-messages.md#97-delivery-count).
 
 ---
 
@@ -175,7 +185,7 @@ public void onOrder(SolaceRecord<Order> record) {
 | `void onX(Order order)` | You need only the payload. The common case. |
 | `void onX(Order order, @Header("tenant") String tenant)` | You need one or two user properties. |
 | `void onX(Message<Order> message)` | You want Spring's `Message` abstraction, e.g. to pass on to Spring Integration. |
-| `void onX(SolaceRecord<Order> record)` | You need `isRedelivered()`, the destination, or the raw message. |
+| `void onX(SolaceRecord<Order> record)` | You need `isRedelivered()`, the delivery count, the destination, or the raw message. |
 | `void onX(BytesXMLMessage message)` | You are doing something JCSMP-specific and want no conversion. |
 
 The payload type is derived from the first non-framework parameter, so a listener taking only headers

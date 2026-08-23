@@ -33,6 +33,15 @@ public final class SolaceHeaders {
     /** Native {@code XMLMessage.getRedelivered()}. */
     public static final String REDELIVERED = PREFIX + "redelivered";
 
+    /**
+     * How many times the broker has delivered this message, inbound only.
+     *
+     * <p>{@code 1} on the first delivery, so a value above 1 means a retry. {@code -1} when the
+     * broker or the client library does not support delivery counts, which is what makes it distinct
+     * from {@link #REDELIVERED}: that is a boolean and always available.</p>
+     */
+    public static final String DELIVERY_COUNT = PREFIX + "deliveryCount";
+
     /** Native {@code XMLMessage.getTimeToLive()} in milliseconds. */
     public static final String TIME_TO_LIVE = PREFIX + "timeToLive";
 

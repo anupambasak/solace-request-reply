@@ -19,7 +19,8 @@ happens to a message between the broker and that method.
 | `AbstractSolaceListenerAdapter` | Conversion, `SolaceRecord` construction, and reply publishing, shared by both adapters. |
 | `MethodSolaceListenerAdapter` | Invokes an `InvocableHandlerMethod` — what `@SolaceListener` uses. |
 | `RecordSolaceListenerAdapter<T,R>` | Invokes a `Function<SolaceRecord<T>, R>` — for programmatic registration. |
-| `SolaceListenerErrorHandler` | `void handleError(BytesXMLMessage, Exception)`. Defaults to logging. |
+| `SolaceListenerErrorHandler` | `void handleError(BytesXMLMessage, Exception)`, plus an optional `resolveOutcome` for per-failure settlement. Defaults to logging. |
+| `SettlementOutcome` | `ACCEPTED` / `FAILED` / `REJECTED` / `NONE` — what happens to a message whose listener threw. |
 | `ContainerProperties` | Every container setting; also the type `solace.listener.*` binds to. |
 | `ContainerKeepAlive` | Package-private, reference-counted non-daemon thread. |
 
@@ -152,11 +153,74 @@ silent correctness hole.
 
 ---
 
-## 9.6 Acknowledgement and errors
+## 9.6 Acknowledgement, settlement and errors
 
-### Non-transactional flows
+Solace calls deciding a message's fate **settling** it. A consumer has four answers, and choosing
+between them is a judgement about the *failure*, not about the message:
 
-Flows use `SUPPORTED_MESSAGE_ACK_CLIENT`, and the container acknowledges explicitly:
+| `SettlementOutcome` | Broker behaviour | Use when |
+| :--- | :--- | :--- |
+| `ACCEPTED` | Acknowledged, removed from the endpoint, never redelivered | The failure is recorded somewhere durable and a retry would not help |
+| `FAILED` | Returned for redelivery, **incrementing the delivery count**; reaches the DMQ once `max-redelivery-count` is exhausted | A transient failure — a downstream timeout, a lock conflict — that a retry plausibly fixes |
+| `REJECTED` | Straight to the dead message queue, **without** consuming redelivery attempts | The message will never succeed: it will not deserialise, it fails validation, it names something that does not exist |
+| `NONE` | Nothing is sent; the message stays unacknowledged until the flow is rebound | Legacy behaviour. Prefer `FAILED`, which redelivers promptly and counts the attempt |
+
+`FAILED` and `REJECTED` are the ones worth having. Without them a poison message can only be
+discarded or retried five pointless times before the DMQ takes it; with them it is rejected on the
+first attempt, and a genuinely transient failure is handed straight back instead of waiting for a
+rebind.
+
+### Configuring it
+
+```yaml
+solace:
+  listener:
+    error-outcome: FAILED          # ACCEPTED | FAILED | REJECTED | NONE
+```
+
+```java
+@SolaceListener(pattern = "POINT_TO_POINT", queue = "orders", group = "workers",
+        topics = "orders/created", errorOutcome = "REJECTED")
+public void onOrder(Order order) { … }
+```
+
+Precedence is the usual one: the annotation attribute beats `solace.listener.error-outcome`, which
+beats the default.
+
+### Negotiation at bind time
+
+A flow may only send an outcome it **asked for when it bound**. The container handles this: it
+requests `FAILED` and `REJECTED` whenever the resolved `error-outcome` is one of them, and does not
+otherwise — no point asking the broker for capabilities you will never use.
+
+Two cases need the switch set explicitly:
+
+```yaml
+solace:
+  listener:
+    negative-acknowledgement: true    # a custom error handler decides per message (see below)
+    # negative-acknowledgement: false # broker or client too old to support settlement outcomes
+```
+
+If a settle call fails at runtime — almost always because the outcome was not negotiated — the
+container logs an error naming this property and leaves the message for redelivery. It does not
+rethrow: there is nothing useful to do with the exception on the JCSMP delivery thread, and the
+broker will resolve the state anyway.
+
+### The deprecated `ack-on-error`
+
+`ack-on-error` still works and is still honoured, but only when `error-outcome` is unset:
+
+| Old | New equivalent |
+| :--- | :--- |
+| `ack-on-error: true` (default) | `error-outcome: ACCEPTED` |
+| `ack-on-error: false` | `error-outcome: NONE` |
+
+Setting `error-outcome` takes precedence and is the preferred form. `ack-on-error: false` is worth
+migrating to `FAILED` specifically: it redelivers promptly rather than waiting for a rebind, and it
+counts the attempt, so `max-redelivery-count` actually bounds the retries.
+
+### The invocation path
 
 ```java
 try {
@@ -164,24 +228,54 @@ try {
     message.ackMessage();                       // success
 }
 catch (Exception ex) {
-    errorHandler.handleError(message, ex);
-    if (containerProperties.isAckOnError()) {
-        message.ackMessage();                   // give up on this message
-    }
+    errorHandler.handleError(message, ex);      // report first, message still in hand
+    settle(message, ex);                        // then decide its fate
 }
 ```
 
-- `ack-on-error: true` (default) — the message is acknowledged even after a failure. It will not be
-  redelivered. Correct when the error handler has recorded the failure somewhere durable.
-- `ack-on-error: false` — the message is left unacknowledged and the broker redelivers.
-  **Combine this with `max-redelivery-count` and a DMQ**, or a poison message loops forever.
+The error handler runs **before** settlement, so it can record the failure, publish a copy elsewhere,
+or increment a metric while the message is still available.
+
+### Per-failure decisions
+
+A single `error-outcome` is one answer for every failure. `SolaceListenerErrorHandler` has a second,
+optional method for when the right answer depends on *why* it failed:
+
+```java
+factory.setErrorHandler(new SolaceListenerErrorHandler() {
+
+    @Override
+    public void handleError(BytesXMLMessage message, Exception exception) {
+        deadLetters.record(message, exception);
+    }
+
+    @Override
+    public SettlementOutcome resolveOutcome(BytesXMLMessage message, Exception exception) {
+        if (exception instanceof SolaceMessagingException) {
+            return SettlementOutcome.REJECTED;   // will never deserialise
+        }
+        if (exception instanceof TimeoutException) {
+            return SettlementOutcome.FAILED;     // transient
+        }
+        return null;                             // anything else: the container decides
+    }
+});
+```
+
+`resolveOutcome` has a `default` returning `null`, so an error handler written as a lambda keeps
+working unchanged. Because the container cannot know in advance what a handler will decide, **set
+`negative-acknowledgement: true`** when using it — otherwise the flow will not have negotiated the
+outcomes the handler wants to send.
+
+An exception thrown by `resolveOutcome` is logged at warning level and the configured outcome is used.
 
 ### Transactional flows
 
-`ack-on-error` does not apply. The listener runs inside a `TransactionTemplate`; a thrown exception
-rolls the transaction back, which un-acknowledges the message and discards anything the listener
-published. The broker redelivers, subject to `max-redelivery-count`. The error handler is still
-called, after the rollback, for logging.
+Settlement does not apply. The listener runs inside a `TransactionTemplate`; a thrown exception rolls
+the transaction back, which un-acknowledges the message and discards anything the listener published.
+The broker redelivers, subject to `max-redelivery-count`. `error-outcome`, `ack-on-error` and
+`resolveOutcome` are all ignored, and the flow does not negotiate settlement outcomes. The error
+handler is still called, after the rollback, for logging.
 
 ### Custom error handling
 
@@ -211,7 +305,67 @@ extra one under a different name and pointing individual listeners at it with
 
 ---
 
-## 9.7 Redelivery and the dead message queue
+## 9.7 Delivery count
+
+`SolaceRecord.getDeliveryCount()` is how many times the broker has delivered this message: `1` on the
+first attempt, so anything above 1 is a retry.
+
+```java
+@SolaceListener(pattern = "POINT_TO_POINT", queue = "orders", group = "workers",
+        topics = "orders/created")
+public void onOrder(SolaceRecord<Order> record) {
+    if (record.getDeliveryCount() > 3) {
+        log.warn("Order {} has failed {} times", record.getPayload().id(), record.getDeliveryCount());
+    }
+    process(record.getPayload());
+}
+```
+
+It is also on the header map as `SolaceHeaders.DELIVERY_COUNT` (`solace_deliveryCount`), so
+`@Header(SolaceHeaders.DELIVERY_COUNT) int attempt` works without taking a whole record.
+
+**Check `isDeliveryCountSupported()` before branching on the number.** Delivery counts are a broker
+feature negotiated per message; where they are unavailable the count is `-1`, and every
+`>= n` comparison silently reads that as a first delivery:
+
+```java
+if (record.isDeliveryCountSupported() && record.getDeliveryCount() > 3) { … }
+```
+
+The library never lets this throw: JCSMP raises `UnsupportedOperationException` from
+`getDeliveryCount()` when the feature is absent, and `DefaultSolaceHeaderMapper.deliveryCountOf`
+guards both that and the capability check, degrading to `-1`.
+
+`isRedelivered()` remains the always-available boolean. Use it when all you need is "have I seen this
+before"; use the count when the policy depends on *how many times*.
+
+### The two together
+
+Delivery count and settlement are complementary, and the pair is what makes a give-up policy
+expressible:
+
+```java
+public void onOrder(SolaceRecord<Order> record) {
+    process(record.getPayload());          // throws on failure
+}
+```
+```java
+@Override
+public SettlementOutcome resolveOutcome(BytesXMLMessage message, Exception exception) {
+    int attempt = DefaultSolaceHeaderMapper.deliveryCountOf(message);
+    if (attempt >= 3) {
+        return SettlementOutcome.REJECTED;   // three strikes: stop retrying, send it to the DMQ
+    }
+    return SettlementOutcome.FAILED;         // hand it back
+}
+```
+
+That was not expressible before either feature existed: `isRedelivered()` could not count, and there
+was no way to reject a message early.
+
+---
+
+## 9.8 Redelivery and the dead message queue
 
 ```yaml
 solace:
@@ -227,7 +381,9 @@ With this, a failing message is redelivered five times and then moved to `#DEAD_
 
 Four things to know:
 
-1. `max-redelivery-count: 0` means **redeliver forever**, not "never redeliver".
+1. `max-redelivery-count: 0` means **redeliver forever**, not "never redeliver". `error-outcome:
+   REJECTED` is the escape hatch that does not depend on it — it sends the message to the DMQ
+   immediately.
 2. The message must be **DMQ-eligible** (`solace.template.dmq-eligible`, default `true`) or it is
    discarded instead of moved.
 3. `#DEAD_MSG_QUEUE` is the **fixed** name the broker routes to. A message VPN has exactly one.
@@ -240,7 +396,7 @@ queue you will see the property-mismatch warning and must change it on the broke
 
 ---
 
-## 9.8 Lifecycle and manual control
+## 9.9 Lifecycle and manual control
 
 Containers are lifecycled as a group by `SolaceListenerEndpointRegistry`, itself a `SmartLifecycle`
 bean. To control one by hand:
@@ -264,7 +420,7 @@ instance id.
 
 ---
 
-## 9.9 Programmatic registration
+## 9.10 Programmatic registration
 
 `@SolaceListener` is a convenience over an API you can use directly — useful when endpoints are
 discovered at runtime:
@@ -293,7 +449,7 @@ listeners, nothing does it here.
 
 ---
 
-## 9.10 The keep-alive thread
+## 9.11 The keep-alive thread
 
 Every JCSMP thread is a daemon thread. A listener-only application with no web server would start,
 register everything, and exit immediately — the JVM has no non-daemon thread to keep it alive.

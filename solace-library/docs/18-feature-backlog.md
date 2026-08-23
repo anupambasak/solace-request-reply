@@ -24,7 +24,9 @@ marks unsupported for JCSMP, or that lives outside the client API entirely, is l
 | Selectors | `@SolaceListener(selector = …)` |
 | Smart topic hierarchy and wildcards | topic subscriptions, per-instance topic levels |
 | Dead message queue and max-redelivery | `ContainerProperties.Endpoint.DeadMessageQueue` |
-| Client acknowledgement | `ackOnError`, transactional commit |
+| Client acknowledgement | `errorOutcome`, transactional commit |
+| Negative acknowledgement / settlement outcomes | `SettlementOutcome`, `SolaceListenerErrorHandler.resolveOutcome` |
+| Delivery count | `SolaceRecord.getDeliveryCount()`, `SolaceHeaders.DELIVERY_COUNT` |
 | Structured data types (partially) | headers → SDT user properties |
 | Micrometer metrics | `SolaceListenerMetrics`, `SolaceRequestReplyMetrics`, the `observability` package |
 | Actuator health indicator | `SolaceHealthIndicator`, `SolaceSessionFactory.isHealthy()` |
@@ -74,32 +76,63 @@ new abstract one, so a custom session factory keeps compiling and is simply repo
 
 **Still open:** distinguishing "connected" from "reconnecting". JCSMP reconnects transparently and the
 library does not yet subscribe to session events, so a session in the middle of a reconnect still
-reports connected. Flow event handling (Tier 1, item 3) is the prerequisite.
+reports connected. Flow event handling (Tier 1, item 2) is the prerequisite.
+
+### Negative acknowledgement and settlement outcomes
+
+*Was Tier 1, item 1. JCSMP 10.17+: `XMLMessage.settle(XMLMessage.Outcome)`,
+`ConsumerFlowProperties.addRequiredSettlementOutcomes(XMLMessage.Outcome...)`. Note the enum is
+**nested on `XMLMessage`**, not a top-level `com.solacesystems.jcsmp.Outcome`.*
+
+`SettlementOutcome` — `ACCEPTED` / `FAILED` / `REJECTED` / `NONE` — replaces the boolean
+`ackOnError`, which is deprecated but still honoured when `errorOutcome` is unset (`true` → `ACCEPTED`,
+`false` → `NONE`). Configurable globally as `solace.listener.error-outcome` and per listener as
+`@SolaceListener(errorOutcome = "…")`.
+
+The backlog proposed *either* an `ErrorHandlingDecision` returned by the error handler *or* a
+container property. Both were built, because they answer different questions: the property is the
+policy for a listener, and `SolaceListenerErrorHandler.resolveOutcome` is the policy for a *failure*.
+The right outcome usually depends on why it failed — reject something that will never deserialise,
+retry a downstream timeout — which a single container-level setting cannot express. `resolveOutcome`
+is a `default` returning `null`, so every existing lambda error handler keeps compiling and simply
+defers to the container.
+
+Bind-time negotiation is derived rather than configured: the container requests `FAILED` and
+`REJECTED` when the resolved `errorOutcome` is one of them. `solace.listener.negative-acknowledgement`
+forces it either way — `true` is required when an error handler decides per message, since the
+container cannot know in advance what it will return, and `false` is the escape for a broker or client
+too old to support settlement outcomes.
+
+Ignored on transacted flows, where the rollback already governs redelivery; those flows do not
+negotiate outcomes at all. A settle failure is logged with the property to set, not rethrown — the
+JCSMP delivery thread can do nothing useful with it, and the broker resolves the state by redelivering.
+
+**Still open:** `Outcome.ACCEPTED` on *success* is still sent as `ackMessage()`, which is the same
+thing over the wire; there is no reason to change it, but a future settlement-only path would be
+tidier.
+
+### Delivery count on the received message
+
+*Was Tier 1, item 4. `XMLMessage.getDeliveryCount()`, `isDeliveryCountSupported()`.*
+
+`SolaceRecord.getDeliveryCount()`, `SolaceRecord.isDeliveryCountSupported()`, and the header
+`SolaceHeaders.DELIVERY_COUNT` (`solace_deliveryCount`), so `@Header` works without taking a record.
+
+The count is a broker feature negotiated per message, and `getDeliveryCount()` **throws**
+`UnsupportedOperationException` where it is unavailable — so every read goes through
+`DefaultSolaceHeaderMapper.deliveryCountOf`, which guards the capability check and the call and
+degrades to `-1`. `isDeliveryCountSupported()` exists on the record because `-1` silently passes any
+`>= n` comparison as a first delivery, which is the one way this feature can quietly mislead.
+
+Together with settlement outcomes this makes a give-up policy expressible for the first time: return
+`REJECTED` once the delivery count reaches three, `FAILED` before that. Neither half was enough on its
+own — `isRedelivered()` could not count, and there was no way to reject early.
 
 ---
 
 ## Tier 1 — closes a real gap in what is already built
 
-### 1. Negative acknowledgement and settlement outcomes
-
-*JCSMP 10.17+. `XMLMessage.settle(Outcome)`, `ConsumerFlowProperties.addRequiredSettlementOutcomes(…)`.*
-
-Today a failing listener has two outcomes, and both are unsatisfying: `ackOnError: true` **discards**
-the message, and `ackOnError: false` leaves it unacknowledged until the flow is rebound. Negative
-acknowledgement adds the two answers that are actually wanted — `Outcome.FAILED` returns the message
-for redelivery and increments its redelivery count, and `Outcome.REJECTED` sends it straight to the
-dead message queue without burning through `max-redelivery-count` first.
-
-This is the single most valuable addition, because it completes error handling the library already
-half-implements: a poison message could be rejected on the first attempt rather than after five
-pointless retries, and a transient failure could be returned for redelivery without the rollback
-machinery a transaction requires.
-
-**Shape:** an `ErrorHandlingDecision` returned by `SolaceListenerErrorHandler`, or
-`ContainerProperties.errorOutcome` (`ACK` / `FAILED` / `REJECTED`). Flows must declare the outcomes
-they will use at bind time. **Effort: S.**
-
-### 2. Consumer flow tuning
+### 1. Consumer flow tuning
 
 *`setTransportWindowSize`, `setAckThreshold`, `setAckTimerInMsecs`, `setReconnectTries`,
 `setReconnectRetryIntervalInMsecs`.*
@@ -112,7 +145,7 @@ flow is to fork the container.
 **Shape:** a `ContainerProperties.Flow` block mirroring the existing `Endpoint` block. Purely
 additive, no behaviour change at defaults. **Effort: S.**
 
-### 3. Flow event handling
+### 2. Flow event handling
 
 *`ConsumerFlowProperties.setActiveFlowIndication(boolean)`, `FlowEventHandler`,
 `JCSMPSession.createFlow(listener, flowProps, endpointProps, flowEventHandler)`.*
@@ -127,17 +160,7 @@ Two features fall out of one change: operational visibility of reconnects, and a
 **Shape:** an optional `SolaceFlowListener` on the container, plus lifecycle logging by default.
 **Effort: S.**
 
-### 4. Delivery count on the received message
-
-*`XMLMessage.getDeliveryCount()`, `isDeliveryCountSupported()`.*
-
-`SolaceRecord.isRedelivered()` is a boolean — a handler can tell that a message was redelivered but
-not how many times, so "log at warn on the third attempt, reject on the fifth" is not expressible.
-The broker already tracks the count.
-
-**Shape:** `SolaceRecord.getDeliveryCount()`, and a `@Header` constant. **Effort: XS.**
-
-### 5. Queue browsing
+### 3. Queue browsing
 
 *`JCSMPSession.createBrowser(BrowserProperties)`.*
 
@@ -152,7 +175,7 @@ and what an admin endpoint needs for queue depth and inspection.
 
 ## Tier 2 — new capability, larger surface
 
-### 6. Partitioned queues
+### 4. Partitioned queues
 
 *JCSMP 10.19+.*
 
@@ -167,7 +190,7 @@ users expect per-key ordering, and today's point-to-point silently does not prov
 **Shape:** a `partitionKey` on send (a message property), a partition count on endpoint provisioning,
 and documentation of the ordering guarantee in `exchange-patterns.md`. **Effort: M.**
 
-### 7. Message replay
+### 5. Message replay
 
 *JCSMP 10.11+. `ConsumerFlowProperties.setReplayStartLocation(ReplayStartLocation)`,
 `JCSMPFactory.createReplayStartLocationBeginning()` / `createReplayStartLocationDate(Date)`.*
@@ -181,9 +204,9 @@ and replay on a shared endpoint affects every consumer of it.
 
 **Shape:** `@SolaceListener(replayFrom = "BEGINNING" | ISO-8601)`, or a runtime operation on a
 container obtained from the registry — the latter is more useful, since replay is an operational act
-rather than a deployment-time setting. Depends on flow event handling (#3). **Effort: M.**
+rather than a deployment-time setting. Depends on flow event handling (#2). **Effort: M.**
 
-### 8. Distributed tracing
+### 6. Distributed tracing
 
 *JCSMP 10.17+ manual, 10.26+ auto-instrumentation; `solace-opentelemetry-jcsmp-integration`.*
 
@@ -195,7 +218,7 @@ unrelated spans.
 **Shape:** propagate the OpenTelemetry context into message properties on send and extract it into
 the listener's scope, behind an optional dependency so tracing stays opt-in. **Effort: M.**
 
-### 9. PubSub+ Cache
+### 7. PubSub+ Cache
 
 *`JCSMPSession.createCacheSession(…)`, supported by JCSMP per the matrix.*
 
@@ -207,7 +230,7 @@ instance can initialise its state from the topic rather than from a database.
 optionally an `@SolaceListener(cacheOnStart = true)` that primes a listener before live delivery.
 Requires a PubSub+ Cache deployment, so it must degrade cleanly when absent. **Effort: L.**
 
-### 10. Topic dispatch
+### 8. Topic dispatch
 
 *Listed as supported for JCSMP.*
 
@@ -218,7 +241,7 @@ endpoints. Topic dispatch lets one endpoint fan out to different handler methods
 **Shape:** several `@SolaceListener` methods sharing a `queue`, with the container dispatching by
 matched subscription. A meaningful change to the container's dispatch path. **Effort: L.**
 
-### 11. Structured Data Types as a payload format
+### 9. Structured Data Types as a payload format
 
 *Supported; the library uses SDT only for headers.*
 
@@ -228,7 +251,7 @@ existing C, .NET or JMS estates.
 
 **Shape:** a second `SolaceMessageConverter`. Self-contained, no container changes. **Effort: S.**
 
-### 12. `noLocal`
+### 10. `noLocal`
 
 *`ConsumerFlowProperties.setNoLocal(boolean)`.*
 
@@ -288,16 +311,18 @@ Stated explicitly so the list is honest about scope.
 
 ## Suggested order
 
-1. **Negative acknowledgement** (#1) and **delivery count** (#4) — small, and they finish the error
-   handling already in place.
-2. **Flow event handling** (#3) and **flow tuning** (#2) — small, and #3 unblocks replay.
-3. **Partitioned queues** (#6) — the largest conceptual gap against the Kafka model this library
+1. **Flow event handling** (#2) — small, and it unblocks both replay and a health indicator that can
+   tell "connected" from "reconnecting".
+2. **Flow tuning** (#1) — small, purely additive, and the transport window is the primary throughput
+   knob for guaranteed messaging.
+3. **Partitioned queues** (#4) — the largest conceptual gap against the Kafka model this library
    imitates.
-4. **Queue browsing** (#5) — makes the dead message queue support usable in practice.
-5. **Distributed tracing** (#8) — the platform capability that most rewards the request-reply shape.
+4. **Queue browsing** (#3) — makes the dead message queue support usable in practice, which matters
+   more now that `REJECTED` can put messages there deliberately.
+5. **Distributed tracing** (#6) — the platform capability that most rewards the request-reply shape.
 
-Items 1–4 of that order are all small or medium and together remove every "you cannot express that"
-answer in the current error-handling and consumer-tuning story.
+Items 1 and 2 are what remain of the "you cannot express that" answers in the consumer story; error
+handling itself is now complete.
 
 ---
 

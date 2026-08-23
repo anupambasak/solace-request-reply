@@ -49,6 +49,16 @@ public class SolaceRecord<T> {
     private final BytesXMLMessage rawMessage;
 
     /**
+     * How many times the broker has delivered this message.
+     *
+     * <p>{@code 1} on the first delivery, so a value above 1 means a retry. {@code -1} when the
+     * broker or the client library does not support delivery counts &mdash; check for that before
+     * branching on the number, or an unsupported broker will look like a first delivery that somehow
+     * counts backwards.</p>
+     */
+    private final int deliveryCount;
+
+    /**
      * Create a record.
      *
      * @param payload       the message body converted to the listener's payload type
@@ -61,12 +71,32 @@ public class SolaceRecord<T> {
      */
     public SolaceRecord(T payload, String destination, String correlationId, String replyTo,
             Map<String, Object> headers, BytesXMLMessage rawMessage) {
+        this(payload, destination, correlationId, replyTo, headers, rawMessage,
+                DefaultSolaceHeaderMapper.deliveryCountOf(rawMessage));
+    }
+
+    /**
+     * Create a record with an explicit delivery count.
+     *
+     * @param payload       the message body converted to the listener's payload type
+     * @param destination   name of the destination the message was received on, or {@code null}
+     * @param correlationId the message's native correlation id, or {@code null}
+     * @param replyTo       destination the sender expects a reply on, or {@code null} for a
+     *                      one-way message
+     * @param headers       native fields and SDT user properties
+     * @param rawMessage    the underlying Solace message
+     * @param deliveryCount how many times the broker has delivered this message, or {@code -1} when
+     *                      delivery counts are not supported
+     */
+    public SolaceRecord(T payload, String destination, String correlationId, String replyTo,
+            Map<String, Object> headers, BytesXMLMessage rawMessage, int deliveryCount) {
         this.payload = payload;
         this.destination = destination;
         this.correlationId = correlationId;
         this.replyTo = replyTo;
         this.headers = headers;
         this.rawMessage = rawMessage;
+        this.deliveryCount = deliveryCount;
     }
 
     /**
@@ -79,5 +109,17 @@ public class SolaceRecord<T> {
      */
     public boolean isRedelivered() {
         return this.rawMessage != null && this.rawMessage.getRedelivered();
+    }
+
+    /**
+     * Whether the broker reported a delivery count at all.
+     *
+     * <p>Check this before branching on {@code getDeliveryCount()}: an unsupported broker reports
+     * {@code -1}, which any {@code >= n} comparison silently treats as a first delivery.</p>
+     *
+     * @return {@code true} when {@code getDeliveryCount()} carries a real number
+     */
+    public boolean isDeliveryCountSupported() {
+        return this.deliveryCount >= 0;
     }
 }

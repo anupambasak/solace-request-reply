@@ -18,9 +18,10 @@ outside it — see [4.9](04-spring-integration.md#49-why-the-auto-configuration-
 | `SolaceMessageConverter` | interface | `toMessage(Object)` / `fromMessage(BytesXMLMessage, Class)`. |
 | `JacksonSolaceMessageConverter` | class | JSON by default; reuses the application's `ObjectMapper`. Reads the **binary attachment** first, the XML content part as fallback. |
 | `SolaceHeaderMapper` | interface | `fromHeaders(Map, XMLMessage)` / `toHeaders(BytesXMLMessage)`. |
-| `DefaultSolaceHeaderMapper` | class | Maps the `solace_*` fields, copies everything else to SDT user properties. Statics: `toDestination(Object)` (`queue:` prefix ⇒ queue), `sanitize(Map)`, constant `QUEUE_PREFIX`. |
+| `DefaultSolaceHeaderMapper` | class | Maps the `solace_*` fields, copies everything else to SDT user properties. Statics: `toDestination(Object)` (`queue:` prefix ⇒ queue), `sanitize(Map)`, `deliveryCountOf(BytesXMLMessage)` (guarded, `-1` when unsupported), constant `QUEUE_PREFIX`. |
 | `SolaceHeaders` | final class | The well-known header names. See [12.2](12-conversion-and-headers.md#122-solaceheadermapper). |
-| `SolaceRecord<T>` | class | Payload plus destination, correlation id, replyTo, headers, raw message, and `isRedelivered()`. |
+| `SolaceRecord<T>` | class | Payload plus destination, correlation id, replyTo, headers, raw message, `isRedelivered()`, `getDeliveryCount()` and `isDeliveryCountSupported()`. |
+| `SettlementOutcome` | enum | `ACCEPTED`, `FAILED`, `REJECTED`, `NONE`; `jcsmpOutcome()`, `requiresNegotiation()`. What happens to a message whose listener threw. |
 | `EndpointMode` | enum | `DURABLE_QUEUE`, `NON_DURABLE_QUEUE`, `DIRECT`; `isQueueBased()`. |
 | `ExchangePattern` | enum | `PUBLISH_SUBSCRIBE`, `POINT_TO_POINT`, `REQUEST_REPLY`. |
 | `SolaceMessagingException` | class | `NestedRuntimeException`. Every JCSMP checked exception is translated to this. |
@@ -46,8 +47,8 @@ outside it — see [4.9](04-spring-integration.md#49-why-the-auto-configuration-
 | `AbstractSolaceListenerAdapter` | abstract class | Shared conversion, `SolaceRecord` construction, and `handleResult` — the reply-publishing logic. |
 | `MethodSolaceListenerAdapter` | class | Invokes an `InvocableHandlerMethod`. What `@SolaceListener` uses. |
 | `RecordSolaceListenerAdapter<T,R>` | class | Invokes a `Function<SolaceRecord<T>, R>`, for programmatic registration. |
-| `SolaceListenerErrorHandler` | interface | `void handleError(BytesXMLMessage, Exception)`. |
-| `SolaceListenerMetrics` | interface | Per-message callbacks: `recordReceived`, `recordSuccess`, `recordFailure`. Every method has a no-op default, and `NO_OP` is the container default. Free of any metrics-library types. |
+| `SolaceListenerErrorHandler` | interface | `void handleError(BytesXMLMessage, Exception)`, plus a `default SettlementOutcome resolveOutcome(...)` returning `null` — so a lambda handler still defers to the container. |
+| `SolaceListenerMetrics` | interface | Per-message callbacks: `recordReceived`, `recordSuccess`, `recordFailure`, `recordSettlement`. Every method has a no-op default, and `NO_OP` is the container default. Free of any metrics-library types. |
 | `ContainerKeepAlive` | package-private final class | Reference-counted non-daemon thread that keeps a listener-only JVM alive. |
 
 → [9. Consuming messages](09-consuming-messages.md), [6. Annotations](06-annotations.md)

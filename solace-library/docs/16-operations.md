@@ -72,6 +72,7 @@ All tagged `listener` with the container id.
 | :--- | :--- | :--- | :--- |
 | `solace.listener.messages.received` | counter | `listener` | Deliveries into the container, counted **before** the listener runs |
 | `solace.listener.processing` | timer | `listener`, `result`, `exception` | Time in the listener method; `result` is `success` or `failure`, `exception` is the simple class name or `none` |
+| `solace.listener.settlement` | counter | `listener`, `outcome` | Settlement outcomes applied to failed messages: `ACCEPTED`, `FAILED`, `REJECTED`, `NONE` |
 | `solace.listener.running` | gauge | `listener` | `1` while the container is running, `0` otherwise |
 | `solace.listener.flows` | gauge | `listener` | Flows currently bound |
 
@@ -81,6 +82,10 @@ the clearest signal that a listener is falling behind. Under `INLINE` they track
 
 `solace.listener.flows` below the configured concurrency on a running container means flows were lost
 without the container stopping.
+
+`solace.listener.settlement` tagged `REJECTED` is the poison-message rate — messages given up on
+immediately. Tagged `FAILED` it is the retry rate; a `FAILED` rate that does not fall is a retry loop
+that will end at the DMQ.
 
 ### Request-reply meters
 
@@ -250,7 +255,7 @@ first:
 | DMQ depth | **Any non-zero value deserves attention** — these are messages you have given up on |
 | Client connection count | A leak shows here first |
 
-Alerts worth having, in rough order of value: DMQ depth > 0; `solace.requests.pending` above a
+Alerts worth having, in rough order of value: DMQ depth > 0; `solace.listener.settlement{outcome=REJECTED}` rate above zero; `solace.requests.pending` above a
 threshold; `solace.listener.running` == 0 for a container that should be up; queue depth growing over
 a sustained window; `solace.requests.timeouts` rate above baseline.
 

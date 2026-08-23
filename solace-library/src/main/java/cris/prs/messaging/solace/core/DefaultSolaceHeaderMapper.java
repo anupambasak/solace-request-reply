@@ -33,6 +33,7 @@ public class DefaultSolaceHeaderMapper implements SolaceHeaderMapper {
             SolaceHeaders.RAW_MESSAGE,
             SolaceHeaders.DESTINATION,
             SolaceHeaders.REDELIVERED,
+            SolaceHeaders.DELIVERY_COUNT,
             SolaceHeaders.TARGET_DESTINATION,
             "id",
             "timestamp");
@@ -95,6 +96,7 @@ public class DefaultSolaceHeaderMapper implements SolaceHeaderMapper {
         }
         headers.put(SolaceHeaders.SENDER_TIMESTAMP, message.getSenderTimestamp());
         headers.put(SolaceHeaders.REDELIVERED, message.getRedelivered());
+        headers.put(SolaceHeaders.DELIVERY_COUNT, deliveryCountOf(message));
 
         SDTMap properties = message.getProperties();
         if (properties != null) {
@@ -108,6 +110,31 @@ public class DefaultSolaceHeaderMapper implements SolaceHeaderMapper {
             }
         }
         return headers;
+    }
+
+    /**
+     * Read a message's delivery count, tolerating brokers and client versions that do not report one.
+     *
+     * <p>The count is a broker feature negotiated per message: {@code getDeliveryCount()} throws
+     * {@code UnsupportedOperationException} where it is unavailable, so it must always be guarded by
+     * {@code isDeliveryCountSupported()}. Both are caught here, and the whole call is wrapped, so an
+     * older broker degrades to {@code -1} rather than failing every message.</p>
+     *
+     * @param message the received message, or {@code null}
+     * @return the delivery count &mdash; {@code 1} on a first delivery &mdash; or {@code -1} when it
+     *         is not supported
+     */
+    public static int deliveryCountOf(BytesXMLMessage message) {
+        if (message == null) {
+            return -1;
+        }
+        try {
+            return message.isDeliveryCountSupported() ? message.getDeliveryCount() : -1;
+        }
+        catch (Exception ex) {
+            log.debug("Unable to read the delivery count", ex);
+            return -1;
+        }
     }
 
     /**

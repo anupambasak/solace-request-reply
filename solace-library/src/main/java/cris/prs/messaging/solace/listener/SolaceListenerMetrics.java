@@ -48,4 +48,17 @@ public interface SolaceListenerMetrics {
      */
     default void recordFailure(String listenerId, long durationNanos, Exception exception) {
     }
+
+    /**
+     * A failed message has been settled.
+     *
+     * <p>Reported separately from {@link #recordFailure} because the interesting question after a
+     * failure is what happened to the message, not merely that it failed: a rising {@code REJECTED}
+     * rate means poison messages, a rising {@code FAILED} rate means retries in flight.</p>
+     *
+     * @param listenerId the container's id
+     * @param outcome    the {@code SettlementOutcome} name applied
+     */
+    default void recordSettlement(String listenerId, String outcome) {
+    }
 }

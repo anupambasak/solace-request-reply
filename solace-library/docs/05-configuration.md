@@ -34,7 +34,9 @@ solace:
     transactional: false
     auto-startup: true
     provision-endpoint: true
-    ack-on-error: true
+    ack-on-error: true             # deprecated; use error-outcome
+    error-outcome:                 # ACCEPTED | FAILED | REJECTED | NONE
+    negative-acknowledgement:      # unset = derive from error-outcome
     dispatch: INLINE                 # INLINE | EXECUTOR
     dispatch-queue-capacity: 256
     keep-alive: true
@@ -126,7 +128,9 @@ hand-built `ContainerProperties`.
 | `transactional` | `boolean` | `false` | Bind each flow to its own `TransactedSession`, so the acknowledgement and anything published in the listener commit together. Forces `INLINE` dispatch. |
 | `auto-startup` | `boolean` | `true` | Whether the container starts with the context, or waits to be started through the registry. |
 | `provision-endpoint` | `boolean` | `true` | Create the durable queue (and the DMQ) if missing. Set `false` when endpoints are managed by an operations team and the client lacks provision rights. |
-| `ack-on-error` | `boolean` | `true` | After the error handler runs on a **non-transactional** flow, acknowledge anyway. `false` leaves the message unacknowledged, so the broker redelivers — combine with `max-redelivery-count` and a DMQ or it will loop. Ignored on a transacted flow, where the rollback governs redelivery. |
+| `ack-on-error` | `boolean` | `true` | **Deprecated** — superseded by `error-outcome`, and honoured only when that is unset. `true` maps to `ACCEPTED`, `false` to `NONE`. |
+| `error-outcome` | `SettlementOutcome` | unset | What to do with a message whose listener threw: `ACCEPTED` (acknowledge and drop), `FAILED` (redeliver, counting the attempt), `REJECTED` (straight to the DMQ, without consuming redelivery attempts), `NONE` (settle nothing). Unset falls back to `ack-on-error`. Ignored on a transacted flow, where the rollback governs redelivery. See [9.6](09-consuming-messages.md#96-acknowledgement-settlement-and-errors). |
+| `negative-acknowledgement` | `Boolean` | unset | Negotiate `FAILED` and `REJECTED` on every flow at bind time — a flow may only send an outcome it asked for. Unset derives it from `error-outcome`. Set `true` explicitly when an error handler decides the outcome per message; set `false` against a broker or client too old to support settlement outcomes, where requesting them fails the bind. |
 | `dispatch` | `DispatchMode` | `INLINE` | `INLINE` runs the listener on the JCSMP delivery thread. `EXECUTOR` hands it to `solaceListenerTaskExecutor`. |
 | `dispatch-queue-capacity` | `int` | `256` | Per-flow hand-off queue for `EXECUTOR`. Bounded on purpose: `put` blocks, so a slow listener pushes back on the broker rather than filling the heap. |
 | `keep-alive` | `boolean` | `true` | Hold a non-daemon thread while any container runs, so a listener-only application does not exit. Set `false` if the app already has one (a web server). |

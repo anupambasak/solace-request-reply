@@ -13,7 +13,7 @@ Every collaborator is an interface with a default implementation registered
 | `SolaceHeaderMapper` | `DefaultSolaceHeaderMapper` | Change header naming, add tracing propagation, filter what crosses |
 | `SolaceSessionFactory` | `DefaultSolaceSessionFactory` | Change session strategy — pooling, per-tenant connections |
 | `InstanceIdProvider` | `HostnameInstanceIdProvider` | Change how this instance is named |
-| `SolaceListenerErrorHandler` | logging lambda | Route failures to a dead-letter service, metrics, alerting |
+| `SolaceListenerErrorHandler` | logging lambda | Route failures to a dead-letter service, metrics, alerting — and decide each message's settlement outcome |
 | `SolaceListenerContainerFactory` | `DefaultSolaceListenerContainerFactory` | Change how containers are built |
 | `SolaceMessageListenerContainer` | `DefaultSolaceMessageListenerContainer` | Change consumption entirely |
 | `SolaceMessageListener` | the adapters | Consume raw JCSMP messages |
@@ -115,9 +115,37 @@ Note the `@Qualifier("solaceTemplate")` on the reply template. Without it the in
 once request-reply is on, and picking the `ReplyingSolaceTemplate` would route listener replies
 through the template that tracks outstanding requests.
 
-Remember the ordering rules the default handler is embedded in: on a **non-transactional** flow the
-error handler runs and then `ack-on-error` decides whether to acknowledge; on a **transactional**
-flow the rollback has already happened and the handler is purely for observation.
+Remember the ordering the default handler is embedded in: on a **non-transactional** flow
+`handleError` runs *before* the message is settled, so the message is still in hand; on a
+**transactional** flow the rollback has already happened and the handler is purely for observation.
+
+To decide each message's fate rather than merely report it, implement the interface's second method:
+
+```java
+factory.setErrorHandler(new SolaceListenerErrorHandler() {
+
+    @Override
+    public void handleError(BytesXMLMessage message, Exception exception) {
+        deadLetters.record(message, exception);
+    }
+
+    @Override
+    public SettlementOutcome resolveOutcome(BytesXMLMessage message, Exception exception) {
+        if (exception instanceof SolaceMessagingException) {
+            return SettlementOutcome.REJECTED;   // will never deserialise; skip the retries
+        }
+        if (DefaultSolaceHeaderMapper.deliveryCountOf(message) >= 3) {
+            return SettlementOutcome.REJECTED;   // three strikes
+        }
+        return SettlementOutcome.FAILED;         // hand it back
+    }
+});
+```
+
+`resolveOutcome` is a `default` returning `null` — "the container decides" — so an error handler
+written as a lambda keeps working unchanged. Set
+**`solace.listener.negative-acknowledgement: true`** when using it: the container derives bind-time
+negotiation from the configured `error-outcome`, and cannot know what a handler will return.
 
 ## 14.5 A second container factory
 

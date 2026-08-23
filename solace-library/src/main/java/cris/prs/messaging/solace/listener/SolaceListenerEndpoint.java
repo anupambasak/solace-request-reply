@@ -2,6 +2,7 @@ package cris.prs.messaging.solace.listener;
 
 import cris.prs.messaging.solace.core.EndpointMode;
 import cris.prs.messaging.solace.core.ExchangePattern;
+import cris.prs.messaging.solace.core.SettlementOutcome;
 import lombok.Data;
 import org.springframework.messaging.handler.invocation.InvocableHandlerMethod;
 import org.springframework.util.StringUtils;
@@ -48,6 +49,9 @@ public class SolaceListenerEndpoint {
     private Integer concurrency;
 
     private Boolean transactional;
+
+    /** Overrides {@code solace.listener.error-outcome} for this listener; unset inherits it. */
+    private SettlementOutcome errorOutcome;
 
     /** {@code null} means "use the container factory default". */
     private ContainerProperties.DispatchMode dispatch;

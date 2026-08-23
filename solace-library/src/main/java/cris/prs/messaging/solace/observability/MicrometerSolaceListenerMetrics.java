@@ -20,7 +20,9 @@ import java.util.concurrent.TimeUnit;
  * <ul>
  *   <li>{@value SolaceMetricNames#LISTENER_RECEIVED} &mdash; counter of deliveries;</li>
  *   <li>{@value SolaceMetricNames#LISTENER_PROCESSING} &mdash; timer of listener invocations, also
- *       tagged {@value SolaceMetricNames#TAG_RESULT} and {@value SolaceMetricNames#TAG_EXCEPTION}.</li>
+ *       tagged {@value SolaceMetricNames#TAG_RESULT} and {@value SolaceMetricNames#TAG_EXCEPTION};</li>
+ *   <li>{@value SolaceMetricNames#LISTENER_SETTLEMENT} &mdash; counter of settlement outcomes applied
+ *       to failed messages, tagged {@value SolaceMetricNames#TAG_OUTCOME}.</li>
  * </ul>
  *
  * <p>Meters are resolved once per tag combination and cached, because the registry lookup is more
@@ -36,6 +38,8 @@ public class MicrometerSolaceListenerMetrics implements SolaceListenerMetrics {
     private final Map<String, Counter> receivedCounters = new ConcurrentHashMap<>();
 
     private final Map<String, Timer> timers = new ConcurrentHashMap<>();
+
+    private final Map<String, Counter> settlementCounters = new ConcurrentHashMap<>();
 
     /**
      * Create the collaborator.
@@ -70,6 +74,17 @@ public class MicrometerSolaceListenerMetrics implements SolaceListenerMetrics {
                 : SolaceMetricNames.EXCEPTION_NONE;
         timer(listenerId, SolaceMetricNames.RESULT_FAILURE, type)
                 .record(durationNanos, TimeUnit.NANOSECONDS);
+    }
+
+    /** {@inheritDoc} */
+    @Override
+    public void recordSettlement(String listenerId, String outcome) {
+        this.settlementCounters.computeIfAbsent(listenerId + '|' + outcome, key -> Counter
+                .builder(SolaceMetricNames.LISTENER_SETTLEMENT)
+                .description("Settlement outcomes applied to failed messages")
+                .tag(SolaceMetricNames.TAG_LISTENER, listenerId)
+                .tag(SolaceMetricNames.TAG_OUTCOME, outcome)
+                .register(this.meterRegistry)).increment();
     }
 
     /**

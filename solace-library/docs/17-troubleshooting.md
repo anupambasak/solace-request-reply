@@ -158,6 +158,39 @@ is the giveaway: `BytesMessage.setData()` writes the **binary attachment**, whil
 The converter reads the attachment first and falls back to the XML content part. Seeing this means a
 custom converter reads only `getBytes()`.
 
+### `could not settle a message as FAILED/REJECTED`
+
+The flow did not negotiate that outcome when it bound. A flow may only send an outcome it asked for
+at bind time, and the container derives what to ask for from the configured `error-outcome` — which
+cannot see what a `SolaceListenerErrorHandler.resolveOutcome` will decide at runtime.
+
+**Fix:** `solace.listener.negative-acknowledgement: true`.
+
+If it is already true, the broker or client library does not support settlement outcomes: they need
+JCSMP 10.17+ and a broker that supports them. Set the property to `false` and use
+`ack-on-error`/`max-redelivery-count` instead.
+
+The container logs this and leaves the message for redelivery rather than rethrowing — there is
+nothing useful to do with the exception on the JCSMP delivery thread, and the broker resolves the
+state anyway.
+
+### A `REJECTED` message vanished instead of reaching the DMQ
+
+`REJECTED` sends a message to the dead message queue only if it is **DMQ-eligible**
+(`solace.template.dmq-eligible`, default `true`) and the DMQ exists. An ineligible message, or a
+missing `#DEAD_MSG_QUEUE`, means it is discarded.
+
+**Fix:** `solace.listener.endpoint.dead-message-queue.provision: true`, and check the publisher is not
+clearing DMQ-eligibility.
+
+### `getDeliveryCount()` returns -1
+
+Delivery counts are a broker feature negotiated per message, and `-1` means it was not available.
+Guard every comparison with `isDeliveryCountSupported()` — `-1 > 3` is false, so an unsupported broker
+silently looks like a permanent first delivery.
+
+`isRedelivered()` is always available; use it when a boolean is enough.
+
 ### A message is redelivered forever
 
 Three settings interact:
@@ -166,6 +199,7 @@ Three settings interact:
 | :--- | :--- |
 | `ack-on-error: false` | the message is not acknowledged after a failure |
 | `max-redelivery-count: 0` | **redeliver forever**, not "never redeliver" |
+| `error-outcome: FAILED` on a message that can never succeed | every attempt fails identically |
 | `dead-message-queue.provision: false` | nowhere for an exhausted message to go |
 
 **Fix:**
@@ -179,7 +213,10 @@ solace:
         provision: true
 ```
 
-and make sure the messages are DMQ-eligible (`solace.template.dmq-eligible`, default true) — an
+For a message that will *never* succeed, `error-outcome: REJECTED` — or a `resolveOutcome` returning
+it for that exception type — skips the retries entirely.
+
+Also make sure the messages are DMQ-eligible (`solace.template.dmq-eligible`, default true) — an
 ineligible message is *discarded* rather than moved.
 
 Remember `max-redelivery-count` only applies at first provision. On an existing queue you will see
@@ -187,9 +224,11 @@ the property-mismatch warning and must change it on the broker.
 
 ### A message is acknowledged despite failing
 
-`ack-on-error` defaults to `true`, so a non-transactional listener acknowledges even after the error
-handler runs. That is correct when the error handler records the failure durably; if you want
-redelivery instead, set it to `false` and configure redelivery limits as above.
+The effective outcome is `ACCEPTED`. Either `error-outcome` is set to it, or — more likely —
+`error-outcome` is unset and the deprecated `ack-on-error` defaults to `true`.
+
+**Fix:** `solace.listener.error-outcome: FAILED` to hand the message back for redelivery, counting the
+attempt. Prefer that over `ack-on-error: false`, which settles nothing and waits for a rebind.
 
 On a transactional flow `ack-on-error` does not apply — the rollback governs redelivery.
 

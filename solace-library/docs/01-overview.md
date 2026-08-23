@@ -96,19 +96,21 @@ The library does not hide these, so it is worth being precise about them.
    per-connection limits require them, producers cached per session, everything closed on shutdown.
 2. **Endpoint provisioning** — creates durable queues and the DMQ, attaches subscriptions, and
    tolerates the "already exists" cases that are normal on restart.
-3. **Threading and dispatch** — inline on the JCSMP delivery thread, or handed to a Spring
+3. **Error handling** — settlement outcomes (`ACCEPTED` / `FAILED` / `REJECTED` / `NONE`) per
+   container or per failure, delivery counts, redelivery limits and the dead message queue.
+4. **Threading and dispatch** — inline on the JCSMP delivery thread, or handed to a Spring
    `AsyncTaskExecutor` with bounded back-pressure.
-4. **Message conversion** — Jackson by default, over a two-interface SPI you can replace.
-5. **Header mapping** — Spring `MessageHeaders` ↔ Solace properties, including the standard fields.
-6. **Request-reply correlation** — per-instance reply destinations, correlation ids, timeouts,
+5. **Message conversion** — Jackson by default, over a two-interface SPI you can replace.
+6. **Header mapping** — Spring `MessageHeaders` ↔ Solace properties, including the standard fields.
+7. **Request-reply correlation** — per-instance reply destinations, correlation ids, timeouts,
    futures, and latency measurement.
-7. **Transactions** — a real `PlatformTransactionManager`, so `@Transactional` and
+8. **Transactions** — a real `PlatformTransactionManager`, so `@Transactional` and
    `TransactionTemplate` work.
-8. **Multi-instance safety** — every per-instance destination carries a sanitised pod/host id.
-9. **Lifecycle** — `SmartLifecycle` phases ordered so containers are consuming before the
+9. **Multi-instance safety** — every per-instance destination carries a sanitised pod/host id.
+10. **Lifecycle** — `SmartLifecycle` phases ordered so containers are consuming before the
    request-reply template can send, and a non-daemon keep-alive thread so a listener-only app does
    not exit.
-10. **Observability** — Micrometer meters for listener throughput, latency, container state and
+11. **Observability** — Micrometer meters for listener throughput, latency, container state and
     request-reply traffic, plus an Actuator health indicator at `/actuator/health/solace`. Both are
     optional and both disappear cleanly when their dependency is absent.
 
@@ -119,7 +121,9 @@ The library does not hide these, so it is worth being precise about them.
 - **Schema registry, Avro, Protobuf.** The converter SPI is the extension point.
 - **Broker administration.** It provisions the endpoints it needs and nothing else; use SEMP or the
   admin UI for the rest.
-- **Its own retry policy.** Redelivery is the broker's, governed by `max-redelivery-count` and the DMQ.
+- **Its own retry policy with back-off.** Redelivery is the broker's, governed by settlement
+  outcomes, `max-redelivery-count` and the DMQ. There is no in-container delay or exponential
+  back-off.
 
 ---
 

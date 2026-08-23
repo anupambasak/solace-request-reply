@@ -100,6 +100,19 @@ public @interface SolaceListener {
     String dispatch() default "";
 
     /**
+     * What to do with a message whose listener throws: {@code ACCEPTED}, {@code FAILED},
+     * {@code REJECTED} or {@code NONE}. Empty inherits {@code solace.listener.error-outcome}.
+     *
+     * <p>{@code FAILED} hands the message back for redelivery and counts the attempt;
+     * {@code REJECTED} sends it straight to the dead message queue without consuming redelivery
+     * attempts. Ignored when {@link #transactional()} is set, where the rollback governs
+     * redelivery.</p>
+     *
+     * @return the settlement outcome name, or empty to inherit
+     */
+    String errorOutcome() default "";
+
+    /**
      * Whether the container starts with the application context.
      *
      * @return whether to start automatically, or empty for the container default

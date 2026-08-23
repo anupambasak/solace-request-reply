@@ -542,9 +542,10 @@ gradle :solace-library:test :client:test :server:test
 | `client` &middot; `TaskDispatcherTest` | one publish per task across single, multiple and batch |
 | `client` &middot; `PersonFactoryTest` | the payload source shared by all three controllers |
 | `server` &middot; `NotificationSubscriberTest` | every delivered copy is processed; the handler returns void |
-| `server` &middot; `TaskWorkerTest` | each task handed to this instance is processed once |
+| `server` &middot; `TaskWorkerTest` | each task handed to this instance is processed once, and a redelivered one reports which attempt it is |
 | `server` &middot; `QuoteConsumerTest` | the second service replies with a type derived from the request |
 | `server` &middot; `InventoryConsumerTest` | the third service maps its request type to a different reply type |
+| `solace-library` &middot; `SettlementOutcomeTest` | which outcomes need bind-time negotiation, and that a lambda error handler still defers to the container |
 | `solace-library` &middot; `SolaceObservabilityTest` | what the Micrometer collaborators publish, and what makes the health indicator report DOWN |
 | `server` &middot; `ExchangePatternConfigurationTest` | the wiring each `pattern` implies — endpoint naming, durability and access type |
 

@@ -85,6 +85,7 @@ Placeholders are resolved through the `BeanFactory`'s embedded value resolver, s
 | `concurrency` | from pattern / YAML | Number of flows bound to the endpoint. Clamped to 1 on a non-durable queue. |
 | `selector` | `""` | Broker-side SQL92 predicate over message properties, e.g. `"region = 'EU' AND priority > 5"`. Filtering happens on the broker, so unmatched messages never cross the network. |
 | `transactional` | from YAML (`false`) | Bind each flow to a `TransactedSession`. Forces `INLINE` dispatch; see [11. Transactions](11-transactions.md). |
+| `errorOutcome` | from YAML | `ACCEPTED`, `FAILED`, `REJECTED` or `NONE` — what happens to a message whose listener throws. Ignored when `transactional` is set. See [9.6](09-consuming-messages.md#96-acknowledgement-settlement-and-errors). |
 | `dispatch` | from YAML (`INLINE`) | `INLINE` or `EXECUTOR`. `EXECUTOR` with `transactional=true` fails at startup. |
 | `autoStartup` | from YAML (`true`) | Start with the context, or wait for `registry.getListenerContainer(id).start()`. |
 | `appendInstanceIdToQueue` | from pattern | Append the instance id to the endpoint name, making it private to this instance. This one attribute is the difference between fan-out and competing consumers. |
@@ -174,6 +175,16 @@ public Quote quote(PriceRequest request) { … }
 ```
 → durable queue `pricing.v1`, non-exclusive, five transacted flows. Reply and acknowledgement commit
 together.
+
+**Rejecting a message that will never succeed**
+
+```java
+@SolaceListener(pattern = "POINT_TO_POINT", queue = "orders", group = "workers",
+        topics = "orders/created", errorOutcome = "REJECTED")
+public void onOrder(Order order) { … }
+```
+→ a failing message goes straight to the dead message queue instead of being retried
+`max-redelivery-count` times first. The container negotiates the outcome on the flow automatically.
 
 **Filtered subscription**
 
