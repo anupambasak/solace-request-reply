@@ -59,6 +59,24 @@ messages and a rollback redeliver processed ones.
 **Fix:** use `dispatch: INLINE` for transactional containers. If you set `dispatch: EXECUTOR`
 globally in YAML, override it per listener: `@SolaceListener(..., dispatch = "INLINE")`.
 
+### `No converter found capable of converting from type [java.lang.String] to type [...$Flow]`
+
+A nested configuration block whose children are **all commented out**. YAML gives the key an empty
+string, not an empty object, and Spring cannot convert that into the properties class:
+
+```yaml
+solace:
+  listener:
+    flow:                            # ✗ nothing under it
+      # transport-window-size: 255
+```
+
+**Fix:** comment out the parent key as well, or leave one real child. A child with an empty *value*
+is fine — that binds as `null`, which is how "unset" is expressed.
+
+The same applies to every nested block: `template`, `listener`, `flow`, `endpoint`,
+`dead-message-queue`, `request-reply`, `metrics`, `health`.
+
 ### `An AsyncTaskExecutor is required for EXECUTOR dispatch on container '…'`
 
 `solaceListenerTaskExecutor` is missing, usually because a custom container factory was built without
@@ -130,6 +148,34 @@ The session factory handles this by creating the producer before any transacted 
 per connection, which is why producers are cached per session.
 
 Seeing it means custom code called `session.createTransactedSession()` directly.
+
+### Consumption stopped but nothing is stopped
+
+Look for `Flow N of container '…' is reconnecting` or `is DOWN` in the log — a container stays
+`running` throughout a flow reconnect, so `isRunning()` and the container's lifecycle state both look
+fine while nothing is being delivered.
+
+| What you see | What it means |
+| :--- | :--- |
+| `RECONNECTING`, no `RECONNECTED` after it | JCSMP is still retrying. Raise `solace.listener.flow.reconnect-tries` if brief blips are turning into `DOWN` |
+| `DOWN` | **The flow will not recover.** The endpoint was deleted, the bind was rejected, or the error was unrecoverable. The container must be restarted |
+| Neither | The flow is fine; look at subscriptions, selectors, or another consumer taking the messages |
+
+The health indicator reports this as `degraded [RECONNECTING]` and goes DOWN, and
+`solace.listener.degraded` is the gauge to alert on.
+
+### Every instance thinks it is the leader — or none does
+
+`ACTIVE`/`INACTIVE` events only arrive when **both** hold: the endpoint's access type is `EXCLUSIVE`,
+and active flow indication is on. It is derived from the access type, so the usual cause is an
+endpoint that is not actually exclusive.
+
+Remember endpoint properties apply only at **first provision** — setting `access-type: EXCLUSIVE` in
+YAML does nothing to a queue that already exists as non-exclusive. Check the broker, and check
+`solace.listener.active` summed across pods: it should be exactly `1`.
+
+If the endpoint is exclusive but no events arrive, something set
+`solace.listener.flow.active-flow-indication: false`.
 
 ### Nothing is delivered, but the endpoint exists
 

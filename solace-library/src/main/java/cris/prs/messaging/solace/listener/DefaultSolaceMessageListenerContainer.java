@@ -4,6 +4,8 @@ import com.solacesystems.jcsmp.BytesXMLMessage;
 import com.solacesystems.jcsmp.ConsumerFlowProperties;
 import com.solacesystems.jcsmp.Endpoint;
 import com.solacesystems.jcsmp.EndpointProperties;
+import com.solacesystems.jcsmp.FlowEventArgs;
+import com.solacesystems.jcsmp.FlowEventHandler;
 import com.solacesystems.jcsmp.FlowReceiver;
 import com.solacesystems.jcsmp.JCSMPErrorResponseException;
 import com.solacesystems.jcsmp.JCSMPErrorResponseSubcodeEx;
@@ -19,6 +21,7 @@ import com.solacesystems.jcsmp.XMLMessageListener;
 import com.solacesystems.jcsmp.transaction.TransactedSession;
 import cris.prs.messaging.solace.core.EndpointMode;
 import cris.prs.messaging.solace.core.SettlementOutcome;
+import cris.prs.messaging.solace.core.SolaceFlowEvent;
 import cris.prs.messaging.solace.core.SolaceMessagingException;
 import cris.prs.messaging.solace.core.SolaceSessionFactory;
 import cris.prs.messaging.solace.transaction.SolaceResourceHolder;
@@ -40,6 +43,7 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * Binds a {@link SolaceListenerEndpoint} to the broker and dispatches received messages to a
@@ -116,6 +120,28 @@ public class DefaultSolaceMessageListenerContainer implements SolaceMessageListe
     private TransactionTemplate transactionTemplate;
 
     private boolean keepAliveHeld;
+
+    /** Notified of flow lifecycle events; {@code null} means only the container's own logging. */
+    @Setter
+    private SolaceFlowListener flowListener;
+
+    /** The most recent flow event on any of this container's flows, or {@code null} before the first. */
+    @Getter
+    private volatile SolaceFlowEvent lastFlowEvent;
+
+    /** Flows currently reported ACTIVE by the broker, when active flow indication is on. */
+    private final AtomicInteger activeFlows = new AtomicInteger();
+
+    /** Flows currently DOWN or RECONNECTING. */
+    private final AtomicInteger degradedFlows = new AtomicInteger();
+
+    /**
+     * Whether the broker has ever reported an ACTIVE or INACTIVE event on this container.
+     *
+     * <p>Distinguishes "standby" from "active flow indication is switched off". Without it a
+     * non-exclusive container, which never receives these events, would look permanently inactive.</p>
+     */
+    private volatile boolean activeIndicationSeen;
 
     /** Receives per-message measurements; {@link SolaceListenerMetrics#NO_OP} unless one is set. */
     @Setter
@@ -413,6 +439,9 @@ public class DefaultSolaceMessageListenerContainer implements SolaceMessageListe
             if (StringUtils.hasText(this.endpoint.getSelector())) {
                 flowProperties.setSelector(this.endpoint.getSelector());
             }
+            this.containerProperties.getFlow().applyTo(flowProperties,
+                    accessType == ContainerProperties.AccessType.EXCLUSIVE);
+            FlowEventHandler eventHandler = flowEventHandler(i);
             FlowReceiver flow;
             if (transactional()) {
                 TransactedSession transactedSession =
@@ -420,12 +449,12 @@ public class DefaultSolaceMessageListenerContainer implements SolaceMessageListe
                 this.transactedSessions.add(transactedSession);
                 SolaceResourceHolder holder = new SolaceResourceHolder(transactedSession, true);
                 flow = transactedSession.createFlow(new ContainerMessageListener(holder, null),
-                        flowProperties, endpointProperties);
+                        flowProperties, endpointProperties, eventHandler);
             }
             else {
                 flowProperties.setAckMode(JCSMPProperties.SUPPORTED_MESSAGE_ACK_CLIENT);
                 flow = session.createFlow(new ContainerMessageListener(null, newInvokerIfNeeded(i)),
-                        flowProperties, endpointProperties);
+                        flowProperties, endpointProperties, eventHandler);
             }
             this.flows.add(flow);
         }
@@ -437,6 +466,123 @@ public class DefaultSolaceMessageListenerContainer implements SolaceMessageListe
         for (FlowReceiver flow : this.flows) {
             flow.start();
         }
+    }
+
+    /**
+     * Build the JCSMP event handler for one flow.
+     *
+     * <p>Every event is logged, counted and forwarded to the container's {@link SolaceFlowListener}
+     * if it has one. Log levels are chosen by what an operator needs to see: {@code DOWN} is an error
+     * because the flow will not come back without a restart, {@code RECONNECTING} is a warning
+     * because consumption has stopped for now, and the rest are informational.</p>
+     *
+     * @param flowIndex which of this container's flows the handler belongs to
+     * @return the handler to pass to {@code createFlow}
+     */
+    private FlowEventHandler flowEventHandler(int flowIndex) {
+        return (source, args) -> handleFlowEvent(flowIndex, args);
+    }
+
+    /**
+     * Record and report one flow event.
+     *
+     * <p>Runs on a JCSMP notification thread. Everything here is guarded, because an exception
+     * escaping into JCSMP is dropped silently and would leave the container's own state
+     * inconsistent.</p>
+     *
+     * @param flowIndex which of this container's flows raised the event
+     * @param args      the JCSMP event
+     */
+    private void handleFlowEvent(int flowIndex, FlowEventArgs args) {
+        SolaceFlowEvent event = SolaceFlowEvent.from(args.getEvent());
+        SolaceFlowEvent previous = this.lastFlowEvent;
+        this.lastFlowEvent = event;
+
+        switch (event) {
+            case ACTIVE -> {
+                this.activeIndicationSeen = true;
+                this.activeFlows.incrementAndGet();
+            }
+            case INACTIVE -> {
+                this.activeIndicationSeen = true;
+                this.activeFlows.updateAndGet(count -> Math.max(0, count - 1));
+            }
+            case DOWN, RECONNECTING -> {
+                if (previous == null || !previous.isDegraded()) {
+                    this.degradedFlows.incrementAndGet();
+                }
+            }
+            case UP, RECONNECTED -> this.degradedFlows.updateAndGet(count -> Math.max(0, count - 1));
+            default -> { }
+        }
+
+        switch (event) {
+            case DOWN -> log.error("Flow {} of container '{}' on endpoint '{}' is DOWN and will not "
+                            + "recover on its own; the container must be restarted to consume again. {}",
+                    flowIndex, getListenerId(), this.resolvedQueueName, args.getInfo(),
+                    args.getException());
+            case RECONNECTING -> log.warn("Flow {} of container '{}' on endpoint '{}' is "
+                            + "reconnecting; consumption has stopped. {}",
+                    flowIndex, getListenerId(), this.resolvedQueueName, args.getInfo());
+            case RECONNECTED -> log.info("Flow {} of container '{}' reconnected to endpoint '{}'",
+                    flowIndex, getListenerId(), this.resolvedQueueName);
+            case ACTIVE -> log.info("Flow {} of container '{}' is now the ACTIVE consumer on '{}'",
+                    flowIndex, getListenerId(), this.resolvedQueueName);
+            case INACTIVE -> log.info("Flow {} of container '{}' is now standing by on '{}'",
+                    flowIndex, getListenerId(), this.resolvedQueueName);
+            default -> log.debug("Flow {} of container '{}' event {} on '{}': {}", flowIndex,
+                    getListenerId(), event, this.resolvedQueueName, args.getInfo());
+        }
+
+        try {
+            this.listenerMetrics.recordFlowEvent(getListenerId(), event.name());
+        }
+        catch (RuntimeException ex) {
+            log.debug("Listener metrics failed for container '{}'", getListenerId(), ex);
+        }
+
+        SolaceFlowListener listener = this.flowListener;
+        if (listener == null) {
+            return;
+        }
+        try {
+            listener.onFlowEvent(new SolaceFlowEventArgs(getListenerId(), flowIndex,
+                    this.resolvedQueueName, event, args.getInfo(), args.getException(),
+                    args.getResponseCode()));
+        }
+        catch (RuntimeException ex) {
+            log.warn("Flow listener of container '{}' threw on a {} event", getListenerId(), event, ex);
+        }
+    }
+
+    /**
+     * Whether this container is the active consumer.
+     *
+     * <p>On an exclusive endpoint with active flow indication on, this is {@code true} only on the
+     * instance the broker has made the consumer &mdash; which makes it a leader-election primitive
+     * with no extra coordination. Everywhere else it simply mirrors {@link #isRunning()}, because a
+     * non-exclusive flow is always active when it is running.</p>
+     *
+     * @return {@code true} when this container is consuming as the active flow
+     */
+    public boolean isActive() {
+        if (!isRunning() || isDegraded()) {
+            return false;
+        }
+        return !this.activeIndicationSeen || this.activeFlows.get() > 0;
+    }
+
+    /**
+     * Whether any of this container's flows is down or reconnecting.
+     *
+     * <p>The difference between "running" and "actually consuming": a container stays running through
+     * a reconnect, so {@link #isRunning()} alone cannot tell a health check that delivery has
+     * stopped.</p>
+     *
+     * @return {@code true} when at least one flow is degraded
+     */
+    public boolean isDegraded() {
+        return this.degradedFlows.get() > 0;
     }
 
     /**
@@ -586,6 +732,10 @@ public class DefaultSolaceMessageListenerContainer implements SolaceMessageListe
             }
         });
         this.flows.clear();
+        this.activeFlows.set(0);
+        this.degradedFlows.set(0);
+        this.activeIndicationSeen = false;
+        this.lastFlowEvent = null;
         this.transactedSessions.forEach(transactedSession -> {
             try {
                 transactedSession.close();

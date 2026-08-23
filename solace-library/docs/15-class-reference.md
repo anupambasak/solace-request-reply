@@ -22,6 +22,7 @@ outside it — see [4.9](04-spring-integration.md#49-why-the-auto-configuration-
 | `SolaceHeaders` | final class | The well-known header names. See [12.2](12-conversion-and-headers.md#122-solaceheadermapper). |
 | `SolaceRecord<T>` | class | Payload plus destination, correlation id, replyTo, headers, raw message, `isRedelivered()`, `getDeliveryCount()` and `isDeliveryCountSupported()`. |
 | `SettlementOutcome` | enum | `ACCEPTED`, `FAILED`, `REJECTED`, `NONE`; `jcsmpOutcome()`, `requiresNegotiation()`. What happens to a message whose listener threw. |
+| `SolaceFlowEvent` | enum | `UP`, `DOWN`, `RECONNECTING`, `RECONNECTED`, `ACTIVE`, `INACTIVE`, `UNKNOWN`; `from(FlowEvent)`, `isDegraded()`. |
 | `EndpointMode` | enum | `DURABLE_QUEUE`, `NON_DURABLE_QUEUE`, `DIRECT`; `isQueueBased()`. |
 | `ExchangePattern` | enum | `PUBLISH_SUBSCRIBE`, `POINT_TO_POINT`, `REQUEST_REPLY`. |
 | `SolaceMessagingException` | class | `NestedRuntimeException`. Every JCSMP checked exception is translated to this. |
@@ -38,8 +39,11 @@ outside it — see [4.9](04-spring-integration.md#49-why-the-auto-configuration-
 | `SolaceListenerContainerFactory` | interface | `createListenerContainer(SolaceListenerEndpoint)`. |
 | `DefaultSolaceListenerContainerFactory` | class | Builds containers from the shared collaborators and the default `ContainerProperties`. Settable: `transactionManager`, `replyTemplate`, `errorHandler`, `taskExecutor`. |
 | `SolaceMessageListenerContainer` | interface | `SmartLifecycle` + `getListenerId()` + `setupMessageListener(...)`. |
-| `DefaultSolaceMessageListenerContainer` | class | Provisioning, flow binding, subscriptions, dispatch, transactions, shutdown. `getResolvedQueueName()` gives the physical endpoint name once started. |
-| `ContainerProperties` | class | Every container setting; the type `solace.listener.*` binds to. Nested: `Endpoint`, `DeadMessageQueue`, and the enums `DispatchMode`, `AccessType`, `Permission`. |
+| `DefaultSolaceMessageListenerContainer` | class | Provisioning, flow binding, subscriptions, dispatch, transactions, shutdown. `getResolvedQueueName()`, `getActiveFlowCount()`, and from flow events `isActive()`, `isDegraded()`, `getLastFlowEvent()`. |
+| `ContainerProperties` | class | Every container setting; the type `solace.listener.*` binds to. Nested: `Flow`, `Endpoint`, `DeadMessageQueue`, and the enums `DispatchMode`, `AccessType`, `Permission`. |
+| `ContainerProperties.Flow` | class | Per-flow tuning, every value nullable; `applyTo(ConsumerFlowProperties, boolean)` applies only what was set. |
+| `SolaceFlowListener` | interface | `void onFlowEvent(SolaceFlowEventArgs)`. Flow lifecycle callback; the basis of leader election over an exclusive endpoint. |
+| `SolaceFlowEventArgs` | class | Container id, flow index, endpoint, event, info, exception, response code. |
 | `SolaceListenerEndpointRegistry` | class | Holds containers by id; `SmartLifecycle` and `DisposableBean`. `registerListenerContainer`, `getListenerContainer(id)`, `getListenerContainerIds()`, `getListenerContainers()`. |
 | `SolaceListenerAnnotationBeanPostProcessor` | class | Finds `@SolaceListener` methods, resolves placeholders, builds endpoints, registers containers. `BeanPostProcessor` + `SmartInitializingSingleton` + `BeanFactoryAware` + `Ordered`. |
 | `SolaceListenerConfigUtils` | final class | The three well-known infrastructure bean names. |
@@ -48,7 +52,7 @@ outside it — see [4.9](04-spring-integration.md#49-why-the-auto-configuration-
 | `MethodSolaceListenerAdapter` | class | Invokes an `InvocableHandlerMethod`. What `@SolaceListener` uses. |
 | `RecordSolaceListenerAdapter<T,R>` | class | Invokes a `Function<SolaceRecord<T>, R>`, for programmatic registration. |
 | `SolaceListenerErrorHandler` | interface | `void handleError(BytesXMLMessage, Exception)`, plus a `default SettlementOutcome resolveOutcome(...)` returning `null` — so a lambda handler still defers to the container. |
-| `SolaceListenerMetrics` | interface | Per-message callbacks: `recordReceived`, `recordSuccess`, `recordFailure`, `recordSettlement`. Every method has a no-op default, and `NO_OP` is the container default. Free of any metrics-library types. |
+| `SolaceListenerMetrics` | interface | Per-message callbacks: `recordReceived`, `recordSuccess`, `recordFailure`, `recordSettlement`, `recordFlowEvent`. Every method has a no-op default, and `NO_OP` is the container default. Free of any metrics-library types. |
 | `ContainerKeepAlive` | package-private final class | Reference-counted non-daemon thread that keeps a listener-only JVM alive. |
 
 → [9. Consuming messages](09-consuming-messages.md), [6. Annotations](06-annotations.md)
@@ -149,6 +153,7 @@ unaffected.
 | `solaceTemplate` | `SolaceTemplate<Object>` | missing bean **by name**; `@Primary` |
 | `solaceListenerTaskExecutor` | `AsyncTaskExecutor` | missing bean by name |
 | `solaceListenerContainerFactory` | `DefaultSolaceListenerContainerFactory` | missing bean by name |
+| *(yours)* | `SolaceFlowListener` | optional — a single bean is given to every container |
 | `replyingSolaceTemplateFactory` | `ReplyingSolaceTemplateFactory` | missing bean |
 | `replyingSolaceTemplate` | `ReplyingSolaceTemplate` | missing bean **by name** + `solace.request-reply.enabled` ≠ false |
 | `solaceListenerMetrics` | `SolaceListenerMetrics` | missing bean + `MeterRegistry` present + `solace.metrics.enabled` ≠ false |

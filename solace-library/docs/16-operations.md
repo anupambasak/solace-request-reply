@@ -28,6 +28,10 @@ logging:
 | INFO | `ReplyingSolaceTemplate started, replies expected on '…'` | The reply destination this instance owns. |
 | WARN | `Container '…' binds N flows to the exclusive endpoint '…'` | Concurrency exceeds what the endpoint admits. |
 | WARN | `Container '…' asks for N flows on a non-durable queue…` | Clamped to 1. |
+| ERROR | `Flow N of container '…' is DOWN and will not recover on its own` | Consumption has stopped permanently for that flow; the container must be restarted. |
+| WARN | `Flow N of container '…' is reconnecting; consumption has stopped` | Transient, JCSMP is retrying. |
+| INFO | `Flow N of container '…' is now the ACTIVE consumer on '…'` | This instance took the exclusive endpoint. |
+| INFO | `Flow N of container '…' is now standing by on '…'` | Another instance holds it. |
 | WARN | `Received a reply with no outstanding request, correlationId=…` | A reply arrived after its timeout, or for a request this instance never sent. |
 | WARN | `Listener returned a value but the request carries no replyTo…` | A responder is returning a value nobody asked for. |
 | ERROR | `Solace consumer error in container '…'` | A JCSMP-level flow error. |
@@ -73,8 +77,11 @@ All tagged `listener` with the container id.
 | `solace.listener.messages.received` | counter | `listener` | Deliveries into the container, counted **before** the listener runs |
 | `solace.listener.processing` | timer | `listener`, `result`, `exception` | Time in the listener method; `result` is `success` or `failure`, `exception` is the simple class name or `none` |
 | `solace.listener.settlement` | counter | `listener`, `outcome` | Settlement outcomes applied to failed messages: `ACCEPTED`, `FAILED`, `REJECTED`, `NONE` |
+| `solace.listener.flow.events` | counter | `listener`, `event` | Flow lifecycle events: `UP`, `DOWN`, `RECONNECTING`, `RECONNECTED`, `ACTIVE`, `INACTIVE` |
 | `solace.listener.running` | gauge | `listener` | `1` while the container is running, `0` otherwise |
 | `solace.listener.flows` | gauge | `listener` | Flows currently bound |
+| `solace.listener.degraded` | gauge | `listener` | `1` while any flow is down or reconnecting |
+| `solace.listener.active` | gauge | `listener` | `1` while this container is the active consumer, `0` while standing by |
 
 `received` and the timer's count are separate on purpose. Under `dispatch: EXECUTOR` a message can sit
 in the hand-off queue for some time between the two, so the difference is the depth of that buffer —
@@ -82,6 +89,13 @@ the clearest signal that a listener is falling behind. Under `INLINE` they track
 
 `solace.listener.flows` below the configured concurrency on a running container means flows were lost
 without the container stopping.
+
+`solace.listener.flow.events` tagged `RECONNECTING` is broker instability — a flow can drop and
+recover without losing a message, so nothing else in the metrics would show it happened. Tagged
+`DOWN` it means a container has stopped consuming and **will not resume without a restart**.
+
+`solace.listener.active` summed across pods should be exactly `1` for an exclusive endpoint. `0` means
+nobody is the leader; more than `1` means the endpoint is not exclusive after all.
 
 `solace.listener.settlement` tagged `REJECTED` is the poison-message rate — messages given up on
 immediately. Tagged `FAILED` it is the retry rate; a `FAILED` rate that does not fall is a retry loop
@@ -177,8 +191,27 @@ broker**, so it is cheap enough for a readiness probe on a short interval.
 ### What makes it DOWN
 
 - the session factory reports its connection is gone; or
-- a registered listener container is not running, and
-  `solace.health.require-all-containers-running` is `true` (the default).
+- a registered listener container is not running, **or is running but degraded** — any of its flows
+  down or reconnecting — and `solace.health.require-all-containers-running` is `true` (the default).
+
+That second half is what flow events bought. A container stays `running` throughout a reconnect, so
+before them a readiness probe could not tell a consuming instance from one whose delivery had
+silently stopped:
+
+```json
+{
+  "status": "DOWN",
+  "details": {
+    "session": "connected",
+    "containers": { "orders": "degraded [RECONNECTING] (orders.workers)" },
+    "degradedContainers": ["orders"]
+  }
+}
+```
+
+A **standby** instance on an exclusive endpoint stays UP. `INACTIVE` is not degraded — it is working
+as designed, and treating it as a fault would fail the health check of every instance that is not the
+leader.
 
 When containers are down, the reason is the first thing in the details:
 

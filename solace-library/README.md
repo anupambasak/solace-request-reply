@@ -76,7 +76,7 @@ Read in order for a full picture, or jump to what you need.
 | :--- | :--- |
 | **[7. Exchange patterns](docs/07-exchange-patterns.md)** | Publish-subscribe, point-to-point and request-reply: what each one wires up, and how to choose |
 | **[8. Producing messages](docs/08-producing-messages.md)** | `SolaceTemplate`, delivery defaults, headers, and the single/multiple/batch distinction |
-| **[9. Consuming messages](docs/09-consuming-messages.md)** | Containers, endpoint naming, provisioning, concurrency, dispatch modes, acknowledgement, redelivery and the DMQ |
+| **[9. Consuming messages](docs/09-consuming-messages.md)** | Containers, endpoint naming, provisioning, concurrency, dispatch modes, settlement outcomes, delivery counts, flow events and tuning, redelivery and the DMQ |
 | **[10. Request-reply](docs/10-request-reply.md)** | Correlation, per-instance reply destinations, timeouts, futures, and when to give a service its own reply endpoint |
 | **[11. Transactions](docs/11-transactions.md)** | Solace local transactions through `@Transactional` and `TransactionTemplate`, the transacted-session budget, and the database interaction |
 

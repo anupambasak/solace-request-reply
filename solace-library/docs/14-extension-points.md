@@ -14,6 +14,7 @@ Every collaborator is an interface with a default implementation registered
 | `SolaceSessionFactory` | `DefaultSolaceSessionFactory` | Change session strategy — pooling, per-tenant connections |
 | `InstanceIdProvider` | `HostnameInstanceIdProvider` | Change how this instance is named |
 | `SolaceListenerErrorHandler` | logging lambda | Route failures to a dead-letter service, metrics, alerting — and decide each message's settlement outcome |
+| `SolaceFlowListener` | none (logging only) | Act on reconnects and on becoming the active consumer |
 | `SolaceListenerContainerFactory` | `DefaultSolaceListenerContainerFactory` | Change how containers are built |
 | `SolaceMessageListenerContainer` | `DefaultSolaceMessageListenerContainer` | Change consumption entirely |
 | `SolaceMessageListener` | the adapters | Consume raw JCSMP messages |
@@ -213,7 +214,29 @@ ReplyingSolaceTemplate auditReplyingSolaceTemplate(ReplyingSolaceTemplateFactory
 you change how the reply container is built while keeping the template wiring. See
 [10.6](10-request-reply.md#106-when-to-split-a-reply-destination) for when this is warranted.
 
-## 14.8 Custom instrumentation
+## 14.8 A flow listener
+
+Declare one bean and every container reports to it:
+
+```java
+@Bean
+SolaceFlowListener solaceFlowListener(AlertService alerts, Scheduler scheduler) {
+    return args -> {
+        switch (args.getEvent()) {
+            case DOWN     -> alerts.page("Flow down on " + args.getEndpoint(), args.getException());
+            case ACTIVE   -> scheduler.becomeLeader();     // exclusive endpoint: this pod won
+            case INACTIVE -> scheduler.standDown();
+            default       -> { }
+        }
+    };
+}
+```
+
+It runs on a JCSMP notification thread, so it must be quick and must not block; the container guards
+every call. Logging is unconditional — a listener adds to it rather than replacing it. See
+[9.8](09-consuming-messages.md#98-flow-events).
+
+## 14.9 Custom instrumentation
 
 Both metrics SPIs are public, carry no metrics-library types, and give every method a no-op default —
 so implement only what you care about. Declaring either bean replaces the Micrometer implementation
@@ -257,7 +280,7 @@ SolaceListenerMetrics solaceListenerMetrics(MeterRegistry registry, Tracer trace
 }
 ```
 
-## 14.9 A custom health indicator
+## 14.10 A custom health indicator
 
 `solaceHealthIndicator` is `@ConditionalOnMissingBean(name = "solaceHealthIndicator")`, so a bean of
 that name replaces it. Before writing one, check whether
@@ -268,7 +291,7 @@ usual reason to want a different one.
 compiles unchanged and is simply reported as healthy. Override it if your implementation can cheaply
 tell that its connection is gone.
 
-## 14.10 A custom session factory
+## 14.11 A custom session factory
 
 The heaviest extension point, and rarely needed. Implement `SolaceSessionFactory` if you need
 per-tenant connections or pooling. Two rules the default implementation encodes and yours must too:
@@ -281,7 +304,7 @@ per-tenant connections or pooling. Two rules the default implementation encodes 
 
 ---
 
-## 14.11 What is not extensible today
+## 14.12 What is not extensible today
 
 | | Why | Tracked in |
 | :--- | :--- | :--- |

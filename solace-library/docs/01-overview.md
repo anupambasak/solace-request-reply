@@ -58,7 +58,9 @@ Where the two diverge, it is because Solace differs from Kafka, not because of a
   partition assignment. `concurrency` means "bind this many flows", not "assign this many partitions".
 - **No consumer-group protocol.** A "group" here is a naming convention (`<queue>.<group>`) that
   produces a single shared non-exclusive endpoint. There is no rebalance, no generation, no
-  coordinator.
+  coordinator. What Kafka gets from partition assignment, Solace gets from an *exclusive* endpoint:
+  the broker names one active consumer and tells it so, which is leader election without a
+  coordinator — see [9.8](09-consuming-messages.md#98-flow-events).
 - **Topics are not endpoints.** In Solace a topic is a routing key on a published message. A consumer
   binds to an *endpoint* (a queue) and attaches topic subscriptions to it. Almost every Solace-specific
   concept in this library follows from that one fact.
@@ -98,19 +100,21 @@ The library does not hide these, so it is worth being precise about them.
    tolerates the "already exists" cases that are normal on restart.
 3. **Error handling** — settlement outcomes (`ACCEPTED` / `FAILED` / `REJECTED` / `NONE`) per
    container or per failure, delivery counts, redelivery limits and the dead message queue.
-4. **Threading and dispatch** — inline on the JCSMP delivery thread, or handed to a Spring
+4. **Flow lifecycle** — reconnects, lost binds and active-consumer changes surfaced as events, with
+   per-flow tuning of the transport window and acknowledgement behaviour.
+5. **Threading and dispatch** — inline on the JCSMP delivery thread, or handed to a Spring
    `AsyncTaskExecutor` with bounded back-pressure.
-5. **Message conversion** — Jackson by default, over a two-interface SPI you can replace.
-6. **Header mapping** — Spring `MessageHeaders` ↔ Solace properties, including the standard fields.
-7. **Request-reply correlation** — per-instance reply destinations, correlation ids, timeouts,
+6. **Message conversion** — Jackson by default, over a two-interface SPI you can replace.
+7. **Header mapping** — Spring `MessageHeaders` ↔ Solace properties, including the standard fields.
+8. **Request-reply correlation** — per-instance reply destinations, correlation ids, timeouts,
    futures, and latency measurement.
-8. **Transactions** — a real `PlatformTransactionManager`, so `@Transactional` and
+9. **Transactions** — a real `PlatformTransactionManager`, so `@Transactional` and
    `TransactionTemplate` work.
-9. **Multi-instance safety** — every per-instance destination carries a sanitised pod/host id.
-10. **Lifecycle** — `SmartLifecycle` phases ordered so containers are consuming before the
+10. **Multi-instance safety** — every per-instance destination carries a sanitised pod/host id.
+11. **Lifecycle** — `SmartLifecycle` phases ordered so containers are consuming before the
    request-reply template can send, and a non-daemon keep-alive thread so a listener-only app does
    not exit.
-11. **Observability** — Micrometer meters for listener throughput, latency, container state and
+12. **Observability** — Micrometer meters for listener throughput, latency, container state and
     request-reply traffic, plus an Actuator health indicator at `/actuator/health/solace`. Both are
     optional and both disappear cleanly when their dependency is absent.
 

@@ -43,6 +43,14 @@ solace:
     max-transacted-sessions-per-connection: 10
     shutdown-timeout: 10s
     phase: 2147483547                # Integer.MAX_VALUE - 100
+    flow:                            # every value unset = JCSMP defaults
+      transport-window-size:         # 255
+      ack-threshold:                 # 60 (percent of the window)
+      ack-timer:                     # 1s
+      windowed-ack-max-size:
+      reconnect-tries:               # -1 retries a lost flow forever
+      reconnect-retry-interval:
+      active-flow-indication:        # unset = on for EXCLUSIVE endpoints
     endpoint:
       access-type: NONEXCLUSIVE      # EXCLUSIVE | NONEXCLUSIVE
       permission: MODIFY_TOPIC       # NONE | READ_ONLY | CONSUME | MODIFY_TOPIC | DELETE
@@ -75,6 +83,33 @@ solace:
     concurrency: 1
     reply-timeout: 30s
     delivery-mode: PERSISTENT
+```
+
+### A YAML trap worth knowing
+
+Every nested block above — `template`, `listener`, `flow`, `endpoint`, `dead-message-queue`,
+`request-reply`, `metrics`, `health` — binds to an *object*. A key with **no children at all** is
+empty string in YAML, not an empty object, and Spring fails to start:
+
+```yaml
+solace:
+  listener:
+    flow:                            # ✗ every child commented out
+      # transport-window-size: 255
+```
+```
+Failed to bind properties under 'solace.listener.flow' to …ContainerProperties$Flow:
+    Reason: No converter found capable of converting from type [java.lang.String] to type […$Flow]
+```
+
+Comment out the parent key too, or leave one real child. A child with an *empty value* is fine — that
+binds as `null`, which is exactly how "unset" is expressed:
+
+```yaml
+solace:
+  listener:
+    flow:
+      transport-window-size:         # ✓ null, meaning the JCSMP default
 ```
 
 ---
@@ -137,6 +172,26 @@ hand-built `ContainerProperties`.
 | `max-transacted-sessions-per-connection` | `int` | `10` | Must match the broker's client-profile limit. A transactional container refuses to start if its `concurrency` exceeds it. |
 | `shutdown-timeout` | `Duration` | `10s` | How long a stopping `EXECUTOR` invoker is given to drain before it is interrupted. |
 | `phase` | `int` | `2147483547` | `SmartLifecycle` phase. Late, so messaging starts after the rest of the app and stops before it. |
+
+### `solace.listener.flow.*`
+
+Tuning applied to every **flow** the container binds. Every value is unset by default and only
+reaches `ConsumerFlowProperties` once given a value, so an empty block means JCSMP's own defaults.
+
+Unlike the endpoint block below, these apply on **every bind**, not only when an endpoint is first
+provisioned — so a change takes effect on the next restart with no need to touch the queue.
+
+| Property | Type | JCSMP default | Effect |
+| :--- | :--- | :--- | :--- |
+| `transport-window-size` | `Integer` | 255 | Messages in flight to this flow before the broker waits for an acknowledgement. **The primary throughput knob for guaranteed messaging.** |
+| `ack-threshold` | `Integer` | 60 | Percentage of the window at which the flow acknowledges. Higher = fewer round-trips, more redelivery on a drop. |
+| `ack-timer` | `Duration` | 1s | Wait before acknowledging when the threshold has not been reached. The floor on ack latency for a slow trickle. |
+| `windowed-ack-max-size` | `Integer` | JCSMP's | Maximum messages acknowledged in one transmission. |
+| `reconnect-tries` | `Integer` | JCSMP's | Retries for a lost **flow** before `FLOW_DOWN`. `-1` retries forever. Separate from session reconnection under `solace.java.*`. |
+| `reconnect-retry-interval` | `Duration` | JCSMP's | Wait between flow reconnection attempts. |
+| `active-flow-indication` | `Boolean` | derived | Ask the broker to say when this flow becomes the active consumer on an exclusive endpoint. Unset enables it for `EXCLUSIVE` and not otherwise — it is the basis of leader election over an exclusive endpoint. |
+
+See [9.9](09-consuming-messages.md#99-flow-tuning) for when to change any of it.
 
 ### `solace.listener.endpoint.*`
 

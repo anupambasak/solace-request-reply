@@ -50,6 +50,14 @@ public class DefaultSolaceListenerContainerFactory implements SolaceListenerCont
     private SolaceListenerMetrics listenerMetrics = SolaceListenerMetrics.NO_OP;
 
     /**
+     * Given to every container this factory creates, so flow lifecycle events reach the application.
+     *
+     * <p>{@code null} leaves the container's own logging as the only reporting.</p>
+     */
+    @Setter
+    private SolaceFlowListener flowListener;
+
+    /**
      * Create a container factory.
      *
      * @param sessionFactory      supplies connections to every container built here
@@ -103,6 +111,7 @@ public class DefaultSolaceListenerContainerFactory implements SolaceListenerCont
         container.setTransactionManager(this.transactionManager);
         container.setTaskExecutor(this.taskExecutor);
         container.setListenerMetrics(this.listenerMetrics);
+        container.setFlowListener(this.flowListener);
         if (this.errorHandler != null) {
             container.setErrorHandler(this.errorHandler);
         }

@@ -79,6 +79,16 @@ solace:
     # request-reply listener here is transactional, so this applies to the non-transactional ones.
     error-outcome: ACCEPTED
     keep-alive: true
+    # Per-flow tuning. Every value is unset by default, meaning JCSMP's own defaults; a property
+    # reaches the flow only once given a value. The whole block is commented out because a `flow:`
+    # key with no children binds as an empty string, not as an empty object, and fails at startup.
+    # flow:
+    #   transport-window-size: 255      # messages in flight before the broker waits for an ack
+    #   ack-threshold: 60               # percentage of the window at which the flow acknowledges
+    #   ack-timer: 1s                   # floor on ack latency for a slow trickle of messages
+    #   reconnect-tries: -1             # -1 retries a lost flow forever
+    #   reconnect-retry-interval: 3s
+    #   active-flow-indication: true    # unset derives it: on for EXCLUSIVE endpoints
     provision-endpoint: true
     endpoint:
       access-type: NONEXCLUSIVE

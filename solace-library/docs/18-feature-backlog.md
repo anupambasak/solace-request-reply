@@ -27,6 +27,8 @@ marks unsupported for JCSMP, or that lives outside the client API entirely, is l
 | Client acknowledgement | `errorOutcome`, transactional commit |
 | Negative acknowledgement / settlement outcomes | `SettlementOutcome`, `SolaceListenerErrorHandler.resolveOutcome` |
 | Delivery count | `SolaceRecord.getDeliveryCount()`, `SolaceHeaders.DELIVERY_COUNT` |
+| Flow event handling and active flow indication | `SolaceFlowListener`, `SolaceFlowEvent`, container `isActive()` / `isDegraded()` |
+| Consumer flow tuning | `ContainerProperties.Flow`, `solace.listener.flow.*` |
 | Structured data types (partially) | headers → SDT user properties |
 | Micrometer metrics | `SolaceListenerMetrics`, `SolaceRequestReplyMetrics`, the `observability` package |
 | Actuator health indicator | `SolaceHealthIndicator`, `SolaceSessionFactory.isHealthy()` |
@@ -74,9 +76,10 @@ and reporting it as one would keep the instance out of the load balancer indefin
 `SolaceSessionFactory` gained a `default boolean isHealthy()` for this. A default method rather than a
 new abstract one, so a custom session factory keeps compiling and is simply reported as healthy.
 
-**Still open:** distinguishing "connected" from "reconnecting". JCSMP reconnects transparently and the
-library does not yet subscribe to session events, so a session in the middle of a reconnect still
-reports connected. Flow event handling (Tier 1, item 2) is the prerequisite.
+**Resolved since:** the indicator now distinguishes *connected* from *reconnecting*, using the flow
+events described below — a container reports `degraded [RECONNECTING]` and the health status goes
+DOWN. What remains unmodelled is a **session**-level reconnect that leaves flows untouched; that would
+need `SessionEventHandler`, which nothing here subscribes to.
 
 ### Negative acknowledgement and settlement outcomes
 
@@ -128,39 +131,68 @@ Together with settlement outcomes this makes a give-up policy expressible for th
 `REJECTED` once the delivery count reaches three, `FAILED` before that. Neither half was enough on its
 own — `isRedelivered()` could not count, and there was no way to reject early.
 
+### Flow event handling
+
+*Was Tier 1, item 2. `FlowEventHandler`, `FlowEventArgs`, `FlowEvent`,
+`ConsumerFlowProperties.setActiveFlowIndication(boolean)`, and the four-argument
+`createFlow(listener, flowProps, endpointProps, flowEventHandler)` — which exists on both
+`JCSMPSession` and `TransactedSession`.*
+
+`SolaceFlowEvent` maps JCSMP's six events; `SolaceFlowListener` receives a `SolaceFlowEventArgs`
+carrying container id, flow index, endpoint, event, info, exception and response code. A value object
+rather than a widened callback signature, so a future JCSMP field does not break every implementation.
+
+Logging is unconditional and level-graded by what an operator needs: `DOWN` is an **error** because
+the flow will not recover without a container restart, `RECONNECTING` is a **warning** because
+consumption has stopped for now, the rest are informational. A listener adds to that rather than
+replacing it.
+
+The backlog predicted two features from one change, and both landed:
+
+- **Operational visibility.** `isDegraded()` is the difference between "running" and "actually
+  consuming" — a container stays running throughout a reconnect. The Actuator health indicator and a
+  `solace.listener.degraded` gauge both use it, which is what closed the health-indicator gap above.
+- **Leader election.** Active flow indication is requested automatically for `EXCLUSIVE` endpoints,
+  so `ACTIVE`/`INACTIVE` events arrive without configuration and `isActive()` answers "am I the
+  leader" with no extra coordination.
+
+One judgement worth recording: **`INACTIVE` is deliberately not degraded.** A standby flow on an
+exclusive endpoint is healthy and working as designed; counting it as degraded would fail the health
+check of every instance that is not the leader — which is most of them.
+
+**Still open:** session-level events (`SessionEventHandler`). A session reconnect that leaves flows
+intact is still invisible.
+
+### Consumer flow tuning
+
+*Was Tier 1, item 1. `setTransportWindowSize`, `setAckThreshold`, `setAckTimerInMsecs`,
+`setWindowedAckMaxSize`, `setReconnectTries`, `setReconnectRetryIntervalInMsecs`.*
+
+`ContainerProperties.Flow`, bound from `solace.listener.flow.*`, mirroring the existing `Endpoint`
+block as the backlog proposed. Every field is a **nullable** boxed type and `applyTo` writes only what
+was set, so an untouched block is a genuine no-op — which is the property a purely additive change has
+to have, and the one the test pins down.
+
+`ackTimer` and `reconnectRetryInterval` are `Duration` rather than raw millis, converted at the
+boundary, because that is what a Spring Boot user expects to write (`1s`, `250ms`).
+
+There is deliberately no `@SolaceListener` attribute for any of it: there are seven properties, they
+are rarely per-listener, and a second container factory already expresses per-listener tuning.
+
+Worth being clear about the distinction from the endpoint block: endpoint properties are applied only
+when a queue is **first provisioned** and thereafter ignored by the broker, while flow properties are
+applied on **every bind** — so a change here takes effect on the next restart with no need to touch
+the queue.
+
+**Still open:** `noLocal` is on the same `ConsumerFlowProperties` and would have been a one-line
+addition, but it is its own backlog item with its own semantics, so it was left there rather than
+smuggled in.
+
 ---
 
 ## Tier 1 — closes a real gap in what is already built
 
-### 1. Consumer flow tuning
-
-*`setTransportWindowSize`, `setAckThreshold`, `setAckTimerInMsecs`, `setReconnectTries`,
-`setReconnectRetryIntervalInMsecs`.*
-
-The library builds `ConsumerFlowProperties` but exposes only endpoint, selector and ack mode. The
-transport window is the primary throughput knob for guaranteed messaging, and the ack threshold and
-timer trade acknowledgement round-trips against redelivery risk. Right now the only way to tune a
-flow is to fork the container.
-
-**Shape:** a `ContainerProperties.Flow` block mirroring the existing `Endpoint` block. Purely
-additive, no behaviour change at defaults. **Effort: S.**
-
-### 2. Flow event handling
-
-*`ConsumerFlowProperties.setActiveFlowIndication(boolean)`, `FlowEventHandler`,
-`JCSMPSession.createFlow(listener, flowProps, endpointProps, flowEventHandler)`.*
-
-The container passes no `FlowEventHandler`, so flow-level events — bind failures, reconnects, flow
-down, and active-flow indication on exclusive endpoints — are invisible. An application scaled across
-pods on an exclusive endpoint currently has no way to learn which instance is the active consumer.
-
-Two features fall out of one change: operational visibility of reconnects, and an
-`isActive()`/`ActiveFlowListener` for leader-style consumers.
-
-**Shape:** an optional `SolaceFlowListener` on the container, plus lifecycle logging by default.
-**Effort: S.**
-
-### 3. Queue browsing
+### 1. Queue browsing
 
 *`JCSMPSession.createBrowser(BrowserProperties)`.*
 
@@ -175,7 +207,7 @@ and what an admin endpoint needs for queue depth and inspection.
 
 ## Tier 2 — new capability, larger surface
 
-### 4. Partitioned queues
+### 2. Partitioned queues
 
 *JCSMP 10.19+.*
 
@@ -190,7 +222,7 @@ users expect per-key ordering, and today's point-to-point silently does not prov
 **Shape:** a `partitionKey` on send (a message property), a partition count on endpoint provisioning,
 and documentation of the ordering guarantee in `exchange-patterns.md`. **Effort: M.**
 
-### 5. Message replay
+### 3. Message replay
 
 *JCSMP 10.11+. `ConsumerFlowProperties.setReplayStartLocation(ReplayStartLocation)`,
 `JCSMPFactory.createReplayStartLocationBeginning()` / `createReplayStartLocationDate(Date)`.*
@@ -204,9 +236,9 @@ and replay on a shared endpoint affects every consumer of it.
 
 **Shape:** `@SolaceListener(replayFrom = "BEGINNING" | ISO-8601)`, or a runtime operation on a
 container obtained from the registry — the latter is more useful, since replay is an operational act
-rather than a deployment-time setting. Depends on flow event handling (#2). **Effort: M.**
+rather than a deployment-time setting. Flow event handling, which it needs, is now in place. **Effort: M.**
 
-### 6. Distributed tracing
+### 4. Distributed tracing
 
 *JCSMP 10.17+ manual, 10.26+ auto-instrumentation; `solace-opentelemetry-jcsmp-integration`.*
 
@@ -218,7 +250,7 @@ unrelated spans.
 **Shape:** propagate the OpenTelemetry context into message properties on send and extract it into
 the listener's scope, behind an optional dependency so tracing stays opt-in. **Effort: M.**
 
-### 7. PubSub+ Cache
+### 5. PubSub+ Cache
 
 *`JCSMPSession.createCacheSession(…)`, supported by JCSMP per the matrix.*
 
@@ -230,7 +262,7 @@ instance can initialise its state from the topic rather than from a database.
 optionally an `@SolaceListener(cacheOnStart = true)` that primes a listener before live delivery.
 Requires a PubSub+ Cache deployment, so it must degrade cleanly when absent. **Effort: L.**
 
-### 8. Topic dispatch
+### 6. Topic dispatch
 
 *Listed as supported for JCSMP.*
 
@@ -241,7 +273,7 @@ endpoints. Topic dispatch lets one endpoint fan out to different handler methods
 **Shape:** several `@SolaceListener` methods sharing a `queue`, with the container dispatching by
 matched subscription. A meaningful change to the container's dispatch path. **Effort: L.**
 
-### 9. Structured Data Types as a payload format
+### 7. Structured Data Types as a payload format
 
 *Supported; the library uses SDT only for headers.*
 
@@ -251,7 +283,7 @@ existing C, .NET or JMS estates.
 
 **Shape:** a second `SolaceMessageConverter`. Self-contained, no container changes. **Effort: S.**
 
-### 10. `noLocal`
+### 8. `noLocal`
 
 *`ConsumerFlowProperties.setNoLocal(boolean)`.*
 
@@ -311,18 +343,17 @@ Stated explicitly so the list is honest about scope.
 
 ## Suggested order
 
-1. **Flow event handling** (#2) — small, and it unblocks both replay and a health indicator that can
-   tell "connected" from "reconnecting".
-2. **Flow tuning** (#1) — small, purely additive, and the transport window is the primary throughput
-   knob for guaranteed messaging.
-3. **Partitioned queues** (#4) — the largest conceptual gap against the Kafka model this library
+1. **Queue browsing** (#1) — makes the dead message queue support usable in practice, which matters
+   more now that `REJECTED` can put messages there deliberately, and it is the last piece of the
+   error-handling story that still has no answer.
+2. **Partitioned queues** (#2) — the largest conceptual gap against the Kafka model this library
    imitates.
-4. **Queue browsing** (#3) — makes the dead message queue support usable in practice, which matters
-   more now that `REJECTED` can put messages there deliberately.
-5. **Distributed tracing** (#6) — the platform capability that most rewards the request-reply shape.
+3. **Message replay** (#3) — now unblocked; flow event handling was its prerequisite.
+4. **Distributed tracing** (#4) — the platform capability that most rewards the request-reply shape,
+   and the header mapper is already the natural place to carry context.
 
-Items 1 and 2 are what remain of the "you cannot express that" answers in the consumer story; error
-handling itself is now complete.
+Tier 1 is nearly exhausted. Error handling, consumer tuning and flow observability are all complete;
+what is left there is inspection rather than behaviour.
 
 ---
 

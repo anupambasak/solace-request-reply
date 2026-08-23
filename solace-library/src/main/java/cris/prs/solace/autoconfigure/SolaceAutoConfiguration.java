@@ -11,6 +11,7 @@ import cris.prs.messaging.solace.core.SolaceMessageConverter;
 import cris.prs.messaging.solace.core.SolaceSessionFactory;
 import cris.prs.messaging.solace.core.SolaceTemplate;
 import cris.prs.messaging.solace.listener.DefaultSolaceListenerContainerFactory;
+import cris.prs.messaging.solace.listener.SolaceFlowListener;
 import cris.prs.messaging.solace.listener.SolaceListenerConfigUtils;
 import cris.prs.messaging.solace.listener.SolaceListenerMetrics;
 import cris.prs.messaging.solace.requestreply.ReplyingSolaceTemplate;
@@ -210,6 +211,8 @@ public class SolaceAutoConfiguration {
      * @param listenerTaskExecutor runs invokers under {@code EXECUTOR} dispatch
      * @param listenerMetrics      optional instrumentation; every container falls back to the no-op
      *                             collaborator when Micrometer is absent or metrics are disabled
+     * @param flowListener         optional flow lifecycle callback; without one the container's own
+     *                             logging is the only reporting
      * @return the container factory
      */
     @Bean(name = SolaceListenerConfigUtils.DEFAULT_SOLACE_LISTENER_CONTAINER_FACTORY_BEAN_NAME)
@@ -220,13 +223,15 @@ public class SolaceAutoConfiguration {
             SolaceProperties properties, SolaceTransactionManager transactionManager,
             @Qualifier("solaceTemplate") SolaceTemplate<Object> solaceTemplate,
             @Qualifier("solaceListenerTaskExecutor") AsyncTaskExecutor listenerTaskExecutor,
-            ObjectProvider<SolaceListenerMetrics> listenerMetrics) {
+            ObjectProvider<SolaceListenerMetrics> listenerMetrics,
+            ObjectProvider<SolaceFlowListener> flowListener) {
         DefaultSolaceListenerContainerFactory factory = new DefaultSolaceListenerContainerFactory(
                 sessionFactory, messageConverter, headerMapper, instanceIdProvider, properties.getListener());
         factory.setTransactionManager(transactionManager);
         factory.setReplyTemplate(solaceTemplate);
         factory.setTaskExecutor(listenerTaskExecutor);
         factory.setListenerMetrics(listenerMetrics.getIfAvailable(() -> SolaceListenerMetrics.NO_OP));
+        factory.setFlowListener(flowListener.getIfAvailable());
         return factory;
     }
 

@@ -61,4 +61,17 @@ public interface SolaceListenerMetrics {
      */
     default void recordSettlement(String listenerId, String outcome) {
     }
+
+    /**
+     * A flow lifecycle event occurred.
+     *
+     * <p>Counting these is how a reconnect becomes visible after the fact: a flow can go down and
+     * come back without a single message being lost, so nothing else in the metrics would show it
+     * happened.</p>
+     *
+     * @param listenerId the container's id
+     * @param event      the {@code SolaceFlowEvent} name
+     */
+    default void recordFlowEvent(String listenerId, String event) {
+    }
 }

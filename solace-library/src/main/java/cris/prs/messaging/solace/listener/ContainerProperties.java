@@ -1,5 +1,6 @@
 package cris.prs.messaging.solace.listener;
 
+import com.solacesystems.jcsmp.ConsumerFlowProperties;
 import com.solacesystems.jcsmp.EndpointProperties;
 import cris.prs.messaging.solace.core.EndpointMode;
 import cris.prs.messaging.solace.core.SettlementOutcome;
@@ -110,6 +111,115 @@ public class ContainerProperties {
     private int phase = Integer.MAX_VALUE - 100;
 
     private final Endpoint endpoint = new Endpoint();
+
+    private final Flow flow = new Flow();
+
+    /**
+     * Tuning applied to every consumer flow the container binds.
+     *
+     * <p>Every value is nullable and <strong>unset by default</strong>: a property is applied to
+     * {@code ConsumerFlowProperties} only when it has been given a value, so leaving this block empty
+     * means JCSMP's own defaults, exactly as before this block existed.</p>
+     *
+     * <p>These are per-flow settings, not per-endpoint ones, so unlike
+     * {@link ContainerProperties.Endpoint} they take effect on every bind rather than only when an
+     * endpoint is first provisioned.</p>
+     */
+    @Data
+    public static class Flow {
+
+        /** Create the flow tuning with everything unset, meaning JCSMP defaults. */
+        public Flow() {
+        }
+
+        /**
+         * Messages the broker may have in flight to this flow before waiting for acknowledgement.
+         *
+         * <p>The primary throughput knob for guaranteed messaging. JCSMP defaults to 255; raising it
+         * helps a fast consumer on a high-latency link, and costs memory on the broker per flow.
+         * Lowering it tightens the bound on how many messages can be lost to a redelivery after a
+         * failure.</p>
+         */
+        private Integer transportWindowSize;
+
+        /**
+         * Fraction of the transport window, as a percentage, at which the flow acknowledges.
+         *
+         * <p>Trades acknowledgement round-trips against redelivery risk: a higher threshold means
+         * fewer acknowledgements and more messages redelivered if the flow drops. JCSMP defaults to
+         * 60.</p>
+         */
+        private Integer ackThreshold;
+
+        /**
+         * How long the flow waits before acknowledging, when the threshold has not been reached.
+         *
+         * <p>The floor on acknowledgement latency for a slow trickle of messages. JCSMP defaults to
+         * one second.</p>
+         */
+        private Duration ackTimer;
+
+        /** Maximum messages acknowledged in one transmission. JCSMP chooses a default. */
+        private Integer windowedAckMaxSize;
+
+        /**
+         * How many times JCSMP retries a lost flow before giving up and reporting {@code FLOW_DOWN}.
+         *
+         * <p>{@code -1} retries forever. This is flow-level reconnection, separate from the session
+         * reconnection configured under {@code solace.java.*}.</p>
+         */
+        private Integer reconnectTries;
+
+        /** How long JCSMP waits between flow reconnection attempts. */
+        private Duration reconnectRetryInterval;
+
+        /**
+         * Ask the broker to say when this flow becomes the active consumer on an exclusive endpoint.
+         *
+         * <p>Unset derives it: enabled when the endpoint's access type is {@code EXCLUSIVE}, where
+         * the notification is meaningful, and not otherwise. Without it a standby instance has no way
+         * to learn that it has taken over &mdash; which makes this the whole basis of leader election
+         * over an exclusive endpoint.</p>
+         *
+         * <p>Set {@code false} to suppress the extra {@code FLOW_ACTIVE}/{@code FLOW_INACTIVE} events
+         * on an exclusive endpoint you do not use for leadership.</p>
+         */
+        private Boolean activeFlowIndication;
+
+        /**
+         * Apply everything that has been set to a flow's properties.
+         *
+         * <p>Only non-null values are applied, so this is a no-op on an untouched block.</p>
+         *
+         * @param flowProperties the properties being built for a flow
+         * @param exclusiveEndpoint whether the endpoint is exclusive, used to derive
+         *                          {@code activeFlowIndication} when it is unset
+         */
+        public void applyTo(ConsumerFlowProperties flowProperties, boolean exclusiveEndpoint) {
+            if (this.transportWindowSize != null) {
+                flowProperties.setTransportWindowSize(this.transportWindowSize);
+            }
+            if (this.ackThreshold != null) {
+                flowProperties.setAckThreshold(this.ackThreshold);
+            }
+            if (this.ackTimer != null) {
+                flowProperties.setAckTimerInMsecs((int) this.ackTimer.toMillis());
+            }
+            if (this.windowedAckMaxSize != null) {
+                flowProperties.setWindowedAckMaxSize(this.windowedAckMaxSize);
+            }
+            if (this.reconnectTries != null) {
+                flowProperties.setReconnectTries(this.reconnectTries);
+            }
+            if (this.reconnectRetryInterval != null) {
+                flowProperties.setReconnectRetryIntervalInMsecs(
+                        (int) this.reconnectRetryInterval.toMillis());
+            }
+            flowProperties.setActiveFlowIndication(this.activeFlowIndication != null
+                    ? this.activeFlowIndication
+                    : exclusiveEndpoint);
+        }
+    }
 
     /** Properties applied when the container provisions its endpoint. */
     @Data

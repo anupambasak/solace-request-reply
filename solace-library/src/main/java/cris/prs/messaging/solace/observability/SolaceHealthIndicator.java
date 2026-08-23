@@ -1,5 +1,6 @@
 package cris.prs.messaging.solace.observability;
 
+import cris.prs.messaging.solace.core.SolaceFlowEvent;
 import cris.prs.messaging.solace.core.SolaceSessionFactory;
 import cris.prs.messaging.solace.listener.DefaultSolaceMessageListenerContainer;
 import cris.prs.messaging.solace.listener.SolaceListenerEndpointRegistry;
@@ -26,8 +27,13 @@ import java.util.TreeMap;
  * <ul>
  *   <li>the session factory reports its connection is gone; or</li>
  *   <li>{@code solace.health.require-all-containers-running} is {@code true} (the default) and a
- *       registered listener container is not running.</li>
+ *       registered listener container is not running, <b>or is running but degraded</b> &mdash; any
+ *       of its flows down or reconnecting.</li>
  * </ul>
+ *
+ * <p>That second half is what flow events bought: a container stays {@code running} throughout a
+ * reconnect, so before them a readiness probe could not tell a consuming instance from one whose
+ * delivery had silently stopped.</p>
  *
  * <p>Set {@code require-all-containers-running} to {@code false} for an application that starts
  * containers by hand, or declares listeners with {@code autoStartup = "false"} &mdash; a container
@@ -37,10 +43,11 @@ import java.util.TreeMap;
  * <h2>Details reported</h2>
  * <ul>
  *   <li>{@code session} &mdash; {@code connected} or {@code disconnected};</li>
- *   <li>{@code containers} &mdash; each container id mapped to {@code running} or {@code stopped},
- *       with its resolved endpoint name where one is available;</li>
- *   <li>{@code stoppedContainers} &mdash; only when some are stopped, so the reason for a DOWN is
- *       the first thing visible;</li>
+ *   <li>{@code containers} &mdash; each container id mapped to {@code running}, {@code degraded} or
+ *       {@code stopped}, with its last flow event and resolved endpoint name where available, e.g.
+ *       {@code degraded [RECONNECTING] (orders.workers)};</li>
+ *   <li>{@code stoppedContainers} and {@code degradedContainers} &mdash; only when some are, so the
+ *       reason for a DOWN is the first thing visible;</li>
  *   <li>{@code pendingRequests} &mdash; outstanding requests per request-reply template.</li>
  * </ul>
  */
@@ -91,6 +98,15 @@ public class SolaceHealthIndicator implements HealthIndicator {
                 .sorted()
                 .toList();
 
+        // A container stays "running" through a reconnect, so isRunning() alone cannot tell a
+        // readiness probe that delivery has actually stopped. Flow events can.
+        List<String> degraded = this.endpointRegistry.getListenerContainers().stream()
+                .filter(container -> container instanceof DefaultSolaceMessageListenerContainer c
+                        && c.isRunning() && c.isDegraded())
+                .map(SolaceMessageListenerContainer::getListenerId)
+                .sorted()
+                .toList();
+
         Map<String, Integer> pending = new TreeMap<>();
         this.replyingTemplates.forEach(template ->
                 pending.put(template.getId(), template.getPendingCount()));
@@ -101,11 +117,15 @@ public class SolaceHealthIndicator implements HealthIndicator {
         if (!stopped.isEmpty()) {
             details.put("stoppedContainers", stopped);
         }
+        if (!degraded.isEmpty()) {
+            details.put("degradedContainers", degraded);
+        }
         if (!pending.isEmpty()) {
             details.put("pendingRequests", pending);
         }
 
-        boolean up = sessionHealthy && (!this.requireAllContainersRunning || stopped.isEmpty());
+        boolean up = sessionHealthy
+                && (!this.requireAllContainersRunning || (stopped.isEmpty() && degraded.isEmpty()));
         Health.Builder builder = up ? Health.up() : Health.down();
         return builder.withDetails(details).build();
     }
@@ -117,13 +137,21 @@ public class SolaceHealthIndicator implements HealthIndicator {
      * @return {@code running (endpoint)}, or {@code stopped}
      */
     private String describe(SolaceMessageListenerContainer container) {
-        String state = container.isRunning() ? "running" : "stopped";
-        if (container instanceof DefaultSolaceMessageListenerContainer defaultContainer) {
-            String endpoint = defaultContainer.getResolvedQueueName();
-            if (endpoint != null) {
-                return state + " (" + endpoint + ")";
-            }
+        if (!container.isRunning()) {
+            return "stopped";
         }
-        return state;
+        if (!(container instanceof DefaultSolaceMessageListenerContainer defaultContainer)) {
+            return "running";
+        }
+        StringBuilder state = new StringBuilder(defaultContainer.isDegraded() ? "degraded" : "running");
+        SolaceFlowEvent event = defaultContainer.getLastFlowEvent();
+        if (event != null && event != SolaceFlowEvent.UP) {
+            state.append(" [").append(event).append(']');
+        }
+        String endpoint = defaultContainer.getResolvedQueueName();
+        if (endpoint != null) {
+            state.append(" (").append(endpoint).append(')');
+        }
+        return state.toString();
     }
 }

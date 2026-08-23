@@ -103,6 +103,18 @@ public class SolaceMetricsBinder implements SmartLifecycle {
                     .tag(SolaceMetricNames.TAG_LISTENER, container.getListenerId())
                     .strongReference(true)
                     .register(this.meterRegistry);
+            Gauge.builder(SolaceMetricNames.LISTENER_ACTIVE, defaultContainer,
+                            candidate -> candidate.isActive() ? 1 : 0)
+                    .description("1 while the container is the active consumer, 0 while standing by")
+                    .tag(SolaceMetricNames.TAG_LISTENER, container.getListenerId())
+                    .strongReference(true)
+                    .register(this.meterRegistry);
+            Gauge.builder(SolaceMetricNames.LISTENER_DEGRADED, defaultContainer,
+                            candidate -> candidate.isDegraded() ? 1 : 0)
+                    .description("1 while any of the container's flows is down or reconnecting")
+                    .tag(SolaceMetricNames.TAG_LISTENER, container.getListenerId())
+                    .strongReference(true)
+                    .register(this.meterRegistry);
         }
     }
 

@@ -22,7 +22,9 @@ import java.util.concurrent.TimeUnit;
  *   <li>{@value SolaceMetricNames#LISTENER_PROCESSING} &mdash; timer of listener invocations, also
  *       tagged {@value SolaceMetricNames#TAG_RESULT} and {@value SolaceMetricNames#TAG_EXCEPTION};</li>
  *   <li>{@value SolaceMetricNames#LISTENER_SETTLEMENT} &mdash; counter of settlement outcomes applied
- *       to failed messages, tagged {@value SolaceMetricNames#TAG_OUTCOME}.</li>
+ *       to failed messages, tagged {@value SolaceMetricNames#TAG_OUTCOME};</li>
+ *   <li>{@value SolaceMetricNames#LISTENER_FLOW_EVENTS} &mdash; counter of flow lifecycle events,
+ *       tagged {@value SolaceMetricNames#TAG_EVENT}.</li>
  * </ul>
  *
  * <p>Meters are resolved once per tag combination and cached, because the registry lookup is more
@@ -40,6 +42,8 @@ public class MicrometerSolaceListenerMetrics implements SolaceListenerMetrics {
     private final Map<String, Timer> timers = new ConcurrentHashMap<>();
 
     private final Map<String, Counter> settlementCounters = new ConcurrentHashMap<>();
+
+    private final Map<String, Counter> flowEventCounters = new ConcurrentHashMap<>();
 
     /**
      * Create the collaborator.
@@ -84,6 +88,17 @@ public class MicrometerSolaceListenerMetrics implements SolaceListenerMetrics {
                 .description("Settlement outcomes applied to failed messages")
                 .tag(SolaceMetricNames.TAG_LISTENER, listenerId)
                 .tag(SolaceMetricNames.TAG_OUTCOME, outcome)
+                .register(this.meterRegistry)).increment();
+    }
+
+    /** {@inheritDoc} */
+    @Override
+    public void recordFlowEvent(String listenerId, String event) {
+        this.flowEventCounters.computeIfAbsent(listenerId + '|' + event, key -> Counter
+                .builder(SolaceMetricNames.LISTENER_FLOW_EVENTS)
+                .description("Flow lifecycle events on a Solace listener container")
+                .tag(SolaceMetricNames.TAG_LISTENER, listenerId)
+                .tag(SolaceMetricNames.TAG_EVENT, event)
                 .register(this.meterRegistry)).increment();
     }
 

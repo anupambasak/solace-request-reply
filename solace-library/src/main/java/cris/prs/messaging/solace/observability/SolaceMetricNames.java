@@ -24,6 +24,15 @@ public final class SolaceMetricNames {
     /** Counter: settlement outcomes applied to failed messages, tagged {@value #TAG_OUTCOME}. */
     public static final String LISTENER_SETTLEMENT = "solace.listener.settlement";
 
+    /** Counter: flow lifecycle events, tagged {@value #TAG_EVENT}. A rising RECONNECTING count is broker instability. */
+    public static final String LISTENER_FLOW_EVENTS = "solace.listener.flow.events";
+
+    /** Gauge: {@code 1} while a container is the active consumer, {@code 0} while standing by or degraded. */
+    public static final String LISTENER_ACTIVE = "solace.listener.active";
+
+    /** Gauge: {@code 1} while any of a container's flows is down or reconnecting. */
+    public static final String LISTENER_DEGRADED = "solace.listener.degraded";
+
     /** Gauge: {@code 1} while a container is running, {@code 0} otherwise. */
     public static final String LISTENER_RUNNING = "solace.listener.running";
 
@@ -63,6 +72,9 @@ public final class SolaceMetricNames {
 
     /** Tag: the {@code SettlementOutcome} applied &mdash; {@code ACCEPTED}, {@code FAILED}, {@code REJECTED} or {@code NONE}. */
     public static final String TAG_OUTCOME = "outcome";
+
+    /** Tag: the {@code SolaceFlowEvent} name &mdash; {@code UP}, {@code DOWN}, {@code RECONNECTING}, and so on. */
+    public static final String TAG_EVENT = "event";
 
     /** Tag: {@code success} or {@code failure}. */
     public static final String TAG_RESULT = "result";

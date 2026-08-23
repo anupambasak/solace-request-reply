@@ -21,6 +21,8 @@ happens to a message between the broker and that method.
 | `RecordSolaceListenerAdapter<T,R>` | Invokes a `Function<SolaceRecord<T>, R>` — for programmatic registration. |
 | `SolaceListenerErrorHandler` | `void handleError(BytesXMLMessage, Exception)`, plus an optional `resolveOutcome` for per-failure settlement. Defaults to logging. |
 | `SettlementOutcome` | `ACCEPTED` / `FAILED` / `REJECTED` / `NONE` — what happens to a message whose listener threw. |
+| `SolaceFlowListener` | `void onFlowEvent(SolaceFlowEventArgs)` — flow lifecycle callback. |
+| `SolaceFlowEvent` | `UP` / `DOWN` / `RECONNECTING` / `RECONNECTED` / `ACTIVE` / `INACTIVE` / `UNKNOWN`. |
 | `ContainerProperties` | Every container setting; also the type `solace.listener.*` binds to. |
 | `ContainerKeepAlive` | Package-private, reference-counted non-daemon thread. |
 
@@ -365,7 +367,176 @@ was no way to reject a message early.
 
 ---
 
-## 9.8 Redelivery and the dead message queue
+## 9.8 Flow events
+
+A flow is a consumer's binding to an endpoint, and its lifecycle is otherwise invisible: a flow can
+go down and come back without a single message being lost or a single log line appearing. Flow events
+are where a reconnect, a lost bind, or a change of active consumer becomes observable.
+
+| Event | Meaning |
+| :--- | :--- |
+| `UP` | The flow bound and is consuming |
+| `DOWN` | Lost and **will not recover on its own** — endpoint deleted, bind rejected, unrecoverable error. The container must be restarted |
+| `RECONNECTING` | Lost, JCSMP is retrying. **Consumption has stopped for now** |
+| `RECONNECTED` | The retry succeeded, consumption resumed |
+| `ACTIVE` | This flow is *the* consumer on an exclusive endpoint |
+| `INACTIVE` | This flow is standing by; another instance holds the endpoint |
+| `UNKNOWN` | A JCSMP event this library does not model — reported rather than swallowed |
+
+### Logging comes free
+
+Every container passes a `FlowEventHandler` and logs each event at the level an operator needs:
+`DOWN` as **error** (it will not fix itself), `RECONNECTING` as **warning** (delivery has stopped),
+the rest at info.
+
+```
+WARN  Flow 0 of container 'orders' on endpoint 'orders.workers' is reconnecting; consumption has stopped.
+INFO  Flow 0 of container 'orders' reconnected to endpoint 'orders.workers'
+```
+
+### Acting on them
+
+```java
+@Bean
+SolaceFlowListener solaceFlowListener(AlertService alerts) {
+    return args -> {
+        if (args.getEvent() == SolaceFlowEvent.DOWN) {
+            alerts.page("Solace flow down on " + args.getEndpoint(), args.getException());
+        }
+    };
+}
+```
+
+A single bean of this type is picked up by auto-configuration and given to every container.
+`SolaceFlowEventArgs` carries the container id, flow index, endpoint, event, JCSMP's description, the
+exception and the broker response code.
+
+The callback runs on a JCSMP notification thread, so it must be quick and must not block. Exceptions
+are logged and swallowed rather than propagating into JCSMP, where they would be dropped anyway.
+
+### Leader election, almost for free
+
+On an **exclusive** endpoint the broker tells exactly one flow it is the active consumer. That is a
+leader election with no extra coordination:
+
+```java
+@SolaceListener(id = "scheduler", pattern = "POINT_TO_POINT", queue = "scheduler",
+        topics = "scheduler/tick", concurrency = "1")
+public void onTick(Tick tick) { … }
+```
+```yaml
+solace:
+  listener:
+    endpoint:
+      access-type: EXCLUSIVE
+```
+```java
+@Bean
+SolaceFlowListener leadershipListener(Scheduler scheduler) {
+    return args -> {
+        switch (args.getEvent()) {
+            case ACTIVE   -> scheduler.becomeLeader();
+            case INACTIVE -> scheduler.standDown();
+            default       -> { }
+        }
+    };
+}
+```
+
+Active flow indication is requested automatically when the access type is `EXCLUSIVE`, and not
+otherwise — see [9.9](#99-flow-tuning). Without it the broker never sends these events and a standby
+instance has no way to learn it has taken over.
+
+### Container state
+
+Two accessors on `DefaultSolaceMessageListenerContainer` derive from flow events:
+
+| | |
+| :--- | :--- |
+| `isDegraded()` | Any flow down or reconnecting. **This is the difference between "running" and "actually consuming"** — a container stays running throughout a reconnect |
+| `isActive()` | This container is the active consumer. On a non-exclusive endpoint, or with indication off, it simply mirrors "running and not degraded" |
+| `getLastFlowEvent()` | The most recent event on any flow, or `null` before the first |
+
+`INACTIVE` is deliberately **not** degraded: a standby flow on an exclusive endpoint is healthy and
+working as designed, and treating it as degraded would fail the health check of every instance that
+is not the leader.
+
+The Actuator health indicator uses `isDegraded()`, which is what lets it distinguish *connected* from
+*reconnecting* — see [16.3](16-operations.md#163-actuator-health).
+
+---
+
+## 9.9 Flow tuning
+
+`solace.listener.flow.*` applies to every flow the container binds. **Every value is unset by
+default**, and a property reaches `ConsumerFlowProperties` only once given a value — so an empty block
+means JCSMP's own defaults, exactly as before this block existed.
+
+```yaml
+solace:
+  listener:
+    flow:
+      transport-window-size: 255
+      ack-threshold: 60
+      ack-timer: 1s
+      windowed-ack-max-size:
+      reconnect-tries: -1
+      reconnect-retry-interval: 3s
+      active-flow-indication:      # unset derives it from the access type
+```
+
+| Property | JCSMP default | Effect |
+| :--- | :--- | :--- |
+| `transport-window-size` | 255 | Messages the broker may have in flight to this flow before waiting for an acknowledgement. **The primary throughput knob for guaranteed messaging.** Raising it helps a fast consumer on a high-latency link and costs broker memory per flow; lowering it bounds how many messages a failure can put back for redelivery |
+| `ack-threshold` | 60 | Percentage of the window at which the flow acknowledges. Higher means fewer round-trips and more redelivery if the flow drops |
+| `ack-timer` | 1s | How long the flow waits before acknowledging when the threshold has not been reached — the floor on ack latency for a slow trickle |
+| `windowed-ack-max-size` | JCSMP's | Maximum messages acknowledged in one transmission |
+| `reconnect-tries` | JCSMP's | How many times a lost **flow** is retried before `FLOW_DOWN`. `-1` retries forever. Separate from session reconnection under `solace.java.*` |
+| `reconnect-retry-interval` | JCSMP's | Wait between flow reconnection attempts |
+| `active-flow-indication` | derived | Ask the broker to say when this flow becomes the active consumer. Unset enables it for `EXCLUSIVE` endpoints and not otherwise |
+
+Note the distinction from `solace.listener.endpoint.*`: those are **endpoint** properties, applied
+only when a queue is first provisioned and thereafter ignored by the broker. These are **flow**
+properties, applied on every bind — so changing them takes effect on the next restart, with no need
+to touch the queue.
+
+### Per-listener tuning
+
+There is no `@SolaceListener` attribute for these — there are too many, and they are rarely
+per-listener. Declare a second container factory instead:
+
+```java
+@Bean
+DefaultSolaceListenerContainerFactory bulkListenerContainerFactory(
+        SolaceSessionFactory sessionFactory, SolaceMessageConverter converter,
+        SolaceHeaderMapper headerMapper, InstanceIdProvider instanceIds) {
+
+    ContainerProperties properties = new ContainerProperties();
+    properties.getFlow().setTransportWindowSize(1024);
+    properties.getFlow().setAckThreshold(80);
+
+    return new DefaultSolaceListenerContainerFactory(sessionFactory, converter, headerMapper,
+            instanceIds, properties);
+}
+```
+```java
+@SolaceListener(queue = "bulk", topics = "bulk/>", containerFactory = "bulkListenerContainerFactory")
+public void onBulk(BulkEvent event) { … }
+```
+
+### Where to start
+
+Leave all of it alone until you have a measured problem. Then:
+
+- **Consumer is idle waiting for the broker** — raise `transport-window-size`.
+- **Acknowledgement round-trips dominate** — raise `ack-threshold`, accepting more redelivery on a
+  drop.
+- **Low-rate flow with high ack latency** — lower `ack-timer`.
+- **Flows going `DOWN` during brief broker blips** — raise `reconnect-tries`.
+
+---
+
+## 9.10 Redelivery and the dead message queue
 
 ```yaml
 solace:
@@ -396,7 +567,7 @@ queue you will see the property-mismatch warning and must change it on the broke
 
 ---
 
-## 9.9 Lifecycle and manual control
+## 9.11 Lifecycle and manual control
 
 Containers are lifecycled as a group by `SolaceListenerEndpointRegistry`, itself a `SmartLifecycle`
 bean. To control one by hand:
@@ -420,7 +591,7 @@ instance id.
 
 ---
 
-## 9.10 Programmatic registration
+## 9.12 Programmatic registration
 
 `@SolaceListener` is a convenience over an API you can use directly — useful when endpoints are
 discovered at runtime:
@@ -449,7 +620,7 @@ listeners, nothing does it here.
 
 ---
 
-## 9.11 The keep-alive thread
+## 9.13 The keep-alive thread
 
 Every JCSMP thread is a daemon thread. A listener-only application with no web server would start,
 register everything, and exit immediately — the JVM has no non-daemon thread to keep it alive.
