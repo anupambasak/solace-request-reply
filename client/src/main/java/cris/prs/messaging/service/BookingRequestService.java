@@ -3,7 +3,7 @@ package cris.prs.messaging.service;
 import cris.prs.messaging.Person;
 import cris.prs.messaging.solace.requestreply.ReplyingSolaceTemplate;
 import cris.prs.messaging.solace.requestreply.RequestReplyFuture;
-import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -21,15 +21,28 @@ import java.util.List;
  * inside the transaction would block on a request that has not been published yet.</p>
  */
 @Service
-@RequiredArgsConstructor
 public class BookingRequestService {
 
     private final ReplyingSolaceTemplate solace;
 
     private final TransactionTemplate transactionTemplate;
 
-    @Value("${app.request.topic:request-reply/request-1}")
-    private String requestTopic;
+    private final String requestTopic;
+
+    /**
+     * @param solace              the shared request-reply template, qualified because a second
+     *                            {@code ReplyingSolaceTemplate} exists for the inventory service
+     * @param transactionTemplate for the programmatic transaction variant
+     * @param requestTopic        the booking request topic
+     */
+    public BookingRequestService(
+            @Qualifier("replyingSolaceTemplate") ReplyingSolaceTemplate solace,
+            TransactionTemplate transactionTemplate,
+            @Value("${app.request.topic:request-reply/request-1}") String requestTopic) {
+        this.solace = solace;
+        this.transactionTemplate = transactionTemplate;
+        this.requestTopic = requestTopic;
+    }
 
     /** Publish one request immediately and return a future for its reply. */
     public RequestReplyFuture<Person> send(Person person) {

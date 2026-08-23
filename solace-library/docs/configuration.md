@@ -92,6 +92,7 @@ and its reply container.
 | Property | Type | Default | Description |
 | :--- | :--- | :--- | :--- |
 | `enabled` | `boolean` | `true` | Set `false` on services that only consume and never originate requests, so no reply container is created. |
+| `id` | `String` | `solaceReplyContainer` | Reply container id; must be unique when an application declares more than one reply destination. |
 | `reply-topic-prefix` | `String` | `reply` | Base reply topic. Replies arrive on `<prefix>/<instance-id>`. |
 | `append-instance-id` | `boolean` | `true` | Append the instance id to the reply topic and endpoint name. Turning this off makes every instance share one reply destination, so replies reach the wrong requester. |
 | `endpoint-mode` | `EndpointMode` | `NON_DURABLE_QUEUE` | How the reply endpoint binds. |

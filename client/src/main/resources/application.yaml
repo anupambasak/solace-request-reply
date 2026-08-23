@@ -6,6 +6,16 @@ app:
     topic: request-reply/request-1
   quote:
     topic: request-reply/request-2
+  # Inventory has its own reply destination rather than the shared one, so its replies are isolated
+  # from booking's and quote's: no head-of-line blocking between them, no shared blast radius, and
+  # depth and latency readable on their own.
+  inventory:
+    topic: request-reply/request-3
+    reply-topic-prefix: request-reply/reply-3
+    # The reply endpoint is a non-durable (temporary) queue, and a temporary queue accepts exactly
+    # one flow. Raising this needs a durable reply queue first.
+    reply-concurrency: 1
+    reply-timeout: 30s
   notification:
     topic: notification/broadcast
   task:

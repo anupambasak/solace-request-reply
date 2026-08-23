@@ -1,13 +1,12 @@
 package cris.prs.solace.autoconfigure;
 
 import com.solacesystems.jcsmp.DeliveryMode;
-import cris.prs.messaging.solace.core.EndpointMode;
 import cris.prs.messaging.solace.listener.ContainerProperties;
+import cris.prs.messaging.solace.requestreply.ReplyEndpointSpec;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
-import java.time.Duration;
 
 /**
  * Configuration for the Solace messaging abstraction, bound from {@code solace.*}.
@@ -70,46 +69,17 @@ public class SolaceProperties {
 
     /** Configuration of the auto-configured {@code ReplyingSolaceTemplate}. */
     @Data
-    public static class RequestReply {
+    @EqualsAndHashCode(callSuper = true)
+    public static class RequestReply extends ReplyEndpointSpec {
 
         /** Create request-reply defaults with every value at its documented default. */
         public RequestReply() {
         }
 
-        /** Create the ReplyingSolaceTemplate and its reply container. */
+        /**
+         * Create the request-reply template and its reply container. Set {@code false} on services
+         * that only consume and never originate requests, so no reply endpoint is bound.
+         */
         private boolean enabled = true;
-
-        /**
-         * Base reply topic. The instance id is appended as a further topic level when
-         * {@code append-instance-id} is set, e.g. {@code app/reply/client-7d9f-abcde}.
-         */
-        private String replyTopicPrefix = "reply";
-
-        /** Give every pod its own reply topic level and its own reply endpoint. */
-        private boolean appendInstanceId = true;
-
-        /**
-         * How the reply endpoint is bound: NON_DURABLE_QUEUE (temporary, guaranteed, cleaned up by
-         * the broker on disconnect), DURABLE_QUEUE (survives restarts) or DIRECT (non-persistent).
-         */
-        private EndpointMode endpointMode = EndpointMode.NON_DURABLE_QUEUE;
-
-        /** Base name of the reply endpoint; defaults to the reply topic prefix with dots. */
-        private String replyQueue;
-
-        /** Optional consumer group segment for a shared durable reply endpoint. */
-        private String replyGroup;
-
-        /** Optional broker side selector on the reply endpoint. */
-        private String selector;
-
-        /** Number of flows consuming replies. */
-        private int concurrency = 1;
-
-        /** How long a request waits for its reply before the future fails. */
-        private Duration replyTimeout = Duration.ofSeconds(30);
-
-        /** Delivery mode used for requests; replies follow the template defaults. */
-        private DeliveryMode deliveryMode = DeliveryMode.PERSISTENT;
     }
 }

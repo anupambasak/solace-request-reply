@@ -185,6 +185,10 @@ curl "http://localhost:8080/request-reply/booking/send-batch?count=5"
 curl "http://localhost:8080/request-reply/quote/send"                   # service two -> Quote
 curl "http://localhost:8080/request-reply/quote/send-multiple?count=10"
 curl "http://localhost:8080/request-reply/quote/send-batch?count=5"
+
+curl "http://localhost:8080/request-reply/inventory/send"               # service three -> InventoryStatus
+curl "http://localhost:8080/request-reply/inventory/send-multiple?count=10"
+curl "http://localhost:8080/request-reply/inventory/send-batch?count=5"
 ```
 
 Scale the server to prove the distinction:
@@ -428,7 +432,7 @@ transactional durable listener.
 ```
 solace-request-reply/
  ├── gradle/libs.versions.toml     # version catalog
- ├── shared-dto/                   # Person, Notification, Task, Quote, ReplyResult — the client/server contract
+ ├── shared-dto/                   # Person, Notification, Task, Quote, InventoryCheck/Status, ReplyResult — the client/server contract
  ├── solace-library/               # the Spring-for-Solace library (auto-configured starter)
  ├── client/                       # WebFlux REST service, requester
  ├── server/                       # @SolaceListener request handler
@@ -467,7 +471,8 @@ kubectl port-forward svc/client 8080:80 -n anupam
 | `GET /point-to-point/submit-batch?description=…&count=5` | several, published in one Solace transaction |
 
 **Request-reply** — each reply returns to the instance that asked, with its latency. Two independent
-services are exposed; `/send*` and `/booking/send*` are the same endpoints.
+services answer on the client's shared reply destination and a third brings its own; `/send*` and
+`/booking/send*` are the same endpoints.
 
 | Endpoint | Service | Replies with |
 | :--- | :--- | :--- |
@@ -477,18 +482,32 @@ services are exposed; `/send*` and `/booking/send*` are the same endpoints.
 | `GET /request-reply/quote/send` | two | `Quote` |
 | `GET /request-reply/quote/send-multiple?count=10&concurrency=10` | two | `Quote` |
 | `GET /request-reply/quote/send-batch?count=5` | two | `Quote` |
+| `GET /request-reply/inventory/send` | three | `InventoryStatus` |
+| `GET /request-reply/inventory/send-multiple?count=10&concurrency=10` | three | `InventoryStatus` |
+| `GET /request-reply/inventory/send-batch?count=5` | three | `InventoryStatus` |
 | `GET /request-reply/benchmark?total=100000&concurrency=1000` | one | high-concurrency load test |
-| `GET /request-reply/reply-destination` | — | the reply topic this pod is listening on |
+| `GET /request-reply/reply-destination` | — | both reply topics this pod listens on: `shared` and `inventory` |
 
 | Service | Request topic | Endpoint |
 | :--- | :--- | :--- |
 | one — booking | `request-reply/request-1` | `request-reply-queue-1.request-reply-group-1` |
 | two — quote | `request-reply/request-2` | `request-reply-queue-2.request-reply-group-2` |
+| three — inventory | `request-reply/request-3` | `request-reply-queue-3.request-reply-group-3` |
 
 A second service needs **its own request topic as well as its own queue**. Two queues subscribed to
 the same topic each receive a copy of every request, so both services would answer and the requester
 would see one reply and one orphan. Both do share the client's single per-instance reply
 destination: the correlation id, not the destination, is what returns each reply to its request.
+
+The inventory service is the exception, and deliberately so. Its client-side
+`inventoryReplyingSolaceTemplate` bean is built from a `ReplyEndpointSpec` through
+`ReplyingSolaceTemplateFactory`, giving it its own reply queue and its own reply topic
+(`request-reply/reply-3/<pod>`). Like the shared one it is a non-durable endpoint, so it binds a
+single flow — consuming replies in parallel would need a durable reply queue instead. Split a reply destination out when one of
+these holds: a slow service would head-of-line block the others on a shared reply flow, the services
+sit in different trust domains, you want the blast radius of a stuck reply flow bounded, or you want
+per-service reply metrics. Otherwise share — one endpoint per pod beats pods x services. Nothing
+changes on the responder either way: the requester, not the listener, chooses where the reply goes.
 
 Across all three patterns the three verbs mean the same thing:
 
@@ -523,6 +542,7 @@ gradle :client:test :server:test
 | `server` &middot; `NotificationSubscriberTest` | every delivered copy is processed; the handler returns void |
 | `server` &middot; `TaskWorkerTest` | each task handed to this instance is processed once |
 | `server` &middot; `QuoteConsumerTest` | the second service replies with a type derived from the request |
+| `server` &middot; `InventoryConsumerTest` | the third service maps its request type to a different reply type |
 | `server` &middot; `ExchangePatternConfigurationTest` | the wiring each `pattern` implies — endpoint naming, durability and access type |
 
 `ExchangePatternConfigurationTest` is the one worth reading. It pins down the difference between the

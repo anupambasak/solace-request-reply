@@ -1,15 +1,19 @@
 package cris.prs.messaging.rest;
 
+import cris.prs.messaging.InventoryCheck;
+import cris.prs.messaging.InventoryStatus;
 import cris.prs.messaging.Person;
 import cris.prs.messaging.Quote;
 import cris.prs.messaging.ReplyResult;
 import cris.prs.messaging.service.BookingRequestService;
+import cris.prs.messaging.service.InventoryCheckFactory;
+import cris.prs.messaging.service.InventoryRequestService;
 import cris.prs.messaging.service.PersonFactory;
 import cris.prs.messaging.service.QuoteRequestService;
 import cris.prs.messaging.solace.requestreply.ReplyingSolaceTemplate;
 import cris.prs.messaging.solace.requestreply.RequestReplyFuture;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -18,7 +22,9 @@ import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 import reactor.core.scheduler.Schedulers;
 
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 
 /**
  * Request-reply endpoints.
@@ -36,34 +42,71 @@ import java.util.List;
  * not the destination, is what returns each reply to the request that asked for it.</p>
  *
  * <ul>
- *   <li>{@code /request-reply/booking/*} &mdash; service one, replies with a {@code Person}</li>
- *   <li>{@code /request-reply/quote/*} &mdash; service two, replies with a {@code Quote}</li>
+ *   <li>{@code /request-reply/booking/*} &mdash; replies with a {@code Person}, shared reply destination</li>
+ *   <li>{@code /request-reply/quote/*} &mdash; replies with a {@code Quote}, shared reply destination</li>
+ *   <li>{@code /request-reply/inventory/*} &mdash; replies with an {@code InventoryStatus}, on its
+ *       <b>own</b> reply destination</li>
  * </ul>
+ *
+ * <p>Inventory is the case where a shared reply destination stops paying: its replies are isolated,
+ * so a burst of inventory traffic cannot delay a booking reply behind it, and a stalled inventory
+ * endpoint cannot stop the other conversations. {@code GET /request-reply/reply-destination} shows
+ * both destinations.</p>
  */
 @Slf4j
 @RestController
 @RequestMapping("/request-reply")
-@RequiredArgsConstructor
 public class RequestReplyRestService {
 
     private final BookingRequestService bookingRequestService;
 
     private final QuoteRequestService quoteRequestService;
 
+    private final InventoryRequestService inventoryRequestService;
+
     private final ReplyingSolaceTemplate solace;
 
     private final PersonFactory personFactory;
 
+    private final InventoryCheckFactory inventoryCheckFactory;
+
     /**
-     * The destination this instance receives its replies on.
+     * @param bookingRequestService   service one
+     * @param quoteRequestService     service two
+     * @param inventoryRequestService service three, on its own reply destination
+     * @param solace                  the shared template, qualified because a second
+     *                                {@code ReplyingSolaceTemplate} exists
+     * @param personFactory           sample payloads for booking and quote
+     * @param inventoryCheckFactory   sample payloads for inventory
+     */
+    public RequestReplyRestService(BookingRequestService bookingRequestService,
+            QuoteRequestService quoteRequestService,
+            InventoryRequestService inventoryRequestService,
+            @Qualifier("replyingSolaceTemplate") ReplyingSolaceTemplate solace,
+            PersonFactory personFactory,
+            InventoryCheckFactory inventoryCheckFactory) {
+        this.bookingRequestService = bookingRequestService;
+        this.quoteRequestService = quoteRequestService;
+        this.inventoryRequestService = inventoryRequestService;
+        this.solace = solace;
+        this.personFactory = personFactory;
+        this.inventoryCheckFactory = inventoryCheckFactory;
+    }
+
+    /**
+     * The destinations this instance receives its replies on.
      *
-     * <p>Ends with this pod's id, and is the first thing to check when replies do not arrive.</p>
+     * <p>Each ends with this pod's id, and they are the first thing to check when replies do not
+     * arrive. The booking and quote services share the first; inventory has its own.</p>
      *
-     * @return the reply destination
+     * @return the reply destination of each template, keyed by name
      */
     @GetMapping("/reply-destination")
-    public Mono<String> replyDestination() {
-        return Mono.just(solace.getReplyDestination());
+    public Mono<Map<String, String>> replyDestination() {
+        Map<String, String> destinations = new LinkedHashMap<>();
+        destinations.put("shared", solace.getReplyDestination());
+        destinations.put("inventory", inventoryRequestService.getReplyDestination());
+        return Mono.just(destinations);
     }
 
     /**
@@ -170,6 +213,50 @@ public class RequestReplyRestService {
     public Mono<List<ReplyResult<Quote>>> sendQuoteBatch(@RequestParam(defaultValue = "5") int count) {
         return Mono
                 .fromCallable(() -> quoteRequestService.sendBatchInTransaction(personFactory.create(count)))
+                .subscribeOn(Schedulers.boundedElastic())
+                .flatMap(futures -> Flux.fromIterable(futures).flatMap(this::await).collectList());
+    }
+
+    // --- service three: inventory, on its own reply destination ---------------------------
+
+    /**
+     * One inventory check.
+     *
+     * @return the inventory status with its send time, receive time and latency
+     */
+    @GetMapping("/inventory/send")
+    public Mono<ReplyResult<InventoryStatus>> sendInventory() {
+        return await(inventoryRequestService.send(inventoryCheckFactory.create()));
+    }
+
+    /**
+     * Several inventory checks as independent publishes.
+     *
+     * @param count       how many checks to perform
+     * @param concurrency how many to keep in flight at once
+     * @return each status as it arrives
+     */
+    @GetMapping("/inventory/send-multiple")
+    public Flux<ReplyResult<InventoryStatus>> sendInventoryMultiple(
+            @RequestParam(defaultValue = "10") int count,
+            @RequestParam(defaultValue = "10") int concurrency) {
+        return Flux.fromIterable(inventoryCheckFactory.create(count))
+                .flatMap(check -> await(inventoryRequestService.send(check))
+                        .subscribeOn(Schedulers.boundedElastic()), concurrency);
+    }
+
+    /**
+     * Several inventory checks published in one Solace transaction.
+     *
+     * @param count how many checks to publish in the transaction
+     * @return every status, once all of them have arrived
+     */
+    @GetMapping("/inventory/send-batch")
+    public Mono<List<ReplyResult<InventoryStatus>>> sendInventoryBatch(
+            @RequestParam(defaultValue = "5") int count) {
+        return Mono
+                .fromCallable(() -> inventoryRequestService
+                        .sendBatchInTransaction(inventoryCheckFactory.create(count)))
                 .subscribeOn(Schedulers.boundedElastic())
                 .flatMap(futures -> Flux.fromIterable(futures).flatMap(this::await).collectList());
     }

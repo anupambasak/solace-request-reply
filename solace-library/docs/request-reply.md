@@ -101,6 +101,64 @@ every outstanding future when the template stops.
 
 ---
 
+## Additional reply destinations
+
+One reply destination per application instance, shared by every service it calls, is the right
+default: the reply channel belongs to the **requester**, the correlation id returns each reply to its
+request, and the cost is one endpoint per pod rather than one per pod per service.
+
+Declare a second template from `ReplyingSolaceTemplateFactory` when sharing stops paying:
+
+```java
+@Bean
+ReplyingSolaceTemplate inventoryReplyingSolaceTemplate(ReplyingSolaceTemplateFactory factory) {
+    ReplyEndpointSpec spec = new ReplyEndpointSpec();
+    spec.setId("inventoryReplyContainer");          // unique container id
+    spec.setReplyTopicPrefix("app/reply/inventory");
+    spec.setConcurrency(2);
+    return factory.create(spec);
+}
+```
+
+The returned template is a `SmartLifecycle` bean, so Spring starts and stops it, and it owns its
+container. Inject it with `@Qualifier`, since more than one `ReplyingSolaceTemplate` now exists.
+
+### When a separate destination is worth the extra endpoint
+
+| | |
+| :--- | :--- |
+| **Head-of-line blocking** | A high-volume service's replies delay a latency-sensitive one's on the shared flow. Raising `solace.request-reply.concurrency` is the cheaper fix (it needs a durable reply queue); a separate endpoint is the thorough one. |
+| **Different trust domains** | Anything able to publish to a shared reply topic could forge a reply for another service, given a guessed correlation id. Topic ACLs cannot separate them. |
+| **Blast radius** | A stalled or full reply endpoint stops every conversation sharing it. |
+| **Observability** | Queue depth and latency per service rather than in aggregate. |
+
+Two or three services in one trust domain, at similar volumes, do **not** justify it — the
+correlation id already keeps their conversations apart, including when they reply with different
+types.
+
+### Nothing changes on the responder
+
+A responder never names a reply destination: it returns a value and the container publishes it to
+the request's `replyTo`. Which destination that is was decided by the requesting client. Splitting a
+service onto its own reply destination therefore requires no change to the service answering it.
+
+### ReplyEndpointSpec
+
+| Property | Default | Description |
+| :--- | :--- | :--- |
+| `id` | `solaceReplyContainer` | Container id; must be unique when more than one reply destination is in use. |
+| `replyTopicPrefix` | `reply` | Replies arrive on `<prefix>/<instance-id>`. |
+| `appendInstanceId` | `true` | Off makes every instance share one destination, so replies reach the wrong requester. |
+| `endpointMode` | `NON_DURABLE_QUEUE` | How the reply endpoint binds. |
+| `replyQueue` | derived from the prefix | Base endpoint name. |
+| `replyGroup` | `null` | Group segment for a shared durable reply endpoint. |
+| `selector` | `null` | Broker-side selector. |
+| `concurrency` | `1` | Above one the endpoint is provisioned non-exclusive. Only meaningful with `endpointMode: DURABLE_QUEUE` — a non-durable reply endpoint is a temporary queue and accepts exactly one flow, so a higher value is clamped to 1 with a warning. |
+| `replyTimeout` | `30s` | Before the future fails. |
+| `deliveryMode` | `PERSISTENT` | For requests published through the template. |
+
+---
+
 ## The serving side
 
 There is no special API: an ordinary `@SolaceListener` whose method returns a value. The container

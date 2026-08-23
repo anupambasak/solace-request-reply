@@ -20,6 +20,15 @@ app:
     concurrency: 5
     transactional: true
 
+  # request-reply, service three: inventory. Its replies go to a reply destination of the client's
+  # own choosing -- nothing here decides that; the container publishes to the request's replyTo.
+  inventory:
+    queue: request-reply-queue-3
+    group: request-reply-group-3
+    topic: request-reply/request-3
+    concurrency: 5
+    transactional: true
+
   # publish-subscribe: every instance binds its own endpoint and receives every notification
   notification:
     queue: notification

@@ -115,6 +115,9 @@ public class DefaultSolaceMessageListenerContainer implements SolaceMessageListe
 
     private boolean keepAliveHeld;
 
+    /** Guards the non-durable concurrency warning so it is logged once per container. */
+    private final AtomicBoolean nonDurableConcurrencyWarned = new AtomicBoolean();
+
     /**
      * Create a container.
      *
@@ -153,10 +156,32 @@ public class DefaultSolaceMessageListenerContainer implements SolaceMessageListe
                 : this.containerProperties.getEndpointMode();
     }
 
+    /**
+     * The number of flows this container actually binds.
+     *
+     * <p>A non-durable queue is a temporary endpoint owned by this client and accepts exactly one
+     * flow, whatever access type was requested; binding a second one is rejected with
+     * {@code 503 Max clients exceeded for queue}. A configured concurrency above 1 is therefore
+     * clamped to 1 for that mode, with a warning logged once. Consume in parallel by using a durable
+     * queue with a non-exclusive access type instead.</p>
+     *
+     * @return the effective flow count, never less than 1
+     */
     private int concurrency() {
-        return this.endpoint.getConcurrency() != null
+        int configured = this.endpoint.getConcurrency() != null
                 ? this.endpoint.getConcurrency()
                 : this.containerProperties.getConcurrency();
+        if (configured > 1 && endpointMode() == EndpointMode.NON_DURABLE_QUEUE) {
+            if (this.nonDurableConcurrencyWarned.compareAndSet(false, true)) {
+                log.warn("Container '{}' asks for {} flows on a non-durable queue. A temporary "
+                        + "endpoint accepts exactly one flow and rejects the rest with '503 Max "
+                        + "clients exceeded for queue', so concurrency is clamped to 1. Use a "
+                        + "durable queue with a non-exclusive access type to consume in parallel.",
+                        getListenerId(), configured);
+            }
+            return 1;
+        }
+        return configured;
     }
 
     private boolean transactional() {

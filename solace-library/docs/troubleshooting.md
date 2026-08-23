@@ -52,14 +52,23 @@ after customising the container, that ordering is what to restore.
 
 ## `503 Max clients exceeded for queue`
 
-More flows were bound to an **exclusive** endpoint than it admits.
+More flows were bound to an endpoint than it admits. There are two ways to get here.
 
-Usually a publish-subscribe listener inheriting a global `solace.listener.concurrency`. An exclusive
-endpoint takes one consumer; `PUBLISH_SUBSCRIBE` therefore defaults `concurrency` to 1, and the
-container warns whenever any endpoint is asked to bind more than one flow exclusively.
+**An exclusive endpoint.** Usually a publish-subscribe listener inheriting a global
+`solace.listener.concurrency`. An exclusive endpoint takes one consumer; `PUBLISH_SUBSCRIBE`
+therefore defaults `concurrency` to 1, and the container warns whenever any endpoint is asked to bind
+more than one flow exclusively.
 
-**Fix:** set `concurrency = "1"`, or use a non-exclusive endpoint to consume in parallel. In fan-out,
-parallelism comes from running more instances.
+**A non-durable queue, whatever its access type.** `NON_DURABLE_QUEUE` creates a temporary endpoint
+(`#P2P/QTMP/...`) owned by the binding client, and a temporary endpoint accepts exactly one flow even
+when `NONEXCLUSIVE` was requested. Reply endpoints are non-durable by default, so raising
+`concurrency` on one is the common trigger. The container clamps `concurrency` to 1 in this mode and
+logs a warning; the 503 above only appears from a version without that clamp.
+
+**Fix:** set `concurrency` to 1, or move to a **durable** queue with a non-exclusive access type to
+consume in parallel — for a reply endpoint that means setting `replyQueue`, `replyGroup` and
+`endpointMode: DURABLE_QUEUE`, and *not* appending the instance id, since the endpoint is then shared
+across instances. In fan-out, parallelism comes from running more instances.
 
 ---
 

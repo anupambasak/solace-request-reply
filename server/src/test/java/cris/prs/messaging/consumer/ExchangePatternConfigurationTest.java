@@ -155,22 +155,42 @@ class ExchangePatternConfigurationTest {
         }
 
         @Test
-        @DisplayName("a second service has its own endpoint AND its own request topic")
-        void secondServiceIsFullyIndependent() throws NoSuchMethodException {
+        @DisplayName("every service has its own endpoint and its own request topic")
+        void everyServiceIsFullyIndependent() throws NoSuchMethodException {
             SolaceListener one = annotationOn(ServiceConsumer.class, "booking",
                     cris.prs.messaging.Person.class, String.class);
             SolaceListener two = annotationOn(QuoteConsumer.class, "quote",
                     cris.prs.messaging.Person.class, String.class);
+            SolaceListener three = annotationOn(InventoryConsumer.class, "check",
+                    cris.prs.messaging.InventoryCheck.class, String.class);
 
-            assertThat(two.pattern()).isEqualTo("REQUEST_REPLY");
-            assertThat(two.queue()).isEqualTo("${app.quote.queue:request-reply-queue-2}");
-            assertThat(two.group()).isEqualTo("${app.quote.group:request-reply-group-2}");
+            assertThat(three.pattern()).isEqualTo("REQUEST_REPLY");
+            assertThat(three.queue()).isEqualTo("${app.inventory.queue:request-reply-queue-3}");
+            assertThat(three.group()).isEqualTo("${app.inventory.group:request-reply-group-3}");
 
-            // Separate endpoints keep the two services' backlogs apart...
-            assertThat(two.queue()).isNotEqualTo(one.queue());
-            // ...and separate request topics are what stop both of them answering the same request:
+            assertThat(java.util.List.of(one.queue(), two.queue(), three.queue()))
+                    .doesNotHaveDuplicates();
+            // Separate request topics are what stop several services answering the same request:
             // two queues subscribed to one topic would each receive a copy.
-            assertThat(two.topics()).doesNotContainAnyElementsOf(java.util.List.of(one.topics()));
+            assertThat(java.util.List.of(one.topics()[0], two.topics()[0], three.topics()[0]))
+                    .doesNotHaveDuplicates();
+        }
+
+        @Test
+        @DisplayName("the responder never names a reply destination: it answers the request's replyTo")
+        void responderDoesNotChooseTheReplyDestination() throws NoSuchMethodException {
+            // Inventory replies arrive on a different destination from booking's and quote's, and
+            // that is decided entirely by the requesting client. Were a responder to pin a reply
+            // destination here, the client could not choose at all.
+            for (SolaceListener listener : java.util.List.of(
+                    annotationOn(ServiceConsumer.class, "booking",
+                            cris.prs.messaging.Person.class, String.class),
+                    annotationOn(QuoteConsumer.class, "quote",
+                            cris.prs.messaging.Person.class, String.class),
+                    annotationOn(InventoryConsumer.class, "check",
+                            cris.prs.messaging.InventoryCheck.class, String.class))) {
+                assertThat(listener.replyDestination()).isEmpty();
+            }
         }
 
         @Test

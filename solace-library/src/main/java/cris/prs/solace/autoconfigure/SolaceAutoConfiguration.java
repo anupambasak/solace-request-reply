@@ -10,16 +10,12 @@ import cris.prs.messaging.solace.core.SolaceHeaderMapper;
 import cris.prs.messaging.solace.core.SolaceMessageConverter;
 import cris.prs.messaging.solace.core.SolaceSessionFactory;
 import cris.prs.messaging.solace.core.SolaceTemplate;
-import cris.prs.messaging.solace.listener.ContainerProperties;
 import cris.prs.messaging.solace.listener.DefaultSolaceListenerContainerFactory;
-import cris.prs.messaging.solace.listener.DefaultSolaceMessageListenerContainer;
 import cris.prs.messaging.solace.listener.SolaceListenerConfigUtils;
-import cris.prs.messaging.solace.listener.SolaceListenerEndpoint;
-import cris.prs.messaging.solace.listener.SolaceMessageListenerContainer;
 import cris.prs.messaging.solace.requestreply.ReplyingSolaceTemplate;
+import cris.prs.messaging.solace.requestreply.ReplyingSolaceTemplateFactory;
 import cris.prs.messaging.solace.support.HostnameInstanceIdProvider;
 import cris.prs.messaging.solace.support.InstanceIdProvider;
-import cris.prs.messaging.solace.support.ReplyDestinationResolver;
 import cris.prs.messaging.solace.transaction.SolaceTransactionManager;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Qualifier;
@@ -34,7 +30,6 @@ import org.springframework.context.annotation.Primary;
 import org.springframework.core.task.AsyncTaskExecutor;
 import org.springframework.core.task.SimpleAsyncTaskExecutor;
 
-import java.util.List;
 
 /**
  * Auto-configuration for Solace messaging: session factory, {@code SolaceTemplate},
@@ -225,91 +220,47 @@ public class SolaceAutoConfiguration {
     }
 
     /**
-     * The per-instance reply container.
+     * Builds request-reply templates and the containers that consume their reply destinations.
      *
-     * <p>Its endpoint carries the instance id in the topic subscription and, for queue-based modes,
-     * in the endpoint name. Built directly rather than through the container factory because its
-     * listener is supplied by {@code ReplyingSolaceTemplate}, which also starts and stops it
-     * &mdash; so no reply can arrive before the correlation map exists.</p>
+     * <p>Exposed as a bean so that an application can declare <em>additional</em> reply destinations
+     * &mdash; one per service, where a shared one is not appropriate. See {@code ReplyEndpointSpec}
+     * for when that is worth the extra endpoint.</p>
      *
      * @param sessionFactory     supplies the connection
-     * @param properties         supplies {@code solace.request-reply.*}
-     * @param instanceIdProvider supplies this instance's id
-     * @return the reply container, not auto-started
-     */
-    @Bean(name = "solaceReplyContainer")
-    @ConditionalOnMissingBean(name = "solaceReplyContainer")
-    @ConditionalOnProperty(prefix = "solace.request-reply", name = "enabled", havingValue = "true",
-            matchIfMissing = true)
-    public SolaceMessageListenerContainer solaceReplyContainer(SolaceSessionFactory sessionFactory,
-            SolaceProperties properties, InstanceIdProvider instanceIdProvider) {
-        SolaceProperties.RequestReply requestReply = properties.getRequestReply();
-        String instanceId = instanceIdProvider.getInstanceId();
-
-        SolaceListenerEndpoint endpoint = new SolaceListenerEndpoint();
-        endpoint.setId("solaceReplyContainer");
-        endpoint.setTopics(List.of(ReplyDestinationResolver.resolveTopic(
-                requestReply.getReplyTopicPrefix(), requestReply.isAppendInstanceId(), instanceId)));
-        endpoint.setQueue(ReplyDestinationResolver.resolveQueueBaseName(
-                requestReply.getReplyQueue(), requestReply.getReplyTopicPrefix()));
-        endpoint.setGroup(requestReply.getReplyGroup());
-        endpoint.setAppendInstanceIdToQueue(requestReply.isAppendInstanceId());
-        endpoint.setEndpointMode(requestReply.getEndpointMode());
-        endpoint.setConcurrency(requestReply.getConcurrency());
-        endpoint.setSelector(requestReply.getSelector());
-        // Replies are correlated in memory; consuming them transactionally would only add latency.
-        endpoint.setTransactional(false);
-        // Started by the ReplyingSolaceTemplate so that no reply can arrive before it is ready.
-        endpoint.setAutoStartup(false);
-
-        ContainerProperties containerProperties = new ContainerProperties();
-        containerProperties.setEndpointMode(requestReply.getEndpointMode());
-        containerProperties.setConcurrency(requestReply.getConcurrency());
-        containerProperties.setAutoStartup(false);
-        // The requesting application drives its own lifetime; a reply container should not keep the
-        // JVM alive by itself the way a server side listener does.
-        containerProperties.setKeepAlive(false);
-        containerProperties.getEndpoint()
-                .setAccessType(requestReply.getConcurrency() > 1
-                        ? ContainerProperties.AccessType.NONEXCLUSIVE
-                        : ContainerProperties.AccessType.EXCLUSIVE);
-
-        return new DefaultSolaceMessageListenerContainer(sessionFactory, endpoint, containerProperties,
-                instanceId);
-    }
-
-    /**
-     * Request-reply support, publishing requests that ask for replies on this instance's own
-     * destination.
-     *
-     * @param sessionFactory       supplies the connection
-     * @param messageConverter     converts requests and replies
-     * @param headerMapper         applies headers
-     * @param properties           supplies the reply destination, timeout and delivery mode
-     * @param instanceIdProvider   supplies the id stamped on every request
-     * @param solaceReplyContainer the container consuming this instance's replies
-     * @return the request-reply template
+     * @param messageConverter   converts requests and replies
+     * @param headerMapper       applies headers
+     * @param instanceIdProvider supplies the id that makes each instance's reply destination unique
+     * @return the factory
      */
     @Bean
     @ConditionalOnMissingBean
+    public ReplyingSolaceTemplateFactory replyingSolaceTemplateFactory(SolaceSessionFactory sessionFactory,
+            SolaceMessageConverter messageConverter, SolaceHeaderMapper headerMapper,
+            InstanceIdProvider instanceIdProvider) {
+        return new ReplyingSolaceTemplateFactory(sessionFactory, messageConverter, headerMapper,
+                instanceIdProvider);
+    }
+
+    /**
+     * The application's default request-reply template, consuming this instance's own reply
+     * destination.
+     *
+     * <p>One reply destination is shared by every service the application calls: the reply channel
+     * belongs to the requester, and the correlation id returns each reply to its request. Declare a
+     * further bean from {@link #replyingSolaceTemplateFactory} to give a particular service its own;
+     * because the condition below is matched by <em>name</em>, declaring such a bean adds to this one
+     * rather than replacing it. To replace it, declare a bean named {@code replyingSolaceTemplate}.</p>
+     *
+     * @param factory    builds the template and its reply container
+     * @param properties supplies the reply destination, timeout and delivery mode
+     * @return the request-reply template
+     */
+    @Bean
+    @ConditionalOnMissingBean(name = "replyingSolaceTemplate")
     @ConditionalOnProperty(prefix = "solace.request-reply", name = "enabled", havingValue = "true",
             matchIfMissing = true)
-    public ReplyingSolaceTemplate replyingSolaceTemplate(SolaceSessionFactory sessionFactory,
-            SolaceMessageConverter messageConverter, SolaceHeaderMapper headerMapper,
-            SolaceProperties properties, InstanceIdProvider instanceIdProvider,
-            SolaceMessageListenerContainer solaceReplyContainer) {
-        SolaceProperties.RequestReply requestReply = properties.getRequestReply();
-        String replyDestination = ReplyDestinationResolver.resolveTopic(requestReply.getReplyTopicPrefix(),
-                requestReply.isAppendInstanceId(), instanceIdProvider.getInstanceId());
-
-        ReplyingSolaceTemplate template = new ReplyingSolaceTemplate(sessionFactory, messageConverter,
-                solaceReplyContainer, replyDestination);
-        template.setHeaderMapper(headerMapper);
-        template.setDeliveryMode(requestReply.getDeliveryMode());
-        template.setDefaultReplyTimeout(requestReply.getReplyTimeout());
-        template.setInstanceId(instanceIdProvider.getInstanceId());
-        template.setDmqEligible(properties.getTemplate().isDmqEligible());
-        template.setTimeToLive(properties.getTemplate().getTimeToLive());
-        return template;
+    public ReplyingSolaceTemplate replyingSolaceTemplate(ReplyingSolaceTemplateFactory factory,
+            SolaceProperties properties) {
+        return factory.create(properties.getRequestReply());
     }
 }

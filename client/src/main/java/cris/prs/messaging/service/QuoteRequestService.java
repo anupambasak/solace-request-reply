@@ -4,7 +4,7 @@ import cris.prs.messaging.Person;
 import cris.prs.messaging.Quote;
 import cris.prs.messaging.solace.requestreply.ReplyingSolaceTemplate;
 import cris.prs.messaging.solace.requestreply.RequestReplyFuture;
-import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -20,13 +20,23 @@ import java.util.List;
  * be outstanding at the same time.</p>
  */
 @Service
-@RequiredArgsConstructor
 public class QuoteRequestService {
 
     private final ReplyingSolaceTemplate solace;
 
-    @Value("${app.quote.topic:request-reply/request-2}")
-    private String requestTopic;
+    private final String requestTopic;
+
+    /**
+     * @param solace       the shared request-reply template, the same instance the booking service
+     *                     uses; the correlation id keeps the two conversations apart
+     * @param requestTopic the quote request topic
+     */
+    public QuoteRequestService(
+            @Qualifier("replyingSolaceTemplate") ReplyingSolaceTemplate solace,
+            @Value("${app.quote.topic:request-reply/request-2}") String requestTopic) {
+        this.solace = solace;
+        this.requestTopic = requestTopic;
+    }
 
     /** Publish one quote request immediately and return a future for its reply. */
     public RequestReplyFuture<Quote> send(Person person) {

@@ -29,8 +29,8 @@ annotation-driven listeners automatically, so applications need not declare `@En
 | `solaceTemplate` | `SolaceTemplate<Object>` | missing bean by name | **`@Primary`.** |
 | `solaceListenerTaskExecutor` | `AsyncTaskExecutor` | missing bean by name | `SimpleAsyncTaskExecutor("solace-listener-")`, non-daemon. |
 | `solaceListenerContainerFactory` | `DefaultSolaceListenerContainerFactory` | missing bean by name | Wired with the transaction manager, the reply template and the task executor. |
-| `solaceReplyContainer` | `SolaceMessageListenerContainer` | `solace.request-reply.enabled` ≠ false | The per-instance reply endpoint. Not auto-started; the template owns it. |
-| `replyingSolaceTemplate` | `ReplyingSolaceTemplate` | `solace.request-reply.enabled` ≠ false | |
+| `replyingSolaceTemplateFactory` | `ReplyingSolaceTemplateFactory` | missing bean | Builds templates and their reply containers; declare more beans from it for additional reply destinations. |
+| `replyingSolaceTemplate` | `ReplyingSolaceTemplate` | `solace.request-reply.enabled` ≠ false | The application's default template, built from `solace.request-reply.*`. |
 
 ### Why `solaceTemplate` is `@Primary`
 
@@ -42,11 +42,16 @@ through the template that is also tracking outstanding requests.
 
 ### The reply container
 
-Built directly rather than through the container factory, because its listener is supplied by the
-template. Its endpoint carries the instance id in both the topic subscription and — for queue-based
-modes — the endpoint name. It is configured with `autoStartup = false` and `keepAlive = false`: the
-requesting application decides its own lifetime, and `ReplyingSolaceTemplate.start()` starts the
-container so no reply can arrive before the correlation map exists.
+Built by `ReplyingSolaceTemplateFactory` rather than by the listener container factory, because its
+listener is supplied by the template. Its endpoint carries the instance id in both the topic
+subscription and — for queue-based modes — the endpoint name. It is configured with
+`autoStartup = false` and `keepAlive = false`: the requesting application decides its own lifetime,
+and `ReplyingSolaceTemplate.start()` starts the container so no reply can arrive before the
+correlation map exists. It is not a bean; the template owns it.
+
+`SolaceProperties.RequestReply` extends `ReplyEndpointSpec`, so `solace.request-reply.*` and a
+hand-declared spec describe a reply destination the same way — see
+[Additional reply destinations](request-reply.md#additional-reply-destinations).
 
 ## SolaceAnnotationDrivenConfiguration
 
@@ -81,7 +86,13 @@ container is bindable without a second declaration.
 
 ## Overriding
 
-Every bean is `@ConditionalOnMissingBean`, so declaring your own replaces it:
+Every bean is `@ConditionalOnMissingBean`, so declaring your own replaces it.
+
+Two of them — `solaceTemplate` and `replyingSolaceTemplate` — match **by bean name** rather than by
+type, because an application is expected to declare *additional* beans of those types: a second
+`SolaceTemplate` with different defaults, or a second `ReplyingSolaceTemplate` giving one service its
+own reply destination. An extra bean of either type is added alongside the auto-configured one; only
+a bean with the same *name* replaces it. Every other bean here matches by type.
 
 ```java
 @Bean
