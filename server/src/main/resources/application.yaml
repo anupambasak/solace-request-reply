@@ -97,6 +97,14 @@ management:
     web:
       exposure:
         include: '*'
+  endpoint:
+    health:
+      show-details: always
+      group:
+        # The Solace indicator belongs in readiness, so a broker outage takes the instance out of
+        # the load balancer — and deliberately NOT in liveness, where it would restart-loop every pod.
+        readiness:
+          include: readinessState,solace
   info:
     git:
       mode: full

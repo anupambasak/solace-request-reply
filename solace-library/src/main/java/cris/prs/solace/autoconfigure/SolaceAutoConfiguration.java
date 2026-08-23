@@ -12,8 +12,10 @@ import cris.prs.messaging.solace.core.SolaceSessionFactory;
 import cris.prs.messaging.solace.core.SolaceTemplate;
 import cris.prs.messaging.solace.listener.DefaultSolaceListenerContainerFactory;
 import cris.prs.messaging.solace.listener.SolaceListenerConfigUtils;
+import cris.prs.messaging.solace.listener.SolaceListenerMetrics;
 import cris.prs.messaging.solace.requestreply.ReplyingSolaceTemplate;
 import cris.prs.messaging.solace.requestreply.ReplyingSolaceTemplateFactory;
+import cris.prs.messaging.solace.requestreply.SolaceRequestReplyMetrics;
 import cris.prs.messaging.solace.support.HostnameInstanceIdProvider;
 import cris.prs.messaging.solace.support.InstanceIdProvider;
 import cris.prs.messaging.solace.transaction.SolaceTransactionManager;
@@ -45,10 +47,15 @@ import org.springframework.core.task.SimpleAsyncTaskExecutor;
  * the Solace starter has contributed {@code SpringJCSMPFactory}, and every bean below would be
  * silently skipped.</p>
  */
-@AutoConfiguration(afterName = "com.solace.spring.boot.autoconfigure.SolaceJavaAutoConfiguration")
+@AutoConfiguration(afterName = {
+        "com.solace.spring.boot.autoconfigure.SolaceJavaAutoConfiguration",
+        // So that a MeterRegistry, if the application has one, exists before the optional
+        // observability configuration decides whether to instrument anything.
+        "org.springframework.boot.actuate.autoconfigure.metrics.MetricsAutoConfiguration",
+        "org.springframework.boot.actuate.autoconfigure.metrics.CompositeMeterRegistryAutoConfiguration"})
 @ConditionalOnClass({JCSMPSession.class, SpringJCSMPFactory.class})
 @EnableConfigurationProperties(SolaceProperties.class)
-@Import(SolaceAnnotationDrivenConfiguration.class)
+@Import({SolaceAnnotationDrivenConfiguration.class, SolaceObservabilityConfiguration.class})
 public class SolaceAutoConfiguration {
 
     /** Create the auto-configuration. Instantiated by Spring Boot, not by application code. */
@@ -201,6 +208,8 @@ public class SolaceAutoConfiguration {
      * @param solaceTemplate       publishes listener return values as replies; qualified explicitly so
      *                             replies never go through the template tracking outstanding requests
      * @param listenerTaskExecutor runs invokers under {@code EXECUTOR} dispatch
+     * @param listenerMetrics      optional instrumentation; every container falls back to the no-op
+     *                             collaborator when Micrometer is absent or metrics are disabled
      * @return the container factory
      */
     @Bean(name = SolaceListenerConfigUtils.DEFAULT_SOLACE_LISTENER_CONTAINER_FACTORY_BEAN_NAME)
@@ -210,12 +219,14 @@ public class SolaceAutoConfiguration {
             SolaceHeaderMapper headerMapper, InstanceIdProvider instanceIdProvider,
             SolaceProperties properties, SolaceTransactionManager transactionManager,
             @Qualifier("solaceTemplate") SolaceTemplate<Object> solaceTemplate,
-            @Qualifier("solaceListenerTaskExecutor") AsyncTaskExecutor listenerTaskExecutor) {
+            @Qualifier("solaceListenerTaskExecutor") AsyncTaskExecutor listenerTaskExecutor,
+            ObjectProvider<SolaceListenerMetrics> listenerMetrics) {
         DefaultSolaceListenerContainerFactory factory = new DefaultSolaceListenerContainerFactory(
                 sessionFactory, messageConverter, headerMapper, instanceIdProvider, properties.getListener());
         factory.setTransactionManager(transactionManager);
         factory.setReplyTemplate(solaceTemplate);
         factory.setTaskExecutor(listenerTaskExecutor);
+        factory.setListenerMetrics(listenerMetrics.getIfAvailable(() -> SolaceListenerMetrics.NO_OP));
         return factory;
     }
 
@@ -230,15 +241,20 @@ public class SolaceAutoConfiguration {
      * @param messageConverter   converts requests and replies
      * @param headerMapper       applies headers
      * @param instanceIdProvider supplies the id that makes each instance's reply destination unique
+     * @param metrics            optional instrumentation; every template falls back to the no-op
+     *                           collaborator when Micrometer is absent or metrics are disabled
      * @return the factory
      */
     @Bean
     @ConditionalOnMissingBean
     public ReplyingSolaceTemplateFactory replyingSolaceTemplateFactory(SolaceSessionFactory sessionFactory,
             SolaceMessageConverter messageConverter, SolaceHeaderMapper headerMapper,
-            InstanceIdProvider instanceIdProvider) {
-        return new ReplyingSolaceTemplateFactory(sessionFactory, messageConverter, headerMapper,
-                instanceIdProvider);
+            InstanceIdProvider instanceIdProvider,
+            ObjectProvider<SolaceRequestReplyMetrics> metrics) {
+        ReplyingSolaceTemplateFactory factory = new ReplyingSolaceTemplateFactory(sessionFactory,
+                messageConverter, headerMapper, instanceIdProvider);
+        factory.setRequestReplyMetrics(metrics.getIfAvailable(() -> SolaceRequestReplyMetrics.NO_OP));
+        return factory;
     }
 
     /**

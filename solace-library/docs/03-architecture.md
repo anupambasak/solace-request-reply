@@ -24,6 +24,8 @@ higher one, and nothing anywhere knows about an application's domain types.
 ┌───────────────────────────────▼──────────────────────────────────────────┐
 │  transaction/       SolaceTransactionManager, resource holder, utils     │
 │  support/           InstanceIdProvider, ReplyDestinationResolver         │
+│  observability/     Micrometer meters, the Actuator health indicator     │
+│                     — optional; the only package touching either         │
 └───────────────────────────────┬──────────────────────────────────────────┘
                                 │ uses
 ┌───────────────────────────────▼──────────────────────────────────────────┐
@@ -43,7 +45,12 @@ Two structural rules are load-bearing:
    `@Configuration`; if it does, its conditions are evaluated before the Solace starter has
    contributed `SpringJCSMPFactory`, and every bean silently disappears. The package boundary is the
    guard. See [4.9](04-spring-integration.md#49-why-the-auto-configuration-package-is-separate).
-2. **The library never depends on application types.** Payloads are `Object` at the library boundary
+2. **Only two packages touch anything outside core Spring.** The auto-configuration knows Spring
+   Boot; `observability` knows Micrometer and Boot Actuator. Every bean in both is conditional, so an
+   application without those dependencies is unaffected. Instrumentation reaches the message path
+   through two plain interfaces (`SolaceListenerMetrics`, `SolaceRequestReplyMetrics`) that carry no
+   metrics types at all.
+3. **The library never depends on application types.** Payloads are `Object` at the library boundary
    and are converted by an SPI. There is no compile-time coupling to any DTO.
 
 ---

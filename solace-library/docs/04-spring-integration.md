@@ -25,7 +25,9 @@ what happens when you override any of it.
 | `AsyncTaskExecutor` (consumer) | `DefaultSolaceMessageListenerContainer` | `EXECUTOR` dispatch |
 | `MessageHandlerMethodFactory` / `InvocableHandlerMethod` (consumer) | `MethodSolaceListenerAdapter` | Argument resolution on listener methods |
 | `NestedRuntimeException` | `SolaceMessagingException` | Consistent unchecked exception translation |
-| `ObjectProvider` (consumer) | `SolaceAutoConfiguration` | Optional `ObjectMapper` |
+| `ObjectProvider` (consumer) | `SolaceAutoConfiguration` | Optional `ObjectMapper`, optional metrics collaborators |
+| `HealthIndicator` (Actuator) | `SolaceHealthIndicator` | `/actuator/health/solace` |
+| `MeterRegistry` (Micrometer, consumer) | `MicrometerSolace*Metrics`, `SolaceMetricsBinder` | Meters for listeners and request-reply |
 
 ---
 
@@ -46,16 +48,21 @@ dependency on the classpath.
 ### Class-level conditions and ordering
 
 ```java
-@AutoConfiguration(afterName = "com.solace.spring.boot.autoconfigure.SolaceJavaAutoConfiguration")
+@AutoConfiguration(afterName = {
+        "com.solace.spring.boot.autoconfigure.SolaceJavaAutoConfiguration",
+        "org.springframework.boot.actuate.autoconfigure.metrics.MetricsAutoConfiguration",
+        "org.springframework.boot.actuate.autoconfigure.metrics.CompositeMeterRegistryAutoConfiguration"})
 @ConditionalOnClass({JCSMPSession.class, SpringJCSMPFactory.class})
 @EnableConfigurationProperties(SolaceProperties.class)
-@Import(SolaceAnnotationDrivenConfiguration.class)
+@Import({SolaceAnnotationDrivenConfiguration.class, SolaceObservabilityConfiguration.class})
 public class SolaceAutoConfiguration { … }
 ```
 
-- **`afterName`** — an ordering constraint, expressed as a *string* so the library does not need the
-  Solace auto-configuration class on its compile classpath. It guarantees `SpringJCSMPFactory` has
-  been contributed before any condition here is evaluated.
+- **`afterName`** — ordering constraints, expressed as *strings* so the library needs none of those
+  classes on its compile classpath. The first guarantees `SpringJCSMPFactory` has been contributed
+  before any condition here is evaluated; the two metrics entries guarantee that a `MeterRegistry`,
+  if the application has one, exists before the observability configuration decides whether to
+  instrument anything.
 - **`@ConditionalOnClass`** — the whole configuration disappears if JCSMP is absent.
 - **`@EnableConfigurationProperties`** — binds and registers `SolaceProperties` without needing
   `@ConfigurationPropertiesScan` in the application.
@@ -81,6 +88,15 @@ using one here produced a context where the whole configuration silently vanishe
 | `solaceListenerContainerFactory` | `DefaultSolaceListenerContainerFactory` | missing bean by name | Name is `SolaceListenerConfigUtils.DEFAULT_SOLACE_LISTENER_CONTAINER_FACTORY_BEAN_NAME` |
 | `replyingSolaceTemplateFactory` | `ReplyingSolaceTemplateFactory` | missing bean | Builds additional reply destinations |
 | `replyingSolaceTemplate` | `ReplyingSolaceTemplate` | missing bean **by name** + `solace.request-reply.enabled` ≠ `false` | Built from `solace.request-reply.*` |
+
+Plus, from the imported `SolaceObservabilityConfiguration`:
+
+| Bean name | Type | Condition | Notes |
+| :--- | :--- | :--- | :--- |
+| `solaceListenerMetrics` | `SolaceListenerMetrics` | missing bean + `MeterRegistry` bean present + `solace.metrics.enabled` ≠ `false` | Injected into the container factory |
+| `solaceRequestReplyMetrics` | `SolaceRequestReplyMetrics` | as above | Injected into `ReplyingSolaceTemplateFactory` |
+| `solaceMetricsBinder` | `SolaceMetricsBinder` | as above | Registers the state gauges |
+| `solaceHealthIndicator` | `SolaceHealthIndicator` | missing bean **by name** + Actuator on the classpath + `solace.health.enabled` ≠ `false` | Contributes `/actuator/health/solace` |
 
 ### `@ConditionalOnMissingBean`: by type, or by name?
 
@@ -454,17 +470,54 @@ public void onAudit(AuditEvent event) { … }
 
 ---
 
-## 4.11 Other Spring ecosystem integrations
+## 4.11 Observability wiring
+
+`SolaceObservabilityConfiguration` is imported by the auto-configuration and split into two nested
+`@Configuration` classes, each guarding its own dependency — an application may have Micrometer
+without Actuator, or the reverse.
+
+Three design points are worth knowing, because each was a choice with an alternative:
+
+**The instrumentation SPIs carry no metrics types.** `SolaceListenerMetrics` (in `listener`) and
+`SolaceRequestReplyMetrics` (in `requestreply`) are plain interfaces with no-op defaults and a `NO_OP`
+constant. The container and the template call them unconditionally; when nothing is wired up they call
+a no-op. So the `listener` and `requestreply` packages gain no dependency, and disabling metrics costs
+literally nothing at runtime. The Micrometer implementations live in `observability`, which is the one
+package in the library that touches a metrics library and Spring Boot Actuator.
+
+**Both call sites are guarded.** Instrumentation must never be able to fail a message or a request, so
+an exception thrown by a metrics implementation is logged at debug and swallowed.
+
+**The gauges are a `SmartLifecycle`, not a `MeterBinder`.** Micrometer binds a `MeterBinder` when the
+`MeterRegistry` bean is initialised. Listener containers are registered later, in the annotation
+post-processor's `afterSingletonsInstantiated`, so a binder would frequently find none and silently
+register no gauges. `SolaceMetricsBinder` starts at phase `Integer.MAX_VALUE` instead — after the
+endpoint registry (`MAX - 100`) and every `ReplyingSolaceTemplate` (`MAX - 90`) — so everything it
+samples is guaranteed to exist. Registration is idempotent, so a lifecycle restart does not duplicate
+meters.
+
+The health indicator takes `ObjectProvider<ReplyingSolaceTemplate>` rather than a single bean, so an
+application with additional reply destinations gets all of them reported. It reads in-memory state
+only and never contacts the broker.
+
+`SolaceSessionFactory` gained `default boolean isHealthy()` for this — a *default* method, so a
+custom session factory keeps compiling and is simply reported as healthy.
+
+See [16.2](16-operations.md#162-micrometer-metrics) and [16.3](16-operations.md#163-actuator-health).
+
+---
+
+## 4.12 Other Spring ecosystem integrations
 
 | Concern | How it behaves |
 | :--- | :--- |
-| **Spring Boot Actuator** | The library adds no indicator of its own. `ReplyingSolaceTemplate.getPendingCount()` and `SolaceListenerEndpointRegistry.getListenerContainers()` are the natural sources for a custom `HealthIndicator` — see [16. Operations](16-operations.md). |
+| **Spring Boot Actuator** | `SolaceHealthIndicator` contributes `/actuator/health/solace`, conditional on Actuator being present. See [16.3](16-operations.md#163-actuator-health). |
 | **Spring Boot DevTools** | The restart classloader recreates the whole context; containers stop and flows close cleanly first. Temporary reply queues are dropped and recreated on each restart, which is what you want. |
 | **`spring-boot-configuration-processor`** | Generates metadata for `solace.*`, so YAML completion and documentation work in IDEs. |
 | **Spring WebFlux / Reactor** | `RequestReplyFuture` extends `CompletableFuture`, so `Mono.fromFuture(future)` is the whole bridge. The library imposes no blocking on the reactive path. |
 | **Spring AOP** | Listener beans are scanned via `AopUtils.getTargetClass`, so proxied beans work. Note `@Transactional` on a listener *method* is redundant when the flow is already transacted, and can nest a second transaction. |
 | **Spring test** | Nothing in the library requires a broker at bean-definition time, so a context that never starts the lifecycle (or sets `auto-startup: false`) can be built without one. Endpoint wiring is assertable — see [15. Class reference](15-class-reference.md) and the reference application's `ExchangePatternConfigurationTest`. |
-| **Micrometer** | Not wired in. `getPendingCount()`, the container's `resolvedQueueName`, and `RequestReplyFuture.getLatency()` are the values worth registering as gauges/timers. |
+| **Micrometer** | Ten meters covering listener throughput, listener latency, container state, and request-reply traffic — registered automatically when a `MeterRegistry` bean exists. See [16.2](16-operations.md#162-micrometer-metrics). |
 
 ---
 

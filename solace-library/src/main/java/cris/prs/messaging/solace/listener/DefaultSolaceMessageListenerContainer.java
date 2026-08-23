@@ -115,6 +115,10 @@ public class DefaultSolaceMessageListenerContainer implements SolaceMessageListe
 
     private boolean keepAliveHeld;
 
+    /** Receives per-message measurements; {@link SolaceListenerMetrics#NO_OP} unless one is set. */
+    @Setter
+    private SolaceListenerMetrics listenerMetrics = SolaceListenerMetrics.NO_OP;
+
     /** Guards the non-durable concurrency warning so it is logged once per container. */
     private final AtomicBoolean nonDurableConcurrencyWarned = new AtomicBoolean();
 
@@ -136,6 +140,18 @@ public class DefaultSolaceMessageListenerContainer implements SolaceMessageListe
         this.containerProperties = containerProperties;
         this.instanceId = instanceId;
         this.messageListener = endpoint.getMessageListener();
+    }
+
+    /**
+     * How many flows this container currently has bound.
+     *
+     * <p>Zero until the container starts, and zero again once it stops. Useful as a gauge: a running
+     * container whose flow count is below its configured concurrency has lost flows.</p>
+     *
+     * @return the number of bound flows
+     */
+    public int getActiveFlowCount() {
+        return this.flows.size();
     }
 
     /** {@inheritDoc} */
@@ -561,15 +577,53 @@ public class DefaultSolaceMessageListenerContainer implements SolaceMessageListe
 
     /** Invoke the listener and acknowledge, or hand the failure to the error handler. */
     private void invokeListener(BytesXMLMessage message) {
+        long startedAt = System.nanoTime();
         try {
             this.messageListener.onMessage(message);
+            recordSuccess(startedAt);
             message.ackMessage();
         }
         catch (Exception ex) {
+            recordFailure(startedAt, ex);
             this.errorHandler.handleError(message, ex);
             if (this.containerProperties.isAckOnError()) {
                 message.ackMessage();
             }
+        }
+    }
+
+    /**
+     * Report a delivery to the metrics collaborator.
+     *
+     * <p>Every call is guarded: instrumentation must never be able to fail a message, so an
+     * exception here is logged at debug and swallowed.</p>
+     */
+    private void recordReceived() {
+        try {
+            this.listenerMetrics.recordReceived(getListenerId());
+        }
+        catch (RuntimeException ex) {
+            log.debug("Listener metrics failed for container '{}'", getListenerId(), ex);
+        }
+    }
+
+    /** Report a successful invocation. Guarded like {@link #recordReceived()}. */
+    private void recordSuccess(long startedAt) {
+        try {
+            this.listenerMetrics.recordSuccess(getListenerId(), System.nanoTime() - startedAt);
+        }
+        catch (RuntimeException ex) {
+            log.debug("Listener metrics failed for container '{}'", getListenerId(), ex);
+        }
+    }
+
+    /** Report a failed invocation. Guarded like {@link #recordReceived()}. */
+    private void recordFailure(long startedAt, Exception exception) {
+        try {
+            this.listenerMetrics.recordFailure(getListenerId(), System.nanoTime() - startedAt, exception);
+        }
+        catch (RuntimeException ex) {
+            log.debug("Listener metrics failed for container '{}'", getListenerId(), ex);
         }
     }
 
@@ -669,6 +723,7 @@ public class DefaultSolaceMessageListenerContainer implements SolaceMessageListe
 
         @Override
         public void onReceive(BytesXMLMessage message) {
+            recordReceived();
             if (this.invoker != null) {
                 this.invoker.submit(message);
             }
@@ -681,6 +736,7 @@ public class DefaultSolaceMessageListenerContainer implements SolaceMessageListe
         }
 
         private void receiveInTransaction(BytesXMLMessage message) {
+            long startedAt = System.nanoTime();
             SolaceTransactionUtils.bindResourceHolder(
                     DefaultSolaceMessageListenerContainer.this.sessionFactory, this.resourceHolder);
             try {
@@ -695,9 +751,11 @@ public class DefaultSolaceMessageListenerContainer implements SolaceMessageListe
                         throw new SolaceMessagingException("Listener invocation failed", ex);
                     }
                 });
+                recordSuccess(startedAt);
             }
             catch (Exception ex) {
                 // The transaction has already been rolled back; the broker will redeliver.
+                recordFailure(startedAt, ex);
                 DefaultSolaceMessageListenerContainer.this.errorHandler.handleError(message, ex);
             }
             finally {

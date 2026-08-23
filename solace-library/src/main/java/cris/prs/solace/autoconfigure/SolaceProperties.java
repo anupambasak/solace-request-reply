@@ -30,8 +30,51 @@ public class SolaceProperties {
 
     private final RequestReply requestReply = new RequestReply();
 
+    private final Metrics metrics = new Metrics();
+
+    private final Health health = new Health();
+
     /** Create the properties with every value at its documented default. */
     public SolaceProperties() {
+    }
+
+    /** Micrometer instrumentation. */
+    @Data
+    public static class Metrics {
+
+        /** Create the metrics settings with every value at its documented default. */
+        public Metrics() {
+        }
+
+        /**
+         * Publish Solace meters when a {@code MeterRegistry} is present.
+         *
+         * <p>Turning this off removes the instrumentation entirely: containers and templates fall
+         * back to their no-op collaborators, so there is no measurement overhead at all rather than
+         * meters nobody scrapes.</p>
+         */
+        private boolean enabled = true;
+    }
+
+    /** Actuator health reporting. */
+    @Data
+    public static class Health {
+
+        /** Create the health settings with every value at its documented default. */
+        public Health() {
+        }
+
+        /** Contribute a {@code solace} health indicator when Actuator is present. */
+        private boolean enabled = true;
+
+        /**
+         * Report DOWN when a registered listener container is not running.
+         *
+         * <p>Set to {@code false} for an application that starts containers by hand, or declares
+         * listeners with {@code autoStartup = "false"}: a container that is deliberately idle is not
+         * a fault, and reporting it as one keeps the instance out of the load balancer.</p>
+         */
+        private boolean requireAllContainersRunning = true;
     }
 
     /** Defaults applied to the auto-configured {@code SolaceTemplate}. */

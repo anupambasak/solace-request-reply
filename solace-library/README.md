@@ -88,7 +88,7 @@ Read in order for a full picture, or jump to what you need.
 | **[13. Multi-instance](docs/13-multi-instance.md)** | Instance ids, destination naming, and what changes when you scale |
 | **[14. Extension points](docs/14-extension-points.md)** | Every replaceable collaborator, with examples |
 | **[15. Class reference](docs/15-class-reference.md)** | Every public type, one table per package |
-| **[16. Operations](docs/16-operations.md)** | Logging, what to monitor, sizing, deployment, and a pre-flight checklist |
+| **[16. Operations](docs/16-operations.md)** | Logging, the Micrometer meters, the Actuator health indicator, sizing, deployment, and a pre-flight checklist |
 | **[17. Troubleshooting](docs/17-troubleshooting.md)** | Symptom → cause → fix, for everything that has actually gone wrong |
 | **[18. Feature backlog](docs/18-feature-backlog.md)** | Solace platform capabilities assessed against what is implemented |
 

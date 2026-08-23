@@ -51,6 +51,18 @@ public class ReplyingSolaceTemplate extends SolaceTemplate<Object>
     @Getter
     private final String replyDestination;
 
+    /**
+     * Identifies this template in logs and metrics. Set from {@code ReplyEndpointSpec.id} when the
+     * template is built by {@link ReplyingSolaceTemplateFactory}.
+     */
+    @Getter
+    @Setter
+    private String id = "solaceReplyingTemplate";
+
+    /** Receives request-reply measurements; {@link SolaceRequestReplyMetrics#NO_OP} unless one is set. */
+    @Setter
+    private SolaceRequestReplyMetrics requestReplyMetrics = SolaceRequestReplyMetrics.NO_OP;
+
     @Setter
     private Duration defaultReplyTimeout = Duration.ofSeconds(30);
 
@@ -170,9 +182,11 @@ public class ReplyingSolaceTemplate extends SolaceTemplate<Object>
         }
         catch (RuntimeException ex) {
             this.pending.remove(correlationId);
+            record(metrics -> metrics.recordSendFailure(this.id, destination));
             future.completeExceptionally(ex);
             return future;
         }
+        record(metrics -> metrics.recordRequest(this.id, destination));
         scheduleTimeout(correlationId, future,
                 replyTimeout != null ? replyTimeout : this.defaultReplyTimeout);
         if (log.isTraceEnabled()) {
@@ -188,6 +202,7 @@ public class ReplyingSolaceTemplate extends SolaceTemplate<Object>
         }
         ScheduledFuture<?> scheduled = this.timeoutScheduler.schedule(() -> {
             if (this.pending.remove(correlationId) != null) {
+                record(metrics -> metrics.recordTimeout(this.id, future.getRequestDestination()));
                 future.completeExceptionally(new SolaceReplyTimeoutException(
                         "No reply received for correlationId=" + correlationId + " within " + timeout));
             }
@@ -208,6 +223,7 @@ public class ReplyingSolaceTemplate extends SolaceTemplate<Object>
         String correlationId = message.getCorrelationId();
         PendingRequest pendingRequest = correlationId != null ? this.pending.remove(correlationId) : null;
         if (pendingRequest == null) {
+            record(metrics -> metrics.recordUnmatchedReply(this.id));
             log.warn("Received a reply with no outstanding request, correlationId={}", correlationId);
             return;
         }
@@ -216,9 +232,28 @@ public class ReplyingSolaceTemplate extends SolaceTemplate<Object>
             Object reply = getMessageConverter().fromMessage(message, pendingRequest.replyType());
             future.setReceiveTime(System.currentTimeMillis());
             future.complete(reply);
+            record(metrics -> metrics.recordReply(this.id, future.getRequestDestination(),
+                    future.getLatency()));
         }
         catch (RuntimeException ex) {
             future.completeExceptionally(ex);
+        }
+    }
+
+    /**
+     * Report to the metrics collaborator, guarding the call.
+     *
+     * <p>Instrumentation must never be able to fail a request, so an exception here is logged at
+     * debug and swallowed.</p>
+     *
+     * @param call what to report
+     */
+    private void record(java.util.function.Consumer<SolaceRequestReplyMetrics> call) {
+        try {
+            call.accept(this.requestReplyMetrics);
+        }
+        catch (RuntimeException ex) {
+            log.debug("Request-reply metrics failed for template '{}'", this.id, ex);
         }
     }
 

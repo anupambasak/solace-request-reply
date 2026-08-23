@@ -18,6 +18,9 @@ Every collaborator is an interface with a default implementation registered
 | `SolaceMessageListenerContainer` | `DefaultSolaceMessageListenerContainer` | Change consumption entirely |
 | `SolaceMessageListener` | the adapters | Consume raw JCSMP messages |
 | `AsyncTaskExecutor` (`solaceListenerTaskExecutor`) | `SimpleAsyncTaskExecutor` | Bound the pool, name threads, propagate MDC |
+| `SolaceListenerMetrics` | Micrometer, or `NO_OP` | Report listener throughput and latency somewhere else |
+| `SolaceRequestReplyMetrics` | Micrometer, or `NO_OP` | Report request-reply traffic somewhere else |
+| `HealthIndicator` (`solaceHealthIndicator`) | `SolaceHealthIndicator` | Change what counts as healthy |
 
 Two are conditioned **by name**, not by type, because applications are expected to declare additional
 beans of the same type: `solaceTemplate` and `replyingSolaceTemplate`. See
@@ -182,7 +185,62 @@ ReplyingSolaceTemplate auditReplyingSolaceTemplate(ReplyingSolaceTemplateFactory
 you change how the reply container is built while keeping the template wiring. See
 [10.6](10-request-reply.md#106-when-to-split-a-reply-destination) for when this is warranted.
 
-## 14.8 A custom session factory
+## 14.8 Custom instrumentation
+
+Both metrics SPIs are public, carry no metrics-library types, and give every method a no-op default —
+so implement only what you care about. Declaring either bean replaces the Micrometer implementation
+entirely.
+
+```java
+@Bean
+SolaceRequestReplyMetrics solaceRequestReplyMetrics(SlaRecorder sla) {
+    return new SolaceRequestReplyMetrics() {
+        @Override
+        public void recordReply(String templateId, String destination, long latencyMillis) {
+            sla.observe(destination, latencyMillis);
+        }
+
+        @Override
+        public void recordTimeout(String templateId, String destination) {
+            sla.breach(destination);
+        }
+    };
+}
+```
+
+Both run on the message path, so they must be cheap. The call sites are guarded — an exception is
+logged at debug and swallowed rather than failing the message — but an implementation that throws on
+every message will fill the log.
+
+To keep the Micrometer meters *and* add your own behaviour, delegate:
+
+```java
+@Bean
+SolaceListenerMetrics solaceListenerMetrics(MeterRegistry registry, Tracer tracer) {
+    SolaceListenerMetrics delegate = new MicrometerSolaceListenerMetrics(registry);
+    return new SolaceListenerMetrics() {
+        @Override public void recordReceived(String id) { delegate.recordReceived(id); }
+        @Override public void recordSuccess(String id, long nanos) { delegate.recordSuccess(id, nanos); }
+        @Override public void recordFailure(String id, long nanos, Exception ex) {
+            delegate.recordFailure(id, nanos, ex);
+            tracer.currentSpan().error(ex);
+        }
+    };
+}
+```
+
+## 14.9 A custom health indicator
+
+`solaceHealthIndicator` is `@ConditionalOnMissingBean(name = "solaceHealthIndicator")`, so a bean of
+that name replaces it. Before writing one, check whether
+`solace.health.require-all-containers-running: false` already expresses what you need — that is the
+usual reason to want a different one.
+
+`SolaceSessionFactory.isHealthy()` is a `default` method returning `true`, so a custom session factory
+compiles unchanged and is simply reported as healthy. Override it if your implementation can cheaply
+tell that its connection is gone.
+
+## 14.10 A custom session factory
 
 The heaviest extension point, and rarely needed. Implement `SolaceSessionFactory` if you need
 per-tenant connections or pooling. Two rules the default implementation encodes and yours must too:
@@ -195,13 +253,14 @@ per-tenant connections or pooling. Two rules the default implementation encodes 
 
 ---
 
-## 14.9 What is not extensible today
+## 14.11 What is not extensible today
 
 | | Why | Tracked in |
 | :--- | :--- | :--- |
 | Batch listeners | The container delivers one message per invocation | [18. Feature backlog](18-feature-backlog.md) |
 | A retry/back-off policy inside the container | Redelivery is the broker's, via `max-redelivery-count` | [18](18-feature-backlog.md) |
 | Pluggable argument resolvers on listener methods | The `MessageHandlerMethodFactory` is created internally | [18](18-feature-backlog.md) |
+| Broker-side statistics as meters | `JCSMPSession` exposes session stats that are not sampled | [18](18-feature-backlog.md) |
 | Broker administration beyond provisioning | Out of scope; use SEMP | — |
 
 Take a `SolaceRecord<T>` or a `BytesXMLMessage` parameter as the escape hatch for the third of these:

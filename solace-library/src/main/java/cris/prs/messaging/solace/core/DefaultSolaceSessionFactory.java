@@ -121,6 +121,18 @@ public class DefaultSolaceSessionFactory implements SolaceSessionFactory, Dispos
     /**
      * {@inheritDoc}
      *
+     * <p>Reports on the shared session only, and deliberately does not create one: before anything
+     * has connected there is nothing wrong to report.</p>
+     */
+    @Override
+    public boolean isHealthy() {
+        JCSMPSession session = this.sharedSession;
+        return session == null || !session.isClosed();
+    }
+
+    /**
+     * {@inheritDoc}
+     *
      * <p>The shared session is never closed here; it is released by {@link #destroy()}.</p>
      */
     @Override

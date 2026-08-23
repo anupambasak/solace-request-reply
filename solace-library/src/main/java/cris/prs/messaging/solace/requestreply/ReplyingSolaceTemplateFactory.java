@@ -45,6 +45,15 @@ public class ReplyingSolaceTemplateFactory {
     private final InstanceIdProvider instanceIdProvider;
 
     /**
+     * Given to every template this factory creates, so that request-reply traffic is measured.
+     *
+     * <p>Defaults to {@link SolaceRequestReplyMetrics#NO_OP}; the Micrometer implementation is
+     * supplied by auto-configuration when a {@code MeterRegistry} is present.</p>
+     */
+    @lombok.Setter
+    private SolaceRequestReplyMetrics requestReplyMetrics = SolaceRequestReplyMetrics.NO_OP;
+
+    /**
      * Create a factory.
      *
      * @param sessionFactory     supplies the connection and keys transactions
@@ -76,6 +85,8 @@ public class ReplyingSolaceTemplateFactory {
 
         ReplyingSolaceTemplate template = new ReplyingSolaceTemplate(this.sessionFactory,
                 this.messageConverter, createReplyContainer(spec, instanceId), replyDestination);
+        template.setId(spec.getId());
+        template.setRequestReplyMetrics(this.requestReplyMetrics);
         template.setHeaderMapper(this.headerMapper);
         template.setDeliveryMode(spec.getDeliveryMode());
         template.setDefaultReplyTimeout(spec.getReplyTimeout());

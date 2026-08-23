@@ -55,6 +55,9 @@ dependencies {
     api libs.logbackClassic
 
     api 'org.springframework.boot:spring-boot-starter-actuator'
+    // Micrometer and the Actuator health API are used only by the observability package, and every
+    // bean that touches them is conditional, so an application without them still works.
+    api 'io.micrometer:micrometer-core'
     api libs.solaceJavaStarter
     api 'org.springframework:spring-messaging'
     api 'org.springframework:spring-tx'

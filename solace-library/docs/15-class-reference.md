@@ -47,6 +47,7 @@ outside it — see [4.9](04-spring-integration.md#49-why-the-auto-configuration-
 | `MethodSolaceListenerAdapter` | class | Invokes an `InvocableHandlerMethod`. What `@SolaceListener` uses. |
 | `RecordSolaceListenerAdapter<T,R>` | class | Invokes a `Function<SolaceRecord<T>, R>`, for programmatic registration. |
 | `SolaceListenerErrorHandler` | interface | `void handleError(BytesXMLMessage, Exception)`. |
+| `SolaceListenerMetrics` | interface | Per-message callbacks: `recordReceived`, `recordSuccess`, `recordFailure`. Every method has a no-op default, and `NO_OP` is the container default. Free of any metrics-library types. |
 | `ContainerKeepAlive` | package-private final class | Reference-counted non-daemon thread that keeps a listener-only JVM alive. |
 
 → [9. Consuming messages](09-consuming-messages.md), [6. Annotations](06-annotations.md)
@@ -62,6 +63,7 @@ outside it — see [4.9](04-spring-integration.md#49-why-the-auto-configuration-
 | `ReplyEndpointSpec` | class | Describes one reply destination. `SolaceProperties.RequestReply` extends it, so YAML and code use the same object. |
 | `ReplyingSolaceTemplateFactory` | class | `create(ReplyEndpointSpec)` builds a template *and* its reply container. `createReplyContainer` is `protected`. |
 | `SolaceReplyTimeoutException` | class | Extends `SolaceMessagingException`. Also used to fail outstanding futures at shutdown. |
+| `SolaceRequestReplyMetrics` | interface | Callbacks: `recordRequest`, `recordReply`, `recordTimeout`, `recordUnmatchedReply`, `recordSendFailure`. No-op defaults, `NO_OP` is the template default. |
 
 → [10. Request-reply](10-request-reply.md)
 
@@ -79,7 +81,25 @@ outside it — see [4.9](04-spring-integration.md#49-why-the-auto-configuration-
 
 ---
 
-## 15.5 `support`
+## 15.5 `observability` — optional Micrometer and Actuator integration
+
+The one package that touches a metrics library and Spring Boot Actuator. Everything in it is
+conditional: without those dependencies nothing here is registered, and the rest of the library is
+unaffected.
+
+| Type | Kind | Purpose |
+| :--- | :--- | :--- |
+| `SolaceMetricNames` | final class | Every meter and tag name, as constants, so code, dashboards and alert rules cannot drift apart. |
+| `MicrometerSolaceListenerMetrics` | class | `SolaceListenerMetrics` over a `MeterRegistry`. Caches meters per tag combination, because the registry lookup costs more than the increment and this runs on the message path. |
+| `MicrometerSolaceRequestReplyMetrics` | class | `SolaceRequestReplyMetrics` over a `MeterRegistry`. |
+| `SolaceMetricsBinder` | class | Registers the state gauges. A `SmartLifecycle` at `Integer.MAX_VALUE`, **not** a Micrometer `MeterBinder` — a binder is bound when the registry bean initialises, which can be before listener containers are registered. |
+| `SolaceHealthIndicator` | class | `/actuator/health/solace`. Reads in-memory state only; never contacts the broker. |
+
+→ [16. Operations](16-operations.md)
+
+---
+
+## 15.6 `support`
 
 | Type | Kind | Purpose |
 | :--- | :--- | :--- |
@@ -91,7 +111,7 @@ outside it — see [4.9](04-spring-integration.md#49-why-the-auto-configuration-
 
 ---
 
-## 15.6 `annotation`
+## 15.7 `annotation`
 
 | Type | Purpose |
 | :--- | :--- |
@@ -102,20 +122,21 @@ outside it — see [4.9](04-spring-integration.md#49-why-the-auto-configuration-
 
 ---
 
-## 15.7 `cris.prs.solace.autoconfigure`
+## 15.8 `cris.prs.solace.autoconfigure`
 
 | Type | Purpose |
 | :--- | :--- |
 | `SolaceAutoConfiguration` | `@AutoConfiguration(afterName = SolaceJavaAutoConfiguration)`. Declares every bean, each conditional. |
 | `SolaceAnnotationDrivenConfiguration` | `@Configuration` carrying `@EnableSolace`, conditional on the post-processor being absent. Imported by the auto-configuration. |
 | `SolaceBootstrapConfiguration` | `ImportBeanDefinitionRegistrar` registering the post-processor and the registry as `ROLE_INFRASTRUCTURE` beans. |
-| `SolaceProperties` | `@ConfigurationProperties("solace")`. Nested `Template`, `Listener extends ContainerProperties`, `RequestReply extends ReplyEndpointSpec`. |
+| `SolaceObservabilityConfiguration` | Imported by the auto-configuration. Two nested configurations, each guarded separately: Micrometer meters, and the Actuator health indicator. |
+| `SolaceProperties` | `@ConfigurationProperties("solace")`. Nested `Template`, `Listener extends ContainerProperties`, `RequestReply extends ReplyEndpointSpec`, `Metrics`, `Health`. |
 
 → [4. Spring integration](04-spring-integration.md), [5. Configuration](05-configuration.md)
 
 ---
 
-## 15.8 Beans in a running context
+## 15.9 Beans in a running context
 
 | Bean name | Type | Condition |
 | :--- | :--- | :--- |
@@ -129,12 +150,16 @@ outside it — see [4.9](04-spring-integration.md#49-why-the-auto-configuration-
 | `solaceListenerContainerFactory` | `DefaultSolaceListenerContainerFactory` | missing bean by name |
 | `replyingSolaceTemplateFactory` | `ReplyingSolaceTemplateFactory` | missing bean |
 | `replyingSolaceTemplate` | `ReplyingSolaceTemplate` | missing bean **by name** + `solace.request-reply.enabled` ≠ false |
+| `solaceListenerMetrics` | `SolaceListenerMetrics` | missing bean + `MeterRegistry` present + `solace.metrics.enabled` ≠ false |
+| `solaceRequestReplyMetrics` | `SolaceRequestReplyMetrics` | as above |
+| `solaceMetricsBinder` | `SolaceMetricsBinder` | as above |
+| `solaceHealthIndicator` | `SolaceHealthIndicator` | missing bean by name + Actuator present + `solace.health.enabled` ≠ false |
 | *(infrastructure)* | `SolaceListenerAnnotationBeanPostProcessor` | registered by `@EnableSolace` |
 | *(infrastructure)* | `SolaceListenerEndpointRegistry` | registered by `@EnableSolace` |
 
 ---
 
-## 15.9 Javadoc
+## 15.10 Javadoc
 
 ```bash
 gradle :solace-library:javadoc      # build/docs/javadoc/index.html

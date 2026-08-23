@@ -108,6 +108,9 @@ The library does not hide these, so it is worth being precise about them.
 9. **Lifecycle** — `SmartLifecycle` phases ordered so containers are consuming before the
    request-reply template can send, and a non-daemon keep-alive thread so a listener-only app does
    not exit.
+10. **Observability** — Micrometer meters for listener throughput, latency, container state and
+    request-reply traffic, plus an Actuator health indicator at `/actuator/health/solace`. Both are
+    optional and both disappear cleanly when their dependency is absent.
 
 ## 1.5 What it deliberately does not do
 

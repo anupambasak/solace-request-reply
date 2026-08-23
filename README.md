@@ -533,7 +533,7 @@ Across all three patterns the three verbs mean the same thing:
 ## 🧪 Tests
 
 ```bash
-gradle :client:test :server:test
+gradle :solace-library:test :client:test :server:test
 ```
 
 | Test | Covers |
@@ -545,6 +545,7 @@ gradle :client:test :server:test
 | `server` &middot; `TaskWorkerTest` | each task handed to this instance is processed once |
 | `server` &middot; `QuoteConsumerTest` | the second service replies with a type derived from the request |
 | `server` &middot; `InventoryConsumerTest` | the third service maps its request type to a different reply type |
+| `solace-library` &middot; `SolaceObservabilityTest` | what the Micrometer collaborators publish, and what makes the health indicator report DOWN |
 | `server` &middot; `ExchangePatternConfigurationTest` | the wiring each `pattern` implies — endpoint naming, durability and access type |
 
 `ExchangePatternConfigurationTest` is the one worth reading. It pins down the difference between the

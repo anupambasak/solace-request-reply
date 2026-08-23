@@ -99,4 +99,17 @@ public interface SolaceSessionFactory {
      * @param session the session to close; {@code null} is ignored
      */
     void closeSession(JCSMPSession session);
+
+    /**
+     * Whether the connection this factory manages is usable.
+     *
+     * <p>Intended for health reporting, so it must not create a session as a side effect: a factory
+     * that has not yet connected is healthy, not broken. The default returns {@code true}, so an
+     * implementation that cannot cheaply tell is never reported as unhealthy.</p>
+     *
+     * @return {@code false} only when the factory knows its connection is gone
+     */
+    default boolean isHealthy() {
+        return true;
+    }
 }

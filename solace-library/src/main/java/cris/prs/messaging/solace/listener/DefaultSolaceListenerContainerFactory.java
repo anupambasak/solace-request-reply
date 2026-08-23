@@ -41,6 +41,15 @@ public class DefaultSolaceListenerContainerFactory implements SolaceListenerCont
     private org.springframework.core.task.AsyncTaskExecutor taskExecutor;
 
     /**
+     * Given to every container this factory creates, so that message handling is measured.
+     *
+     * <p>Defaults to {@link SolaceListenerMetrics#NO_OP}; the Micrometer implementation is supplied
+     * by auto-configuration when a {@code MeterRegistry} is present.</p>
+     */
+    @Setter
+    private SolaceListenerMetrics listenerMetrics = SolaceListenerMetrics.NO_OP;
+
+    /**
      * Create a container factory.
      *
      * @param sessionFactory      supplies connections to every container built here
@@ -93,6 +102,7 @@ public class DefaultSolaceListenerContainerFactory implements SolaceListenerCont
         container.setupMessageListener(listener);
         container.setTransactionManager(this.transactionManager);
         container.setTaskExecutor(this.taskExecutor);
+        container.setListenerMetrics(this.listenerMetrics);
         if (this.errorHandler != null) {
             container.setErrorHandler(this.errorHandler);
         }

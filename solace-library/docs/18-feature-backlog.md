@@ -26,6 +26,55 @@ marks unsupported for JCSMP, or that lives outside the client API entirely, is l
 | Dead message queue and max-redelivery | `ContainerProperties.Endpoint.DeadMessageQueue` |
 | Client acknowledgement | `ackOnError`, transactional commit |
 | Structured data types (partially) | headers → SDT user properties |
+| Micrometer metrics | `SolaceListenerMetrics`, `SolaceRequestReplyMetrics`, the `observability` package |
+| Actuator health indicator | `SolaceHealthIndicator`, `SolaceSessionFactory.isHealthy()` |
+
+---
+
+## Recently implemented
+
+Both were Tier-"beyond the platform page" items; they are described here rather than only in the
+table above because the design choices are worth recording.
+
+### Micrometer metrics
+
+Two dependency-free SPIs — `SolaceListenerMetrics` in the `listener` package and
+`SolaceRequestReplyMetrics` in `requestreply` — are called on the message path by
+`DefaultSolaceMessageListenerContainer` and `ReplyingSolaceTemplate`. Both default to a `NO_OP`
+implementation, so instrumentation costs nothing when it is not wired up, and neither package gains a
+dependency on a metrics library.
+
+The Micrometer implementations live in a new `cris.prs.messaging.solace.observability` package and are
+registered by `SolaceObservabilityConfiguration` when a `MeterRegistry` bean is present. Counters and
+timers are recorded as messages flow; the state gauges are registered by `SolaceMetricsBinder`, a
+`SmartLifecycle` in the highest phase — a Micrometer `MeterBinder` would have bound before the
+listener containers were registered, which happens in the annotation post-processor's
+`afterSingletonsInstantiated`.
+
+Meters: `solace.listener.messages.received`, `solace.listener.processing`, `solace.listener.running`,
+`solace.listener.flows`, `solace.requests.sent`, `solace.requests.send.failed`,
+`solace.requests.latency`, `solace.requests.timeouts`, `solace.requests.pending`,
+`solace.replies.unmatched`. See [16. Operations](16-operations.md#162-micrometer-metrics).
+
+**Still open:** broker-side statistics (`JCSMPSession` exposes session stats that are not sampled),
+and per-endpoint spool depth, which is only available through SEMP.
+
+### Actuator health indicator
+
+`SolaceHealthIndicator` contributes `/actuator/health/solace` from state already held in memory — it
+never contacts the broker, so it is cheap enough for a readiness probe. It reports DOWN when the
+session factory says its connection is gone, or when a registered container is not running.
+
+That second rule is configurable (`solace.health.require-all-containers-running`) because a container
+declared with `autoStartup = "false"`, or stopped deliberately through the registry, is not a fault —
+and reporting it as one would keep the instance out of the load balancer indefinitely.
+
+`SolaceSessionFactory` gained a `default boolean isHealthy()` for this. A default method rather than a
+new abstract one, so a custom session factory keeps compiling and is simply reported as healthy.
+
+**Still open:** distinguishing "connected" from "reconnecting". JCSMP reconnects transparently and the
+library does not yet subscribe to session events, so a session in the middle of a reconnect still
+reports connected. Flow event handling (Tier 1, item 3) is the prerequisite.
 
 ---
 
@@ -218,8 +267,6 @@ match. Listed because they are what a user of that model will look for next.
 | :--- | :--- |
 | **Batch listeners** — `List<T>` payloads | Kafka's `batchListener`. Amortises per-message overhead for high-volume consumers. **M** |
 | **Retry and backoff** | Spring Kafka's `DefaultErrorHandler` with `BackOff`. Today a failure is retried by the broker immediately, with no delay and no attempt limit short of the DMQ. **M** |
-| **Micrometer metrics** | Publish counts, latencies, flow state, `ReplyingSolaceTemplate.getPendingCount()`. All the data exists; nothing is exported. **S** |
-| **Actuator health indicator** | Session connectivity and container state as a readiness signal. Directly useful for the Kubernetes deployment already in the repo. **S** |
 | **Test support** | A `@EmbeddedSolace`-style Testcontainers rule. Today the tests can only cover logic that needs no broker. **M** |
 | **Record filter strategy** | Discard uninteresting messages before conversion, as Kafka's `RecordFilterStrategy` does. **S** |
 

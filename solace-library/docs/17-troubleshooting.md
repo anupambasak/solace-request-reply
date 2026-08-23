@@ -81,7 +81,7 @@ properties, which really is a misconfiguration.
 
 Tolerated the same way (`ENDPOINT_ALREADY_EXISTS`, logged at debug). What you should look for
 instead is the **property-mismatch warning**, which means the endpoint exists with settings other
-than the ones you configured — and the broker keeps its own. See [16.4](16-operations.md#164-endpoint-settings-and-the-broker).
+than the ones you configured — and the broker keeps its own. See [16.4](16-operations.md#166-endpoint-settings-and-the-broker).
 
 ### `503 Unknown Queue` on a `#P2P/QTMP/…` name
 

@@ -54,6 +54,13 @@ solace:
         access-type: EXCLUSIVE
         permission: CONSUME
 
+  metrics:
+    enabled: true                    # publish Micrometer meters when a MeterRegistry exists
+
+  health:
+    enabled: true                    # contribute /actuator/health/solace
+    require-all-containers-running: true
+
   request-reply:
     enabled: true
     id: solaceReplyContainer
@@ -107,7 +114,7 @@ Defaults applied to the auto-configured `solaceTemplate`. They are per-template,
 ## 5.4 `solace.listener.*`
 
 Defaults for **every** `@SolaceListener` container. Anything set on the annotation, and anything a
-pattern implies, overrides these — see [5.7 Precedence](#57-precedence).
+pattern implies, overrides these — see [5.8 Precedence](#58-precedence).
 
 `SolaceProperties.Listener extends ContainerProperties`, so this table is also the reference for a
 hand-built `ContainerProperties`.
@@ -199,7 +206,23 @@ The resulting reply destination is `<reply-topic-prefix>/<sanitised instance id>
 
 ---
 
-## 5.7 Precedence
+## 5.7 `solace.metrics.*` and `solace.health.*`
+
+Both are optional integrations, and both disappear cleanly when their dependency is absent —
+Micrometer for metrics, Spring Boot Actuator for health.
+
+| Property | Type | Default | Effect |
+| :--- | :--- | :--- | :--- |
+| `metrics.enabled` | `boolean` | `true` | Publish Solace meters when a `MeterRegistry` bean exists. `false` leaves containers and templates on their no-op collaborators, so there is **no measurement overhead at all** — not merely meters nobody scrapes. |
+| `health.enabled` | `boolean` | `true` | Contribute a `solace` health indicator when Actuator is present. |
+| `health.require-all-containers-running` | `boolean` | `true` | Report DOWN when a registered listener container is not running. Set `false` for an application that starts containers by hand or declares listeners with `autoStartup = "false"` — a deliberately idle container is not a fault, and reporting it as one keeps the instance out of the load balancer. |
+
+See [16.2](16-operations.md#162-micrometer-metrics) for the meters and
+[16.3](16-operations.md#163-actuator-health) for the health details.
+
+---
+
+## 5.8 Precedence
 
 For a `@SolaceListener` container, from lowest to highest:
 
@@ -237,7 +260,7 @@ as the broker allows, and the discrepancy is reported rather than hidden.
 
 ---
 
-## 5.8 Environment-specific patterns
+## 5.9 Environment-specific patterns
 
 **Local development** — no persistence, no provisioning rights needed:
 
