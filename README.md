@@ -178,9 +178,13 @@ curl "http://localhost:8080/point-to-point/submit?description=reindex"  # one wo
 curl "http://localhost:8080/point-to-point/submit-multiple?count=5"
 curl "http://localhost:8080/point-to-point/submit-batch?count=5"
 
-curl "http://localhost:8080/request-reply/send"                         # one exchange + latency
-curl "http://localhost:8080/request-reply/send-multiple?count=10"
-curl "http://localhost:8080/request-reply/send-batch?count=5"
+curl "http://localhost:8080/request-reply/booking/send"                  # service one -> Person
+curl "http://localhost:8080/request-reply/booking/send-multiple?count=10"
+curl "http://localhost:8080/request-reply/booking/send-batch?count=5"
+
+curl "http://localhost:8080/request-reply/quote/send"                   # service two -> Quote
+curl "http://localhost:8080/request-reply/quote/send-multiple?count=10"
+curl "http://localhost:8080/request-reply/quote/send-batch?count=5"
 ```
 
 Scale the server to prove the distinction:
@@ -424,7 +428,7 @@ transactional durable listener.
 ```
 solace-request-reply/
  ├── gradle/libs.versions.toml     # version catalog
- ├── shared-dto/                   # Person, Notification, Task, ReplyResult — the client/server contract
+ ├── shared-dto/                   # Person, Notification, Task, Quote, ReplyResult — the client/server contract
  ├── solace-library/               # the Spring-for-Solace library (auto-configured starter)
  ├── client/                       # WebFlux REST service, requester
  ├── server/                       # @SolaceListener request handler
@@ -462,15 +466,29 @@ kubectl port-forward svc/client 8080:80 -n anupam
 | `GET /point-to-point/submit-multiple?description=…&count=5` | several, published independently |
 | `GET /point-to-point/submit-batch?description=…&count=5` | several, published in one Solace transaction |
 
-**Request-reply** — each reply returns to the instance that asked, with its latency.
+**Request-reply** — each reply returns to the instance that asked, with its latency. Two independent
+services are exposed; `/send*` and `/booking/send*` are the same endpoints.
 
-| Endpoint | Description |
-| :--- | :--- |
-| `GET /request-reply/send` | one exchange |
-| `GET /request-reply/send-multiple?count=10&concurrency=10` | several independent exchanges, streamed as replies arrive |
-| `GET /request-reply/send-batch?count=5` | requests published in one transaction, replies awaited after commit |
-| `GET /request-reply/benchmark?total=100000&concurrency=1000` | high-concurrency load test |
-| `GET /request-reply/reply-destination` | the reply topic this pod is listening on |
+| Endpoint | Service | Replies with |
+| :--- | :--- | :--- |
+| `GET /request-reply/booking/send` | one | `Person` |
+| `GET /request-reply/booking/send-multiple?count=10&concurrency=10` | one | `Person` |
+| `GET /request-reply/booking/send-batch?count=5` | one | `Person` |
+| `GET /request-reply/quote/send` | two | `Quote` |
+| `GET /request-reply/quote/send-multiple?count=10&concurrency=10` | two | `Quote` |
+| `GET /request-reply/quote/send-batch?count=5` | two | `Quote` |
+| `GET /request-reply/benchmark?total=100000&concurrency=1000` | one | high-concurrency load test |
+| `GET /request-reply/reply-destination` | — | the reply topic this pod is listening on |
+
+| Service | Request topic | Endpoint |
+| :--- | :--- | :--- |
+| one — booking | `request-reply/request-1` | `request-reply-queue-1.request-reply-group-1` |
+| two — quote | `request-reply/request-2` | `request-reply-queue-2.request-reply-group-2` |
+
+A second service needs **its own request topic as well as its own queue**. Two queues subscribed to
+the same topic each receive a copy of every request, so both services would answer and the requester
+would see one reply and one orphan. Both do share the client's single per-instance reply
+destination: the correlation id, not the destination, is what returns each reply to its request.
 
 Across all three patterns the three verbs mean the same thing:
 
@@ -504,6 +522,7 @@ gradle :client:test :server:test
 | `client` &middot; `PersonFactoryTest` | the payload source shared by all three controllers |
 | `server` &middot; `NotificationSubscriberTest` | every delivered copy is processed; the handler returns void |
 | `server` &middot; `TaskWorkerTest` | each task handed to this instance is processed once |
+| `server` &middot; `QuoteConsumerTest` | the second service replies with a type derived from the request |
 | `server` &middot; `ExchangePatternConfigurationTest` | the wiring each `pattern` implies — endpoint naming, durability and access type |
 
 `ExchangePatternConfigurationTest` is the one worth reading. It pins down the difference between the

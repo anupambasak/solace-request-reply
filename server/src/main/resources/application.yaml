@@ -11,6 +11,15 @@ app:
     # Consume the request and publish the reply in one Solace local transaction
     transactional: true
 
+  # request-reply, service two: its own endpoint AND its own request topic. Two queues subscribed to
+  # the same topic would each get a copy, so both services would answer the same request.
+  quote:
+    queue: request-reply-queue-2
+    group: request-reply-group-2
+    topic: request-reply/request-2
+    concurrency: 5
+    transactional: true
+
   # publish-subscribe: every instance binds its own endpoint and receives every notification
   notification:
     queue: notification

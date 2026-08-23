@@ -1,5 +1,6 @@
 .gradle
 AGENTS.md
+_to_delete
 build/
 !gradle/wrapper/gradle-wrapper.jar
 !**/src/main/**/build/

@@ -4,6 +4,8 @@ server:
 app:
   request:
     topic: request-reply/request-1
+  quote:
+    topic: request-reply/request-2
   notification:
     topic: notification/broadcast
   task:

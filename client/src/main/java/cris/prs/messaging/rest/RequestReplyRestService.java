@@ -1,9 +1,11 @@
 package cris.prs.messaging.rest;
 
 import cris.prs.messaging.Person;
+import cris.prs.messaging.Quote;
 import cris.prs.messaging.ReplyResult;
 import cris.prs.messaging.service.BookingRequestService;
 import cris.prs.messaging.service.PersonFactory;
+import cris.prs.messaging.service.QuoteRequestService;
 import cris.prs.messaging.solace.requestreply.ReplyingSolaceTemplate;
 import cris.prs.messaging.solace.requestreply.RequestReplyFuture;
 import lombok.RequiredArgsConstructor;
@@ -27,6 +29,16 @@ import java.util.List;
  *
  * <p>The three endpoints differ in how the requests are published: one request, several independent
  * publishes, or several publishes in a single Solace transaction.</p>
+ *
+ * <p>Two independent request-reply services are exposed here, each with its own request topic and
+ * its own durable endpoint on the server, and each answering with a different type. They share one
+ * {@code ReplyingSolaceTemplate} and one per-instance reply destination &mdash; the correlation id,
+ * not the destination, is what returns each reply to the request that asked for it.</p>
+ *
+ * <ul>
+ *   <li>{@code /request-reply/booking/*} &mdash; service one, replies with a {@code Person}</li>
+ *   <li>{@code /request-reply/quote/*} &mdash; service two, replies with a {@code Quote}</li>
+ * </ul>
  */
 @Slf4j
 @RestController
@@ -35,6 +47,8 @@ import java.util.List;
 public class RequestReplyRestService {
 
     private final BookingRequestService bookingRequestService;
+
+    private final QuoteRequestService quoteRequestService;
 
     private final ReplyingSolaceTemplate solace;
 
@@ -57,7 +71,7 @@ public class RequestReplyRestService {
      *
      * @return the reply payload with its send time, receive time and latency
      */
-    @GetMapping("/send")
+    @GetMapping({"/send", "/booking/send"})
     public Mono<ReplyResult<Person>> send() {
         return await(bookingRequestService.send(personFactory.create()));
     }
@@ -72,7 +86,7 @@ public class RequestReplyRestService {
      * @param concurrency how many to keep in flight at once
      * @return each reply as it arrives
      */
-    @GetMapping("/send-multiple")
+    @GetMapping({"/send-multiple", "/booking/send-multiple"})
     public Flux<ReplyResult<Person>> sendMultiple(
             @RequestParam(defaultValue = "10") int count,
             @RequestParam(defaultValue = "10") int concurrency) {
@@ -91,7 +105,7 @@ public class RequestReplyRestService {
      * @param count how many requests to publish in the transaction
      * @return every reply, once all of them have arrived
      */
-    @GetMapping("/send-batch")
+    @GetMapping({"/send-batch", "/booking/send-batch"})
     public Mono<List<ReplyResult<Person>>> sendBatch(@RequestParam(defaultValue = "5") int count) {
         return Mono
                 // the transaction opens and commits inside this call
@@ -118,9 +132,58 @@ public class RequestReplyRestService {
                         .subscribeOn(Schedulers.boundedElastic()), concurrency);
     }
 
-    /** Await one reply and pair it with the timings recorded on its future. */
-    private Mono<ReplyResult<Person>> await(RequestReplyFuture<Person> future) {
+    // --- service two: quotes ------------------------------------------------------------
+
+    /**
+     * One quote exchange.
+     *
+     * @return the quote with its send time, receive time and latency
+     */
+    @GetMapping("/quote/send")
+    public Mono<ReplyResult<Quote>> sendQuote() {
+        return await(quoteRequestService.send(personFactory.create()));
+    }
+
+    /**
+     * Several quote exchanges as independent publishes.
+     *
+     * @param count       how many exchanges to perform
+     * @param concurrency how many to keep in flight at once
+     * @return each quote as it arrives
+     */
+    @GetMapping("/quote/send-multiple")
+    public Flux<ReplyResult<Quote>> sendQuoteMultiple(
+            @RequestParam(defaultValue = "10") int count,
+            @RequestParam(defaultValue = "10") int concurrency) {
+        return Flux.fromIterable(personFactory.create(count))
+                .flatMap(person -> await(quoteRequestService.send(person))
+                        .subscribeOn(Schedulers.boundedElastic()), concurrency);
+    }
+
+    /**
+     * Several quote requests published in one Solace transaction.
+     *
+     * @param count how many requests to publish in the transaction
+     * @return every quote, once all of them have arrived
+     */
+    @GetMapping("/quote/send-batch")
+    public Mono<List<ReplyResult<Quote>>> sendQuoteBatch(@RequestParam(defaultValue = "5") int count) {
+        return Mono
+                .fromCallable(() -> quoteRequestService.sendBatchInTransaction(personFactory.create(count)))
+                .subscribeOn(Schedulers.boundedElastic())
+                .flatMap(futures -> Flux.fromIterable(futures).flatMap(this::await).collectList());
+    }
+
+    /**
+     * Await one reply and pair it with the timings recorded on its future.
+     *
+     * @param future the outstanding request
+     * @param <T>    the reply type
+     * @return the reply with its timings
+     */
+    private <T> Mono<ReplyResult<T>> await(RequestReplyFuture<T> future) {
         return Mono.fromFuture(future)
+                .log()
                 .map(reply -> new ReplyResult<>(reply, future.getSendTime(), future.getReceiveTime()));
     }
 }

@@ -155,12 +155,40 @@ class ExchangePatternConfigurationTest {
         }
 
         @Test
+        @DisplayName("a second service has its own endpoint AND its own request topic")
+        void secondServiceIsFullyIndependent() throws NoSuchMethodException {
+            SolaceListener one = annotationOn(ServiceConsumer.class, "booking",
+                    cris.prs.messaging.Person.class, String.class);
+            SolaceListener two = annotationOn(QuoteConsumer.class, "quote",
+                    cris.prs.messaging.Person.class, String.class);
+
+            assertThat(two.pattern()).isEqualTo("REQUEST_REPLY");
+            assertThat(two.queue()).isEqualTo("${app.quote.queue:request-reply-queue-2}");
+            assertThat(two.group()).isEqualTo("${app.quote.group:request-reply-group-2}");
+
+            // Separate endpoints keep the two services' backlogs apart...
+            assertThat(two.queue()).isNotEqualTo(one.queue());
+            // ...and separate request topics are what stop both of them answering the same request:
+            // two queues subscribed to one topic would each receive a copy.
+            assertThat(two.topics()).doesNotContainAnyElementsOf(java.util.List.of(one.topics()));
+        }
+
+        @Test
         @DisplayName("returns a value, which the container publishes to the requester's replyTo")
         void handlerReturnsTheReply() throws NoSuchMethodException {
             Method booking = ServiceConsumer.class.getMethod("booking",
                     cris.prs.messaging.Person.class, String.class);
 
             assertThat(booking.getReturnType()).isEqualTo(cris.prs.messaging.Person.class);
+        }
+
+        @Test
+        @DisplayName("the reply type is per service, not fixed by the library")
+        void replyTypeIsPerService() throws NoSuchMethodException {
+            assertThat(QuoteConsumer.class
+                    .getMethod("quote", cris.prs.messaging.Person.class, String.class)
+                    .getReturnType())
+                    .isEqualTo(cris.prs.messaging.Quote.class);
         }
     }
 
