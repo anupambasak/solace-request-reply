@@ -147,6 +147,9 @@ public class DefaultSolaceMessageListenerContainer implements SolaceMessageListe
     @Setter
     private SolaceListenerMetrics listenerMetrics = SolaceListenerMetrics.NO_OP;
 
+    /** Set once a settle(ACCEPTED) has failed, after which acknowledgement uses ackMessage(). */
+    private volatile boolean settleOnSuccessUnavailable;
+
     /** Guards the non-durable concurrency warning so it is logged once per container. */
     private final AtomicBoolean nonDurableConcurrencyWarned = new AtomicBoolean();
 
@@ -776,12 +779,45 @@ public class DefaultSolaceMessageListenerContainer implements SolaceMessageListe
         try {
             this.messageListener.onMessage(message);
             recordSuccess(startedAt);
-            message.ackMessage();
+            accept(message);
         }
         catch (Exception ex) {
             recordFailure(startedAt, ex);
             this.errorHandler.handleError(message, ex);
             settle(message, ex);
+        }
+    }
+
+    /**
+     * Acknowledge a successfully handled message.
+     *
+     * <p>Sent as {@code settle(ACCEPTED)} rather than {@code ackMessage()} so that success and
+     * failure take the same path: one method decides a message's fate, and there is no second way to
+     * acknowledge that a new outcome would have to be threaded through. The two are the same thing on
+     * the wire, and {@code ACCEPTED} is the one outcome that never needs negotiating at bind
+     * time.</p>
+     *
+     * <p>The fallback exists because that equivalence is a property of the broker, not of this
+     * library. If a broker ever refuses the settle, the container drops back to {@code ackMessage()}
+     * for the rest of its life rather than failing every message over a cosmetic change.</p>
+     *
+     * @param message the message to acknowledge
+     * @throws JCSMPException if even the fallback acknowledgement fails
+     */
+    private void accept(BytesXMLMessage message) throws JCSMPException {
+        if (this.settleOnSuccessUnavailable) {
+            message.ackMessage();
+            return;
+        }
+        try {
+            message.settle(XMLMessage.Outcome.ACCEPTED);
+        }
+        catch (JCSMPException | RuntimeException ex) {
+            this.settleOnSuccessUnavailable = true;
+            log.warn("Container '{}' could not settle a message as ACCEPTED; falling back to "
+                    + "ackMessage() for the rest of this container's life. The two are equivalent, "
+                    + "so nothing is lost.", getListenerId(), ex);
+            message.ackMessage();
         }
     }
 
@@ -807,7 +843,7 @@ public class DefaultSolaceMessageListenerContainer implements SolaceMessageListe
         }
         try {
             if (outcome == SettlementOutcome.ACCEPTED) {
-                message.ackMessage();
+                accept(message);
             }
             else {
                 message.settle(outcome.jcsmpOutcome());

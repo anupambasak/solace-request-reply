@@ -69,6 +69,21 @@ class FlowTuningTest {
         }
 
         @Test
+        @DisplayName("noLocal is only applied when set, so the default stays JCSMP's")
+        void noLocalIsOptional() {
+            ConsumerFlowProperties untouched = new ConsumerFlowProperties();
+            ConsumerFlowProperties applied = new ConsumerFlowProperties();
+            new ContainerProperties.Flow().applyTo(applied, false);
+            assertEquals(untouched.isNoLocal(), applied.isNoLocal());
+
+            ContainerProperties.Flow tuning = new ContainerProperties.Flow();
+            tuning.setNoLocal(true);
+            ConsumerFlowProperties suppressed = new ConsumerFlowProperties();
+            tuning.applyTo(suppressed, false);
+            assertTrue(suppressed.isNoLocal());
+        }
+
+        @Test
         @DisplayName("an explicit setting overrides the derivation in both directions")
         void explicitSettingWins() {
             ContainerProperties.Flow off = new ContainerProperties.Flow();

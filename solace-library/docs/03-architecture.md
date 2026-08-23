@@ -270,6 +270,14 @@ non-transactional flows, and by all provisioning. Two things force extra connect
 
 Every session the factory creates is tracked in `ownedSessions` and closed in `destroy()`.
 
+**Session events.** Sessions are created through `SpringJCSMPFactory.createSession(null, handler)` —
+the no-argument overload is exactly `createSession(null, null)`, so passing a handler costs nothing
+and is the only way to observe a reconnect. JCSMP repairs a dropped connection transparently, and
+flows that survive it raise no flow event, so without this a network blip that stops all traffic for
+seconds leaves no trace anywhere. The factory tracks a `SolaceSessionState` from those events, which
+is what the health indicator reports and what `solace.session.state` gauges. See
+[13.7](13-multi-instance.md) and [16.3](16-operations.md#163-actuator-health).
+
 ---
 
 ## 3.8 Shutdown

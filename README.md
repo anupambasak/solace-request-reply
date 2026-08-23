@@ -545,6 +545,7 @@ gradle :solace-library:test :client:test :server:test
 | `server` &middot; `TaskWorkerTest` | each task handed to this instance is processed once, and a redelivered one reports which attempt it is |
 | `server` &middot; `QuoteConsumerTest` | the second service replies with a type derived from the request |
 | `server` &middot; `InventoryConsumerTest` | the third service maps its request type to a different reply type |
+| `solace-library` &middot; `SolaceSessionStateTest` | a reconnecting session is not healthy, a never-connected one is not a fault, and the `SolaceSessionFactory` defaults keep a custom factory compiling |
 | `solace-library` &middot; `FlowTuningTest` | an untouched flow-tuning block is a no-op, active flow indication is derived from the access type, and a standby flow is not degraded |
 | `solace-library` &middot; `SettlementOutcomeTest` | which outcomes need bind-time negotiation, and that a lambda error handler still defers to the container |
 | `solace-library` &middot; `SolaceObservabilityTest` | what the Micrometer collaborators publish, and what makes the health indicator report DOWN |

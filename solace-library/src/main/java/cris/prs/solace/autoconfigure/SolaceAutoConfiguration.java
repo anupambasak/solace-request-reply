@@ -9,6 +9,7 @@ import cris.prs.messaging.solace.core.JacksonSolaceMessageConverter;
 import cris.prs.messaging.solace.core.SolaceHeaderMapper;
 import cris.prs.messaging.solace.core.SolaceMessageConverter;
 import cris.prs.messaging.solace.core.SolaceSessionFactory;
+import cris.prs.messaging.solace.core.SolaceSessionListener;
 import cris.prs.messaging.solace.core.SolaceTemplate;
 import cris.prs.messaging.solace.listener.DefaultSolaceListenerContainerFactory;
 import cris.prs.messaging.solace.listener.SolaceFlowListener;
@@ -112,8 +113,11 @@ public class SolaceAutoConfiguration {
      */
     @Bean
     @ConditionalOnMissingBean
-    public SolaceSessionFactory solaceSessionFactory(SpringJCSMPFactory springJCSMPFactory) {
-        return new DefaultSolaceSessionFactory(springJCSMPFactory);
+    public SolaceSessionFactory solaceSessionFactory(SpringJCSMPFactory springJCSMPFactory,
+            ObjectProvider<SolaceSessionListener> sessionListener) {
+        DefaultSolaceSessionFactory factory = new DefaultSolaceSessionFactory(springJCSMPFactory);
+        factory.setSessionListener(sessionListener.getIfAvailable());
+        return factory;
     }
 
     /**

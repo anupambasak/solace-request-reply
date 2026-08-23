@@ -29,6 +29,9 @@ marks unsupported for JCSMP, or that lives outside the client API entirely, is l
 | Delivery count | `SolaceRecord.getDeliveryCount()`, `SolaceHeaders.DELIVERY_COUNT` |
 | Flow event handling and active flow indication | `SolaceFlowListener`, `SolaceFlowEvent`, container `isActive()` / `isDegraded()` |
 | Consumer flow tuning | `ContainerProperties.Flow`, `solace.listener.flow.*` |
+| Session event handling | `SolaceSessionListener`, `SolaceSessionEvent`, `SolaceSessionState` |
+| Broker-side session statistics | `SolaceSessionStatistics`, `solace.metrics.session-statistics` |
+| `noLocal` | `solace.listener.flow.no-local` |
 | Structured data types (partially) | headers → SDT user properties |
 | Micrometer metrics | `SolaceListenerMetrics`, `SolaceRequestReplyMetrics`, the `observability` package |
 | Actuator health indicator | `SolaceHealthIndicator`, `SolaceSessionFactory.isHealthy()` |
@@ -60,8 +63,12 @@ Meters: `solace.listener.messages.received`, `solace.listener.processing`, `sola
 `solace.requests.latency`, `solace.requests.timeouts`, `solace.requests.pending`,
 `solace.replies.unmatched`. See [16. Operations](16-operations.md#162-micrometer-metrics).
 
-**Still open:** broker-side statistics (`JCSMPSession` exposes session stats that are not sampled),
-and per-endpoint spool depth, which is only available through SEMP.
+**Resolved since:** broker-side statistics are now sampled — a curated set of JCSMP `StatType`
+counters published as `solace.session.*`, replaceable through `solace.metrics.session-statistics`.
+Each gets its own meter name rather than one meter tagged by name, because they do not share a unit.
+
+**Still open:** per-endpoint spool depth, which is only available through SEMP — a management API,
+not the client one, so it is out of this library's scope. Monitor it from the broker.
 
 ### Actuator health indicator
 
@@ -110,9 +117,12 @@ Ignored on transacted flows, where the rollback already governs redelivery; thos
 negotiate outcomes at all. A settle failure is logged with the property to set, not rethrown — the
 JCSMP delivery thread can do nothing useful with it, and the broker resolves the state by redelivering.
 
-**Still open:** `Outcome.ACCEPTED` on *success* is still sent as `ackMessage()`, which is the same
-thing over the wire; there is no reason to change it, but a future settlement-only path would be
-tidier.
+**Resolved since:** success now goes through `settle(ACCEPTED)` too, so one method decides every
+message's fate and there is no second way to acknowledge that a future outcome would have to be
+threaded through. This is cosmetic — the two are identical on the wire, and `ACCEPTED` is the one
+outcome that never needs negotiating at bind time. Because that equivalence is a property of the
+broker rather than of this library, a failed settle falls back to `ackMessage()` for the rest of the
+container's life and logs once, so a tidying change cannot become an outage.
 
 ### Delivery count on the received message
 
@@ -160,8 +170,8 @@ One judgement worth recording: **`INACTIVE` is deliberately not degraded.** A st
 exclusive endpoint is healthy and working as designed; counting it as degraded would fail the health
 check of every instance that is not the leader — which is most of them.
 
-**Still open:** session-level events (`SessionEventHandler`). A session reconnect that leaves flows
-intact is still invisible.
+**Resolved since:** see *Session event handling* below. The health indicator now reports four session
+states rather than two, and `reconnecting` is distinct from `down`.
 
 ### Consumer flow tuning
 
@@ -184,9 +194,71 @@ when a queue is **first provisioned** and thereafter ignored by the broker, whil
 applied on **every bind** — so a change here takes effect on the next restart with no need to touch
 the queue.
 
-**Still open:** `noLocal` is on the same `ConsumerFlowProperties` and would have been a one-line
-addition, but it is its own backlog item with its own semantics, so it was left there rather than
-smuggled in.
+**Resolved since:** `noLocal` was added to the same block as its own documented feature — see below.
+
+### Session event handling
+
+*`SessionEventHandler`, `SessionEventArgs`, `SessionEvent`, and
+`SpringJCSMPFactory.createSession(Context, SessionEventHandler)`.*
+
+The layer below flow events. JCSMP reconnects a session transparently, so a network blip that stops
+**all** traffic for seconds leaves no trace: flows that survive raise no flow event, no message is
+lost, and nothing notices. `SolaceSessionEvent` maps JCSMP's seven events and `SolaceSessionListener`
+receives a `SolaceSessionEventArgs`.
+
+Verifying the API first paid off here: `SpringJCSMPFactory.createSession()` decompiles to exactly
+`createSession(null, null)`, so passing a handler is a strictly additive change to the existing call
+rather than a different code path.
+
+`SolaceSessionState` is four states rather than a boolean, and that is the substance of the feature.
+`RECONNECTING` is neither healthy nor permanently broken; collapsing it into `DOWN` would restart-loop
+a pod through a network blip, and collapsing it into `CONNECTED` would keep the pod taking traffic it
+cannot serve. `NOT_CONNECTED` is healthy on the same reasoning — an application that has not yet
+needed the broker is not broken. `getSessionState()` and `getSessionStatistics()` are both `default`
+methods so a custom `SolaceSessionFactory` keeps compiling.
+
+The event most worth handling is `VIRTUAL_ROUTER_NAME_CHANGED`: the session came back on the *other*
+broker of an HA pair, and temporary endpoints — every pub/sub queue and reply destination in the
+application — plus unreplicated unacknowledged messages did not come with it.
+
+**Still open:** nothing on this item. Session and flow events together cover both layers.
+
+### Broker-side session statistics
+
+*`Session.getSessionStats()`, `JCSMPStats.getStat(StatType)`, `StatType.fromString(String)`.*
+
+JCSMP keeps around seventy counters on a session; publishing all of them would bury the useful ones
+and multiply the time series for nothing. `SolaceSessionStatistics.DEFAULTS` is a curated sixteen,
+grouped by the question each answers: throughput, trouble (retransmits, discards, rejections, ack
+timeouts), back-pressure (window closures), and connection churn. `solace.metrics.session-statistics`
+replaces the list with any `StatType` names; an unrecognised one is logged and skipped rather than
+failing startup, and an empty list turns the feature off.
+
+Each statistic gets its **own meter name** — `TOTAL_MSGS_SENT` becomes
+`solace.session.total.msgs.sent` — rather than one meter tagged by name. They do not share a unit, and
+mixing message counts with byte counts under one name makes every aggregate meaningless.
+
+They are counters JCSMP owns, so they are registered as `FunctionCounter`s reading through to the
+session. Sampling never opens a connection: a factory with no session yet reports zero.
+
+The pair worth knowing is `publisher.window.closed` and `subscriber.flow.window.closed` — look at
+those *before* touching `solace.listener.flow.transport-window-size`, because a window that never
+closes does not need enlarging.
+
+### `noLocal`
+
+*Was Tier 2, item 8. `ConsumerFlowProperties.setNoLocal(boolean)`.*
+
+A one-line addition to `ContainerProperties.Flow`, deliberately deferred from the flow-tuning change
+so it arrived with its own documentation rather than smuggled in. It earns that documentation, because
+two things about it surprise people:
+
+- **Solace matches on the client connection, not the application.** The library shares one session for
+  publishing and non-transactional consuming, so it works — but a **transactional** container opens
+  its own connection, so its publishes are already elsewhere and `noLocal` does nothing there.
+- **It is a per-flow filter, not a discard.** On a shared durable queue the message is not delivered
+  to *this* instance but is still delivered to another. It suppresses local delivery; it does not
+  remove the message.
 
 ---
 
@@ -283,16 +355,6 @@ existing C, .NET or JMS estates.
 
 **Shape:** a second `SolaceMessageConverter`. Self-contained, no container changes. **Effort: S.**
 
-### 8. `noLocal`
-
-*`ConsumerFlowProperties.setNoLocal(boolean)`.*
-
-Suppresses delivery of messages the same session published. Directly useful for publish-subscribe,
-where a service that both publishes and subscribes to a topic currently receives its own broadcasts
-and has to filter them out by instance id.
-
-**Shape:** `@SolaceListener(noLocal = "true")`. **Effort: XS.**
-
 ---
 
 ## Tier 3 — configuration passthrough and documentation
@@ -343,17 +405,16 @@ Stated explicitly so the list is honest about scope.
 
 ## Suggested order
 
-1. **Queue browsing** (#1) — makes the dead message queue support usable in practice, which matters
-   more now that `REJECTED` can put messages there deliberately, and it is the last piece of the
-   error-handling story that still has no answer.
+1. **Queue browsing** (#1) — the last piece of the error-handling story with no answer, and it matters
+   more now that `REJECTED` puts messages on the DMQ deliberately.
 2. **Partitioned queues** (#2) — the largest conceptual gap against the Kafka model this library
    imitates.
-3. **Message replay** (#3) — now unblocked; flow event handling was its prerequisite.
+3. **Message replay** (#3) — unblocked; flow and session events were its prerequisite.
 4. **Distributed tracing** (#4) — the platform capability that most rewards the request-reply shape,
    and the header mapper is already the natural place to carry context.
 
-Tier 1 is nearly exhausted. Error handling, consumer tuning and flow observability are all complete;
-what is left there is inspection rather than behaviour.
+Tier 1 is down to one item. Error handling, consumer tuning, flow and session observability are all
+complete; what remains there is inspection rather than behaviour.
 
 ---
 

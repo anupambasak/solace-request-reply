@@ -51,6 +51,7 @@ solace:
       reconnect-tries:               # -1 retries a lost flow forever
       reconnect-retry-interval:
       active-flow-indication:        # unset = on for EXCLUSIVE endpoints
+      no-local:                      # suppress delivery of this connection's own publishes
     endpoint:
       access-type: NONEXCLUSIVE      # EXCLUSIVE | NONEXCLUSIVE
       permission: MODIFY_TOPIC       # NONE | READ_ONLY | CONSUME | MODIFY_TOPIC | DELETE
@@ -66,6 +67,7 @@ solace:
 
   metrics:
     enabled: true                    # publish Micrometer meters when a MeterRegistry exists
+    session-statistics:              # JCSMP StatType names; unset = a curated set
 
   health:
     enabled: true                    # contribute /actuator/health/solace
@@ -190,6 +192,7 @@ provisioned — so a change takes effect on the next restart with no need to tou
 | `reconnect-tries` | `Integer` | JCSMP's | Retries for a lost **flow** before `FLOW_DOWN`. `-1` retries forever. Separate from session reconnection under `solace.java.*`. |
 | `reconnect-retry-interval` | `Duration` | JCSMP's | Wait between flow reconnection attempts. |
 | `active-flow-indication` | `Boolean` | derived | Ask the broker to say when this flow becomes the active consumer on an exclusive endpoint. Unset enables it for `EXCLUSIVE` and not otherwise — it is the basis of leader election over an exclusive endpoint. |
+| `no-local` | `Boolean` | JCSMP's (`false`) | Suppress delivery to this flow of messages published on the **same client connection**. Solace matches on the connection, not the application, so a service that both publishes to a topic and subscribes to it receives its own messages unless this is on. Two caveats: a **transactional** container gets its own connection, so its publishes are already elsewhere and this has no effect; and it is a **per-flow filter**, so on a shared queue the message is simply delivered to a different instance rather than discarded. |
 
 See [9.9](09-consuming-messages.md#99-flow-tuning) for when to change any of it.
 
@@ -273,6 +276,7 @@ Micrometer for metrics, Spring Boot Actuator for health.
 | Property | Type | Default | Effect |
 | :--- | :--- | :--- | :--- |
 | `metrics.enabled` | `boolean` | `true` | Publish Solace meters when a `MeterRegistry` bean exists. `false` leaves containers and templates on their no-op collaborators, so there is **no measurement overhead at all** — not merely meters nobody scrapes. |
+| `metrics.session-statistics` | `List<String>` | a curated set | JCSMP `StatType` names published as broker-side session statistics. Setting this **replaces** the list; an unrecognised name is logged and skipped rather than failing startup; an empty list turns session statistics off while leaving the rest of the metrics on. See [16.2](16-operations.md#162-micrometer-metrics). |
 | `health.enabled` | `boolean` | `true` | Contribute a `solace` health indicator when Actuator is present. |
 | `health.require-all-containers-running` | `boolean` | `true` | Report DOWN when a registered listener container is not running. Set `false` for an application that starts containers by hand or declares listeners with `autoStartup = "false"` — a deliberately idle container is not a fault, and reporting it as one keeps the instance out of the load balancer. |
 

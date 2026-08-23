@@ -13,8 +13,12 @@ outside it — see [4.9](04-spring-integration.md#49-why-the-auto-configuration-
 | :--- | :--- | :--- |
 | `SolaceOperations<T>` | interface | The send contract: six `send` overloads plus `executeInTransaction`. Nested `TransactionCallback<T,R>` with `R doInSolace(SolaceOperations<T>)`. Counterpart of `KafkaOperations`. |
 | `SolaceTemplate<T>` | class | The implementation. Holds the delivery defaults, converts, maps headers, picks the transaction-aware producer. `createMessage` and `producer()` are `protected` for subclassing. |
-| `SolaceSessionFactory` | interface | `getSharedSession`, `createSession`, `getSharedProducer`, `getProducer(session)`, `createTransactedSession()`, `createTransactedSession(session)`, `closeSession`. |
-| `DefaultSolaceSessionFactory` | class | Wraps `SpringJCSMPFactory`. One lazy shared session, producers cached per session, every created session tracked and closed on `destroy()`. Nested `LoggingPublishEventHandler` logs async publish outcomes. |
+| `SolaceSessionFactory` | interface | `getSharedSession`, `createSession`, `getSharedProducer`, `getProducer(session)`, `createTransactedSession()`, `createTransactedSession(session)`, `closeSession`, plus the `default`s `getSessionState()`, `isHealthy()` and `getSessionStatistics(names)`. |
+| `SolaceSessionState` | enum | `NOT_CONNECTED`, `CONNECTED`, `RECONNECTING`, `DOWN`; `isHealthy()`. Four states rather than a boolean, because a reconnecting session is neither healthy nor permanently broken. |
+| `SolaceSessionEvent` | enum | `RECONNECTING`, `RECONNECTED`, `DOWN`, `SUBSCRIPTION_ERROR`, `VIRTUAL_ROUTER_NAME_CHANGED`, `INCOMPLETE_LARGE_MESSAGE`, `UNKNOWN_TRANSACTED_SESSION`, `UNKNOWN`; `from(SessionEvent)`. |
+| `SolaceSessionListener` | interface | `void onSessionEvent(SolaceSessionEventArgs)`. The only way to see a transparent JCSMP reconnect. |
+| `SolaceSessionEventArgs` | class | Event, resulting state, info, exception, response code. |
+| `DefaultSolaceSessionFactory` | class | Wraps `SpringJCSMPFactory`. One lazy shared session, producers cached per session, every created session tracked and closed on `destroy()`. Passes a `SessionEventHandler` so reconnects are visible, and samples JCSMP session statistics. Nested `LoggingPublishEventHandler` logs async publish outcomes. |
 | `SolaceMessageConverter` | interface | `toMessage(Object)` / `fromMessage(BytesXMLMessage, Class)`. |
 | `JacksonSolaceMessageConverter` | class | JSON by default; reuses the application's `ObjectMapper`. Reads the **binary attachment** first, the XML content part as fallback. |
 | `SolaceHeaderMapper` | interface | `fromHeaders(Map, XMLMessage)` / `toHeaders(BytesXMLMessage)`. |
@@ -97,7 +101,8 @@ unaffected.
 | `SolaceMetricNames` | final class | Every meter and tag name, as constants, so code, dashboards and alert rules cannot drift apart. |
 | `MicrometerSolaceListenerMetrics` | class | `SolaceListenerMetrics` over a `MeterRegistry`. Caches meters per tag combination, because the registry lookup costs more than the increment and this runs on the message path. |
 | `MicrometerSolaceRequestReplyMetrics` | class | `SolaceRequestReplyMetrics` over a `MeterRegistry`. |
-| `SolaceMetricsBinder` | class | Registers the state gauges. A `SmartLifecycle` at `Integer.MAX_VALUE`, **not** a Micrometer `MeterBinder` — a binder is bound when the registry bean initialises, which can be before listener containers are registered. |
+| `SolaceSessionStatistics` | final class | The curated default list of JCSMP `StatType` names, and `meterName(String)` — `TOTAL_MSGS_SENT` becomes `solace.session.total.msgs.sent`. |
+| `SolaceMetricsBinder` | class | Registers the state gauges and one `FunctionCounter` per sampled session statistic. A `SmartLifecycle` at `Integer.MAX_VALUE`, **not** a Micrometer `MeterBinder` — a binder is bound when the registry bean initialises, which can be before listener containers are registered. |
 | `SolaceHealthIndicator` | class | `/actuator/health/solace`. Reads in-memory state only; never contacts the broker. |
 
 → [16. Operations](16-operations.md)
@@ -154,6 +159,7 @@ unaffected.
 | `solaceListenerTaskExecutor` | `AsyncTaskExecutor` | missing bean by name |
 | `solaceListenerContainerFactory` | `DefaultSolaceListenerContainerFactory` | missing bean by name |
 | *(yours)* | `SolaceFlowListener` | optional — a single bean is given to every container |
+| *(yours)* | `SolaceSessionListener` | optional — a single bean is given to the session factory |
 | `replyingSolaceTemplateFactory` | `ReplyingSolaceTemplateFactory` | missing bean |
 | `replyingSolaceTemplate` | `ReplyingSolaceTemplate` | missing bean **by name** + `solace.request-reply.enabled` ≠ false |
 | `solaceListenerMetrics` | `SolaceListenerMetrics` | missing bean + `MeterRegistry` present + `solace.metrics.enabled` ≠ false |

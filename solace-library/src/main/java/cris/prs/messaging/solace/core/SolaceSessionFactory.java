@@ -101,15 +101,44 @@ public interface SolaceSessionFactory {
     void closeSession(JCSMPSession session);
 
     /**
+     * The connection state of this factory, for health reporting.
+     *
+     * <p>Must not create a session as a side effect: a factory that has not yet connected is
+     * {@link SolaceSessionState#NOT_CONNECTED}, not broken. The default returns
+     * {@link SolaceSessionState#CONNECTED}, so an implementation that cannot cheaply tell is never
+     * reported as unhealthy.</p>
+     *
+     * @return the current state, never {@code null}
+     */
+    default SolaceSessionState getSessionState() {
+        return SolaceSessionState.CONNECTED;
+    }
+
+    /**
      * Whether the connection this factory manages is usable.
      *
-     * <p>Intended for health reporting, so it must not create a session as a side effect: a factory
-     * that has not yet connected is healthy, not broken. The default returns {@code true}, so an
-     * implementation that cannot cheaply tell is never reported as unhealthy.</p>
+     * <p>Derived from {@link #getSessionState()}: a reconnecting session is <em>not</em> healthy,
+     * because nothing is being sent or received while it retries.</p>
      *
-     * @return {@code false} only when the factory knows its connection is gone
+     * @return {@code false} while the connection is down or reconnecting
      */
     default boolean isHealthy() {
-        return true;
+        return getSessionState().isHealthy();
+    }
+
+    /**
+     * A snapshot of the broker-side statistics JCSMP keeps for this connection.
+     *
+     * <p>Cumulative counters since the session was created, keyed by JCSMP {@code StatType} name.
+     * They are the only view of what the transport is actually doing &mdash; retransmits, discards,
+     * acknowledgement timeouts and window stalls never surface anywhere else.</p>
+     *
+     * <p>Must not create a session as a side effect; the default returns an empty map.</p>
+     *
+     * @param statistics the {@code StatType} names to sample; an unknown name is skipped
+     * @return the sampled values, empty when no session exists yet
+     */
+    default java.util.Map<String, Long> getSessionStatistics(java.util.Collection<String> statistics) {
+        return java.util.Map.of();
     }
 }

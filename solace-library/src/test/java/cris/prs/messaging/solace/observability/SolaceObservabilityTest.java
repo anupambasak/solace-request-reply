@@ -1,6 +1,7 @@
 package cris.prs.messaging.solace.observability;
 
 import cris.prs.messaging.solace.core.SolaceSessionFactory;
+import cris.prs.messaging.solace.core.SolaceSessionState;
 import cris.prs.messaging.solace.listener.SolaceListenerEndpoint;
 import cris.prs.messaging.solace.listener.SolaceListenerEndpointRegistry;
 import cris.prs.messaging.solace.listener.SolaceMessageListener;
@@ -128,6 +129,30 @@ class SolaceObservabilityTest {
     }
 
     @Nested
+    @DisplayName("session statistics")
+    class SessionStatistics {
+
+        @Test
+        @DisplayName("turns a JCSMP StatType name into a Micrometer meter name")
+        void meterNaming() {
+            assertEquals("solace.session.total.msgs.sent",
+                    SolaceSessionStatistics.meterName("TOTAL_MSGS_SENT"));
+            assertEquals("solace.session.publisher.window.closed",
+                    SolaceSessionStatistics.meterName("PUBLISHER_WINDOW_CLOSED"));
+        }
+
+        @Test
+        @DisplayName("the curated default set covers throughput, trouble and back-pressure")
+        void defaultsAreCurated() {
+            assertTrue(SolaceSessionStatistics.DEFAULTS.contains("TOTAL_MSGS_SENT"));
+            assertTrue(SolaceSessionStatistics.DEFAULTS.contains("RELIABLE_MSGS_RESENT"));
+            assertTrue(SolaceSessionStatistics.DEFAULTS.contains("PUBLISHER_WINDOW_CLOSED"));
+            assertTrue(SolaceSessionStatistics.DEFAULTS.size() < 25,
+                    "the point of a curated set is that it is small");
+        }
+    }
+
+    @Nested
     @DisplayName("health indicator")
     class HealthIndicatorTest {
 
@@ -162,10 +187,28 @@ class SolaceObservabilityTest {
         @Test
         @DisplayName("is DOWN when the session is gone, however healthy the containers look")
         void downWhenTheSessionIsGone() {
-            Health health = indicator(false, false, true).health();
+            Health health = indicator(false, SolaceSessionState.DOWN, true).health();
 
             assertEquals(Status.DOWN, health.getStatus());
-            assertEquals("disconnected", health.getDetails().get("session"));
+            assertEquals("down", health.getDetails().get("session"));
+        }
+
+        @Test
+        @DisplayName("reports reconnecting distinctly from down, and is DOWN for both")
+        void reconnectingIsItsOwnState() {
+            Health health = indicator(false, SolaceSessionState.RECONNECTING, true).health();
+
+            assertEquals(Status.DOWN, health.getStatus());
+            assertEquals("reconnecting", health.getDetails().get("session"));
+        }
+
+        @Test
+        @DisplayName("a session that has never connected is UP, not a fault")
+        void notConnectedIsUp() {
+            Health health = indicator(false, SolaceSessionState.NOT_CONNECTED, true).health();
+
+            assertEquals(Status.UP, health.getStatus());
+            assertEquals("not-connected", health.getDetails().get("session"));
         }
 
         @SuppressWarnings("unchecked")
@@ -182,13 +225,20 @@ class SolaceObservabilityTest {
 
         private SolaceHealthIndicator indicator(boolean requireAllRunning, boolean sessionHealthy,
                 boolean secondContainerRunning) {
+            return indicator(requireAllRunning,
+                    sessionHealthy ? SolaceSessionState.CONNECTED : SolaceSessionState.DOWN,
+                    secondContainerRunning);
+        }
+
+        private SolaceHealthIndicator indicator(boolean requireAllRunning, SolaceSessionState state,
+                boolean secondContainerRunning) {
             SolaceListenerEndpointRegistry registry = new SolaceListenerEndpointRegistry();
             registry.registerListenerContainer(endpoint("running-one"),
                     ignored -> new FakeContainer("running-one", true));
             registry.registerListenerContainer(endpoint(secondContainerRunning ? "running-two" : "stopped-one"),
                     ignored -> new FakeContainer(secondContainerRunning ? "running-two" : "stopped-one",
                             secondContainerRunning));
-            return new SolaceHealthIndicator(new FakeSessionFactory(sessionHealthy), registry,
+            return new SolaceHealthIndicator(new FakeSessionFactory(state), registry,
                     List.of(), requireAllRunning);
         }
 
@@ -240,11 +290,11 @@ class SolaceObservabilityTest {
     }
 
     /** A session factory that only has to answer the health question. */
-    private record FakeSessionFactory(boolean healthy) implements SolaceSessionFactory {
+    private record FakeSessionFactory(SolaceSessionState state) implements SolaceSessionFactory {
 
         @Override
-        public boolean isHealthy() {
-            return this.healthy;
+        public SolaceSessionState getSessionState() {
+            return this.state;
         }
 
         @Override

@@ -3,7 +3,9 @@ package cris.prs.messaging.solace.observability;
 import cris.prs.messaging.solace.listener.DefaultSolaceMessageListenerContainer;
 import cris.prs.messaging.solace.listener.SolaceListenerEndpointRegistry;
 import cris.prs.messaging.solace.listener.SolaceMessageListenerContainer;
+import cris.prs.messaging.solace.core.SolaceSessionFactory;
 import cris.prs.messaging.solace.requestreply.ReplyingSolaceTemplate;
+import io.micrometer.core.instrument.FunctionCounter;
 import io.micrometer.core.instrument.Gauge;
 import io.micrometer.core.instrument.MeterRegistry;
 import lombok.extern.slf4j.Slf4j;
@@ -11,6 +13,7 @@ import org.springframework.context.SmartLifecycle;
 
 import java.util.Collection;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Set;
 
 /**
@@ -43,6 +46,11 @@ public class SolaceMetricsBinder implements SmartLifecycle {
 
     private final Collection<ReplyingSolaceTemplate> replyingTemplates;
 
+    private final SolaceSessionFactory sessionFactory;
+
+    /** JCSMP {@code StatType} names to sample as session statistics. */
+    private final List<String> sessionStatistics;
+
     /** Containers whose gauges are already registered, so a restart does not duplicate them. */
     private final Set<String> boundContainers = new HashSet<>();
 
@@ -61,10 +69,13 @@ public class SolaceMetricsBinder implements SmartLifecycle {
      */
     public SolaceMetricsBinder(MeterRegistry meterRegistry,
             SolaceListenerEndpointRegistry endpointRegistry,
-            Collection<ReplyingSolaceTemplate> replyingTemplates) {
+            Collection<ReplyingSolaceTemplate> replyingTemplates,
+            SolaceSessionFactory sessionFactory, List<String> sessionStatistics) {
         this.meterRegistry = meterRegistry;
         this.endpointRegistry = endpointRegistry;
         this.replyingTemplates = replyingTemplates;
+        this.sessionFactory = sessionFactory;
+        this.sessionStatistics = sessionStatistics;
     }
 
     /**
@@ -76,6 +87,7 @@ public class SolaceMetricsBinder implements SmartLifecycle {
     public void start() {
         this.endpointRegistry.getListenerContainers().forEach(this::bindContainer);
         this.replyingTemplates.forEach(this::bindTemplate);
+        bindSession();
         this.running = true;
         log.debug("Registered Solace gauges for {} container(s) and {} request-reply template(s)",
                 this.boundContainers.size(), this.boundTemplates.size());
@@ -133,6 +145,39 @@ public class SolaceMetricsBinder implements SmartLifecycle {
                 .tag(SolaceMetricNames.TAG_TEMPLATE, template.getId())
                 .strongReference(true)
                 .register(this.meterRegistry);
+    }
+
+    /**
+     * Bind the session state gauge and one counter per sampled broker statistic.
+     *
+     * <p>The statistics are cumulative counters that JCSMP owns, so they are registered as
+     * {@code FunctionCounter}s reading through to the session rather than counters this library
+     * increments. Each is sampled lazily: a factory with no session yet simply reports zero, and
+     * nothing here ever opens a connection.</p>
+     */
+    private void bindSession() {
+        if (!this.boundTemplates.add("__session__")) {
+            return;
+        }
+        Gauge.builder(SolaceMetricNames.SESSION_STATE, this.sessionFactory,
+                        factory -> switch (factory.getSessionState()) {
+                            case CONNECTED -> 2;
+                            case RECONNECTING -> 1;
+                            case DOWN -> 0;
+                            case NOT_CONNECTED -> -1;
+                        })
+                .description("Solace session state: 2 connected, 1 reconnecting, 0 down, -1 not connected")
+                .strongReference(true)
+                .register(this.meterRegistry);
+
+        for (String statistic : this.sessionStatistics) {
+            FunctionCounter.builder(SolaceSessionStatistics.meterName(statistic), this.sessionFactory,
+                            factory -> factory.getSessionStatistics(List.of(statistic))
+                                    .getOrDefault(statistic, 0L))
+                    .description("JCSMP session statistic " + statistic)
+                    .register(this.meterRegistry);
+        }
+        log.debug("Registered {} Solace session statistic(s)", this.sessionStatistics.size());
     }
 
     /**

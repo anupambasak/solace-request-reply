@@ -461,8 +461,13 @@ Two accessors on `DefaultSolaceMessageListenerContainer` derive from flow events
 working as designed, and treating it as degraded would fail the health check of every instance that
 is not the leader.
 
-The Actuator health indicator uses `isDegraded()`, which is what lets it distinguish *connected* from
-*reconnecting* — see [16.3](16-operations.md#163-actuator-health).
+The Actuator health indicator uses `isDegraded()`, which is what lets it distinguish a container that
+is running from one that is running but not consuming — see
+[16.3](16-operations.md#163-actuator-health).
+
+**Flow events are not the whole story.** A flow rides on a session, and JCSMP reconnects a *session*
+transparently: a network blip can stop all traffic for seconds while every flow survives and raises
+nothing. Session events cover that layer — see [13.7](13-multi-instance.md#137-session-events).
 
 ---
 
@@ -494,6 +499,7 @@ solace:
 | `reconnect-tries` | JCSMP's | How many times a lost **flow** is retried before `FLOW_DOWN`. `-1` retries forever. Separate from session reconnection under `solace.java.*` |
 | `reconnect-retry-interval` | JCSMP's | Wait between flow reconnection attempts |
 | `active-flow-indication` | derived | Ask the broker to say when this flow becomes the active consumer. Unset enables it for `EXCLUSIVE` endpoints and not otherwise |
+| `no-local` | `false` | Suppress delivery of messages published on the **same connection** — see below |
 
 Note the distinction from `solace.listener.endpoint.*`: those are **endpoint** properties, applied
 only when a queue is first provisioned and thereafter ignored by the broker. These are **flow**
@@ -523,6 +529,28 @@ DefaultSolaceListenerContainerFactory bulkListenerContainerFactory(
 @SolaceListener(queue = "bulk", topics = "bulk/>", containerFactory = "bulkListenerContainerFactory")
 public void onBulk(BulkEvent event) { … }
 ```
+
+### `no-local`: don't hear your own echo
+
+A service that both publishes to a topic and subscribes to it receives its own messages, because the
+subscription does not care who published. `no-local` suppresses that:
+
+```yaml
+solace:
+  listener:
+    flow:
+      no-local: true
+```
+
+Two things to know, both of which surprise people:
+
+- **Solace matches on the client connection, not on the application.** The library shares one session
+  for publishing and non-transactional consuming, so this works — but a **transactional** container
+  opens its own connection, so its publishes are already on a different connection and `no-local` has
+  no effect there.
+- **It is a per-flow filter, not a discard.** On a shared durable queue the message is not delivered
+  to *this* instance, but it is still delivered to another one. It suppresses local delivery; it does
+  not remove the message.
 
 ### Where to start
 

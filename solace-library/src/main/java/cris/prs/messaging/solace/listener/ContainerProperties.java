@@ -187,6 +187,23 @@ public class ContainerProperties {
         private Boolean activeFlowIndication;
 
         /**
+         * Suppress delivery to this flow of messages published by the <em>same client connection</em>.
+         *
+         * <p>Solace matches on the connection, not the application: a publisher and a consumer in one
+         * process share the library's session by default, so a service that both publishes to a topic
+         * and subscribes to it would otherwise receive its own messages. That is right for a work
+         * queue several instances share, and wrong for a broadcast an instance sends to its
+         * peers.</p>
+         *
+         * <p>Two things to know before turning it on. A <b>transactional</b> container gets its own
+         * connection, so its publishes and consumes are already on different connections and this has
+         * no effect there. And it is a <b>per-flow</b> filter, so on a shared durable queue the
+         * message is not delivered to this instance but is still delivered to another &mdash; it
+         * suppresses local delivery, it does not discard the message.</p>
+         */
+        private Boolean noLocal;
+
+        /**
          * Apply everything that has been set to a flow's properties.
          *
          * <p>Only non-null values are applied, so this is a no-op on an untouched block.</p>
@@ -214,6 +231,9 @@ public class ContainerProperties {
             if (this.reconnectRetryInterval != null) {
                 flowProperties.setReconnectRetryIntervalInMsecs(
                         (int) this.reconnectRetryInterval.toMillis());
+            }
+            if (this.noLocal != null) {
+                flowProperties.setNoLocal(this.noLocal);
             }
             flowProperties.setActiveFlowIndication(this.activeFlowIndication != null
                     ? this.activeFlowIndication

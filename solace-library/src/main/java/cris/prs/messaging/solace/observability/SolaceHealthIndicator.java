@@ -2,6 +2,7 @@ package cris.prs.messaging.solace.observability;
 
 import cris.prs.messaging.solace.core.SolaceFlowEvent;
 import cris.prs.messaging.solace.core.SolaceSessionFactory;
+import cris.prs.messaging.solace.core.SolaceSessionState;
 import cris.prs.messaging.solace.listener.DefaultSolaceMessageListenerContainer;
 import cris.prs.messaging.solace.listener.SolaceListenerEndpointRegistry;
 import cris.prs.messaging.solace.listener.SolaceMessageListenerContainer;
@@ -25,7 +26,9 @@ import java.util.TreeMap;
  *
  * <h2>What makes it DOWN</h2>
  * <ul>
- *   <li>the session factory reports its connection is gone; or</li>
+ *   <li>the session is {@code reconnecting} or {@code down} &mdash; a reconnecting session is
+ *       sending and receiving nothing, so it is not healthy, but it is also not permanently broken,
+ *       which is why the two are reported distinctly; or</li>
  *   <li>{@code solace.health.require-all-containers-running} is {@code true} (the default) and a
  *       registered listener container is not running, <b>or is running but degraded</b> &mdash; any
  *       of its flows down or reconnecting.</li>
@@ -42,7 +45,8 @@ import java.util.TreeMap;
  *
  * <h2>Details reported</h2>
  * <ul>
- *   <li>{@code session} &mdash; {@code connected} or {@code disconnected};</li>
+ *   <li>{@code session} &mdash; {@code connected}, {@code reconnecting}, {@code down} or
+ *       {@code not-connected};</li>
  *   <li>{@code containers} &mdash; each container id mapped to {@code running}, {@code degraded} or
  *       {@code stopped}, with its last flow event and resolved endpoint name where available, e.g.
  *       {@code degraded [RECONNECTING] (orders.workers)};</li>
@@ -64,7 +68,7 @@ public class SolaceHealthIndicator implements HealthIndicator {
     /**
      * Create the indicator.
      *
-     * @param sessionFactory              asked whether its connection is usable
+     * @param sessionFactory              asked for its connection state
      * @param endpointRegistry            supplies the listener containers to report on
      * @param replyingTemplates           every request-reply template in the context; may be empty
      * @param requireAllContainersRunning whether a stopped container makes the application DOWN
@@ -86,7 +90,7 @@ public class SolaceHealthIndicator implements HealthIndicator {
      */
     @Override
     public Health health() {
-        boolean sessionHealthy = this.sessionFactory.isHealthy();
+        SolaceSessionState sessionState = this.sessionFactory.getSessionState();
 
         Map<String, String> containers = new TreeMap<>();
         this.endpointRegistry.getListenerContainers()
@@ -112,7 +116,7 @@ public class SolaceHealthIndicator implements HealthIndicator {
                 pending.put(template.getId(), template.getPendingCount()));
 
         Map<String, Object> details = new LinkedHashMap<>();
-        details.put("session", sessionHealthy ? "connected" : "disconnected");
+        details.put("session", sessionState.name().toLowerCase().replace('_', '-'));
         details.put("containers", containers);
         if (!stopped.isEmpty()) {
             details.put("stoppedContainers", stopped);
@@ -124,7 +128,7 @@ public class SolaceHealthIndicator implements HealthIndicator {
             details.put("pendingRequests", pending);
         }
 
-        boolean up = sessionHealthy
+        boolean up = sessionState.isHealthy()
                 && (!this.requireAllContainersRunning || (stopped.isEmpty() && degraded.isEmpty()));
         Health.Builder builder = up ? Health.up() : Health.down();
         return builder.withDetails(details).build();

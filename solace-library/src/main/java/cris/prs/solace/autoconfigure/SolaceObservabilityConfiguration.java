@@ -91,15 +91,19 @@ public class SolaceObservabilityConfiguration {
          * @param meterRegistry     where gauges are published
          * @param endpointRegistry  supplies the containers to sample
          * @param replyingTemplates every request-reply template in the context; may be empty
+         * @param sessionFactory    sampled for session state and broker-side statistics
+         * @param properties        supplies {@code solace.metrics.session-statistics}
          * @return the gauge binder
          */
         @Bean
         @ConditionalOnMissingBean
         public SolaceMetricsBinder solaceMetricsBinder(MeterRegistry meterRegistry,
                 SolaceListenerEndpointRegistry endpointRegistry,
-                ObjectProvider<ReplyingSolaceTemplate> replyingTemplates) {
+                ObjectProvider<ReplyingSolaceTemplate> replyingTemplates,
+                SolaceSessionFactory sessionFactory, SolaceProperties properties) {
             return new SolaceMetricsBinder(meterRegistry, endpointRegistry,
-                    replyingTemplates.orderedStream().toList());
+                    replyingTemplates.orderedStream().toList(), sessionFactory,
+                    properties.getMetrics().getSessionStatistics());
         }
     }
 

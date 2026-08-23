@@ -39,6 +39,30 @@ public final class SolaceMetricNames {
     /** Gauge: flows a container currently has bound. Below the configured concurrency means flows were lost. */
     public static final String LISTENER_FLOWS = "solace.listener.flows";
 
+    // --- session -------------------------------------------------------------------------
+
+    /**
+     * Gauge: the {@code SolaceSessionState} as a number &mdash; {@code 2} connected, {@code 1}
+     * reconnecting, {@code 0} down, {@code -1} not connected yet.
+     *
+     * <p>Ordered so that a single {@code < 2} alert catches both trouble states, and the "not yet
+     * connected" case sorts below them rather than looking like a failure.</p>
+     */
+    public static final String SESSION_STATE = "solace.session.state";
+
+    /** Counter: session lifecycle events, tagged {@value #TAG_EVENT}. */
+    public static final String SESSION_EVENTS = "solace.session.events";
+
+    /**
+     * Prefix for the broker-side session statistics JCSMP keeps.
+     *
+     * <p>Each sampled {@code StatType} becomes its own meter, lowercased and dotted &mdash;
+     * {@code TOTAL_MSGS_SENT} becomes {@code solace.session.total.msgs.sent}. One meter per statistic
+     * rather than one meter tagged by name, because they do not share a unit: mixing message counts
+     * and byte counts under one meter name makes every aggregate meaningless.</p>
+     */
+    public static final String SESSION_STATISTIC_PREFIX = "solace.session.";
+
     // --- request-reply -------------------------------------------------------------------
 
     /** Counter: requests published. */

@@ -32,6 +32,10 @@ logging:
 | WARN | `Flow N of container '…' is reconnecting; consumption has stopped` | Transient, JCSMP is retrying. |
 | INFO | `Flow N of container '…' is now the ACTIVE consumer on '…'` | This instance took the exclusive endpoint. |
 | INFO | `Flow N of container '…' is now standing by on '…'` | Another instance holds it. |
+| ERROR | `The Solace session is DOWN and JCSMP has stopped retrying` | Nothing will be sent or received until the application restarts. |
+| WARN | `The Solace session is reconnecting; nothing is being sent or received` | Transient; JCSMP is retrying. |
+| WARN | `The Solace session reconnected to a different broker` | HA failover. **Temporary endpoints and unacknowledged guaranteed messages did not survive it.** |
+| ERROR | `The broker rejected a session subscription` | A direct consumer is silently receiving nothing. |
 | WARN | `Received a reply with no outstanding request, correlationId=…` | A reply arrived after its timeout, or for a request this instance never sent. |
 | WARN | `Listener returned a value but the request carries no replyTo…` | A responder is returning a value nobody asked for. |
 | ERROR | `Solace consumer error in container '…'` | A JCSMP-level flow error. |
@@ -100,6 +104,53 @@ nobody is the leader; more than `1` means the endpoint is not exclusive after al
 `solace.listener.settlement` tagged `REJECTED` is the poison-message rate — messages given up on
 immediately. Tagged `FAILED` it is the retry rate; a `FAILED` rate that does not fall is a retry loop
 that will end at the DMQ.
+
+### Session meters
+
+The connection itself, and the broker-side counters JCSMP keeps for it. These are the only view of
+what the transport is actually doing — retransmits, discards, acknowledgement timeouts and window
+stalls surface nowhere else.
+
+| Meter | Type | Meaning |
+| :--- | :--- | :--- |
+| `solace.session.state` | gauge | `2` connected, `1` reconnecting, `0` down, `-1` not connected yet. Ordered so one `< 2` alert catches both trouble states |
+| `solace.session.events` | counter | Session lifecycle events, tagged `event` |
+| `solace.session.<stat>` | counter | One per sampled JCSMP `StatType`, e.g. `solace.session.total.msgs.sent` |
+
+The statistics are a **curated set** — JCSMP keeps around seventy counters and publishing all of them
+would bury the useful ones:
+
+| Group | Statistics |
+| :--- | :--- |
+| Throughput | `total.msgs.sent`, `total.msgs.recved`, `total.bytes.sent`, `total.bytes.recved`, `reliable.msgs.sent.confirmed`, `reliable.msgs.recved.acked` |
+| Trouble | `reliable.msgs.resent`, `reliable.msgs.discarded.duplicates`, `reliable.msgs.discarded.outoforder`, `messages.discarded.internal`, `messages.rejected.by.appliance`, `total.ack.timeout`, `total.error.response.callbacks` |
+| Back-pressure | `publisher.window.closed`, `subscriber.flow.window.closed` |
+| Connection churn | `total.connection.attempts` |
+
+Replace the list entirely with any JCSMP `StatType` constant names:
+
+```yaml
+solace:
+  metrics:
+    session-statistics:
+      - TOTAL_MSGS_SENT
+      - RELIABLE_MSGS_RESENT
+      - CACHE_REQUESTS_SENT
+```
+
+An unrecognised name is logged and skipped rather than failing startup. An empty list turns session
+statistics off while leaving the rest of the metrics on.
+
+Each statistic gets its **own meter name** rather than one meter tagged by name, because they do not
+share a unit — mixing message counts and byte counts under one name makes every aggregate
+meaningless. They are cumulative counters JCSMP owns, so they are registered as `FunctionCounter`s
+reading through to the session; a factory with no session yet reports zero and nothing here ever opens
+a connection.
+
+`publisher.window.closed` and `subscriber.flow.window.closed` are the ones to look at before touching
+`solace.listener.flow.transport-window-size` — a window that never closes does not need enlarging.
+
+`total.connection.attempts` rising is reconnect churn, and pairs with `solace.session.events{event=RECONNECTING}`.
 
 ### Request-reply meters
 

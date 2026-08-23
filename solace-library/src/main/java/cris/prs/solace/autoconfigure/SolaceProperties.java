@@ -2,10 +2,13 @@ package cris.prs.solace.autoconfigure;
 
 import com.solacesystems.jcsmp.DeliveryMode;
 import cris.prs.messaging.solace.listener.ContainerProperties;
+import cris.prs.messaging.solace.observability.SolaceSessionStatistics;
 import cris.prs.messaging.solace.requestreply.ReplyEndpointSpec;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
 import org.springframework.boot.context.properties.ConfigurationProperties;
+
+import java.util.List;
 
 
 /**
@@ -54,6 +57,18 @@ public class SolaceProperties {
          * meters nobody scrapes.</p>
          */
         private boolean enabled = true;
+
+        /**
+         * JCSMP {@code StatType} names published as broker-side session statistics.
+         *
+         * <p>Defaults to a curated set covering throughput, retransmits and discards, back-pressure,
+         * and connection churn &mdash; the things nothing else in the metrics or the log reveals.
+         * Setting this replaces the list entirely; name any {@code StatType} constant. An
+         * unrecognised name is logged and skipped rather than failing startup.</p>
+         *
+         * <p>An empty list turns session statistics off while leaving the rest of the metrics on.</p>
+         */
+        private List<String> sessionStatistics = SolaceSessionStatistics.DEFAULTS;
     }
 
     /** Actuator health reporting. */

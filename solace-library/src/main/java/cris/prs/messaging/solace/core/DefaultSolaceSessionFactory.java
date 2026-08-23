@@ -1,14 +1,20 @@
 package cris.prs.messaging.solace.core;
 
-import com.solacesystems.jcsmp.SpringJCSMPFactory;
 import com.solacesystems.jcsmp.JCSMPException;
 import com.solacesystems.jcsmp.JCSMPSession;
+import com.solacesystems.jcsmp.JCSMPSessionStats;
 import com.solacesystems.jcsmp.JCSMPStreamingPublishCorrelatingEventHandler;
+import com.solacesystems.jcsmp.SessionEventArgs;
+import com.solacesystems.jcsmp.SpringJCSMPFactory;
 import com.solacesystems.jcsmp.XMLMessageProducer;
+import com.solacesystems.jcsmp.statistics.StatType;
 import com.solacesystems.jcsmp.transaction.TransactedSession;
+import lombok.Setter;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.DisposableBean;
 
+import java.util.Collection;
+import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
@@ -28,6 +34,15 @@ public class DefaultSolaceSessionFactory implements SolaceSessionFactory, Dispos
 
     /** The default publisher of each session, which JCSMP requires before any other publisher flow. */
     private final Map<JCSMPSession, XMLMessageProducer> producers = new ConcurrentHashMap<>();
+
+    /**
+     * Notified of session lifecycle events; {@code null} means only this factory's own logging.
+     */
+    @Setter
+    private SolaceSessionListener sessionListener;
+
+    /** The connection state, updated from JCSMP session events. */
+    private volatile SolaceSessionState sessionState = SolaceSessionState.NOT_CONNECTED;
 
     /**
      * Create a session factory.
@@ -59,15 +74,110 @@ public class DefaultSolaceSessionFactory implements SolaceSessionFactory, Dispos
     @Override
     public JCSMPSession createSession() {
         try {
-            JCSMPSession session = this.springJCSMPFactory.createSession();
+            // createSession() is exactly createSession(null, null); passing a handler is the only
+            // way to observe a reconnect, which JCSMP otherwise repairs entirely silently.
+            JCSMPSession session = this.springJCSMPFactory.createSession(null, this::handleSessionEvent);
             session.connect();
             this.ownedSessions.add(session);
+            this.sessionState = SolaceSessionState.CONNECTED;
             log.info("Connected a Solace JCSMP session");
             return session;
         }
         catch (JCSMPException ex) {
+            this.sessionState = SolaceSessionState.DOWN;
             throw new SolaceMessagingException("Unable to create a Solace session", ex);
         }
+    }
+
+    /**
+     * Record and report one session event.
+     *
+     * <p>Runs on a JCSMP notification thread. Log levels follow what an operator needs to act on:
+     * {@code DOWN} is an error because nothing will recover without a restart, {@code RECONNECTING}
+     * and {@code VIRTUAL_ROUTER_NAME_CHANGED} are warnings because traffic has stopped or the broker
+     * underneath has changed, and the rest are informational.</p>
+     *
+     * @param args the JCSMP event
+     */
+    private void handleSessionEvent(SessionEventArgs args) {
+        SolaceSessionEvent event = SolaceSessionEvent.from(args.getEvent());
+
+        switch (event) {
+            case RECONNECTING -> this.sessionState = SolaceSessionState.RECONNECTING;
+            case RECONNECTED -> this.sessionState = SolaceSessionState.CONNECTED;
+            case DOWN -> this.sessionState = SolaceSessionState.DOWN;
+            default -> { }
+        }
+
+        switch (event) {
+            case DOWN -> log.error("The Solace session is DOWN and JCSMP has stopped retrying; "
+                    + "nothing will be sent or received until the application restarts. {}",
+                    args.getInfo(), args.getException());
+            case RECONNECTING -> log.warn("The Solace session is reconnecting; nothing is being sent "
+                    + "or received. {}", args.getInfo());
+            case RECONNECTED -> log.info("The Solace session reconnected");
+            case VIRTUAL_ROUTER_NAME_CHANGED -> log.warn("The Solace session reconnected to a "
+                    + "different broker. Temporary endpoints and unacknowledged guaranteed messages "
+                    + "did not survive the failover. {}", args.getInfo());
+            case SUBSCRIPTION_ERROR -> log.error("The broker rejected a session subscription: {}",
+                    args.getInfo(), args.getException());
+            default -> log.info("Solace session event {}: {}", event, args.getInfo());
+        }
+
+        SolaceSessionListener listener = this.sessionListener;
+        if (listener == null) {
+            return;
+        }
+        try {
+            listener.onSessionEvent(new SolaceSessionEventArgs(event, this.sessionState,
+                    args.getInfo(), args.getException(), args.getResponseCode()));
+        }
+        catch (RuntimeException ex) {
+            log.warn("Session listener threw on a {} event", event, ex);
+        }
+    }
+
+    /** {@inheritDoc} */
+    @Override
+    public SolaceSessionState getSessionState() {
+        JCSMPSession session = this.sharedSession;
+        if (session == null) {
+            return this.sessionState == SolaceSessionState.DOWN
+                    ? SolaceSessionState.DOWN
+                    : SolaceSessionState.NOT_CONNECTED;
+        }
+        return session.isClosed() ? SolaceSessionState.DOWN : this.sessionState;
+    }
+
+    /**
+     * {@inheritDoc}
+     *
+     * <p>Reads the shared session's counters, and deliberately does not create one: sampling
+     * statistics must never be the thing that opens a connection.</p>
+     */
+    @Override
+    public Map<String, Long> getSessionStatistics(Collection<String> statistics) {
+        JCSMPSession session = this.sharedSession;
+        if (session == null || statistics == null || statistics.isEmpty()) {
+            return Map.of();
+        }
+        Map<String, Long> sampled = new LinkedHashMap<>();
+        JCSMPSessionStats stats = session.getSessionStats();
+        for (String name : statistics) {
+            try {
+                StatType statType = StatType.fromString(name);
+                if (statType != null) {
+                    sampled.put(name, stats.getStat(statType));
+                }
+                else {
+                    log.warn("Unknown Solace session statistic '{}'; skipping it", name);
+                }
+            }
+            catch (Exception ex) {
+                log.debug("Unable to read the Solace session statistic '{}'", name, ex);
+            }
+        }
+        return sampled;
     }
 
     /** {@inheritDoc} */
@@ -121,18 +231,6 @@ public class DefaultSolaceSessionFactory implements SolaceSessionFactory, Dispos
     /**
      * {@inheritDoc}
      *
-     * <p>Reports on the shared session only, and deliberately does not create one: before anything
-     * has connected there is nothing wrong to report.</p>
-     */
-    @Override
-    public boolean isHealthy() {
-        JCSMPSession session = this.sharedSession;
-        return session == null || !session.isClosed();
-    }
-
-    /**
-     * {@inheritDoc}
-     *
      * <p>The shared session is never closed here; it is released by {@link #destroy()}.</p>
      */
     @Override
@@ -151,6 +249,7 @@ public class DefaultSolaceSessionFactory implements SolaceSessionFactory, Dispos
      */
     @Override
     public void destroy() {
+        this.sessionState = SolaceSessionState.DOWN;
         this.producers.values().forEach(producer -> {
             try {
                 producer.close();

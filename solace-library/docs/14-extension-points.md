@@ -14,7 +14,8 @@ Every collaborator is an interface with a default implementation registered
 | `SolaceSessionFactory` | `DefaultSolaceSessionFactory` | Change session strategy — pooling, per-tenant connections |
 | `InstanceIdProvider` | `HostnameInstanceIdProvider` | Change how this instance is named |
 | `SolaceListenerErrorHandler` | logging lambda | Route failures to a dead-letter service, metrics, alerting — and decide each message's settlement outcome |
-| `SolaceFlowListener` | none (logging only) | Act on reconnects and on becoming the active consumer |
+| `SolaceFlowListener` | none (logging only) | Act on a flow reconnect, or on becoming the active consumer |
+| `SolaceSessionListener` | none (logging only) | Act on a session reconnect or an HA failover |
 | `SolaceListenerContainerFactory` | `DefaultSolaceListenerContainerFactory` | Change how containers are built |
 | `SolaceMessageListenerContainer` | `DefaultSolaceMessageListenerContainer` | Change consumption entirely |
 | `SolaceMessageListener` | the adapters | Consume raw JCSMP messages |
@@ -236,7 +237,27 @@ It runs on a JCSMP notification thread, so it must be quick and must not block; 
 every call. Logging is unconditional — a listener adds to it rather than replacing it. See
 [9.8](09-consuming-messages.md#98-flow-events).
 
-## 14.9 Custom instrumentation
+## 14.9 A session listener
+
+One bean, given to the session factory. The event that most often needs handling is
+`VIRTUAL_ROUTER_NAME_CHANGED` — an HA failover, after which temporary endpoints and unacknowledged
+guaranteed messages are gone:
+
+```java
+@Bean
+SolaceSessionListener solaceSessionListener(Cache cache) {
+    return args -> {
+        if (args.getEvent() == SolaceSessionEvent.VIRTUAL_ROUTER_NAME_CHANGED) {
+            cache.invalidateAll();
+        }
+    };
+}
+```
+
+See [13.7](13-multi-instance.md#137-session-events). It runs on a JCSMP notification thread and is
+guarded the same way the flow listener is.
+
+## 14.10 Custom instrumentation
 
 Both metrics SPIs are public, carry no metrics-library types, and give every method a no-op default —
 so implement only what you care about. Declaring either bean replaces the Micrometer implementation
@@ -280,7 +301,7 @@ SolaceListenerMetrics solaceListenerMetrics(MeterRegistry registry, Tracer trace
 }
 ```
 
-## 14.10 A custom health indicator
+## 14.11 A custom health indicator
 
 `solaceHealthIndicator` is `@ConditionalOnMissingBean(name = "solaceHealthIndicator")`, so a bean of
 that name replaces it. Before writing one, check whether
@@ -291,7 +312,7 @@ usual reason to want a different one.
 compiles unchanged and is simply reported as healthy. Override it if your implementation can cheaply
 tell that its connection is gone.
 
-## 14.11 A custom session factory
+## 14.12 A custom session factory
 
 The heaviest extension point, and rarely needed. Implement `SolaceSessionFactory` if you need
 per-tenant connections or pooling. Two rules the default implementation encodes and yours must too:
@@ -301,17 +322,21 @@ per-tenant connections or pooling. Two rules the default implementation encodes 
    producer first.
 2. **Track and close every session you create.** Otherwise a restart leaks connections against the
    broker's client limit.
+3. **Override `getSessionState()` if you can tell cheaply.** It is a `default` returning `CONNECTED`,
+   so a custom factory compiles unchanged and is simply always reported healthy — which means health
+   checks and the `solace.session.state` gauge stop being useful. `getSessionStatistics(names)` is the
+   same: a `default` returning an empty map.
 
 ---
 
-## 14.12 What is not extensible today
+## 14.13 What is not extensible today
 
 | | Why | Tracked in |
 | :--- | :--- | :--- |
 | Batch listeners | The container delivers one message per invocation | [18. Feature backlog](18-feature-backlog.md) |
 | A retry/back-off policy inside the container | Redelivery is the broker's, via `max-redelivery-count` | [18](18-feature-backlog.md) |
 | Pluggable argument resolvers on listener methods | The `MessageHandlerMethodFactory` is created internally | [18](18-feature-backlog.md) |
-| Broker-side statistics as meters | `JCSMPSession` exposes session stats that are not sampled | [18](18-feature-backlog.md) |
+| Per-endpoint spool depth | Only available through SEMP, which is a management API rather than the client one | [18](18-feature-backlog.md) |
 | Broker administration beyond provisioning | Out of scope; use SEMP | — |
 
 Take a `SolaceRecord<T>` or a `BytesXMLMessage` parameter as the escape hatch for the third of these:

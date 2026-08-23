@@ -203,4 +203,82 @@ are colliding and replies will go to the wrong pod.
 
 ---
 
+## 13.7 Session events
+
+The session is the TCP connection to the broker, and everything else rides on it. JCSMP reconnects it
+transparently, which is convenient and also means a network blip that stops **all** traffic for
+several seconds leaves no trace: flows that survive the reconnect raise no flow event, no message is
+lost, and nothing in the application notices.
+
+`SolaceSessionEvent` makes that layer visible.
+
+| Event | Meaning |
+| :--- | :--- |
+| `RECONNECTING` | The connection dropped and JCSMP is retrying. **Nothing is being sent or received** |
+| `RECONNECTED` | Back, traffic resumed |
+| `DOWN` | Failed unrecoverably; JCSMP has stopped retrying. A restart is required |
+| `SUBSCRIPTION_ERROR` | The broker rejected a session subscription — direct consumers lose messages silently |
+| `VIRTUAL_ROUTER_NAME_CHANGED` | Reconnected to a **different** broker in an HA pair |
+| `INCOMPLETE_LARGE_MESSAGE` | A large message arrived truncated |
+| `UNKNOWN_TRANSACTED_SESSION` | The broker does not recognise a transacted session this client believes it has |
+| `UNKNOWN` | An event this library does not model |
+
+Logging is unconditional — `DOWN` as error, `RECONNECTING` and `VIRTUAL_ROUTER_NAME_CHANGED` as
+warnings. To act on one, declare a bean:
+
+```java
+@Bean
+SolaceSessionListener solaceSessionListener(Cache cache, AlertService alerts) {
+    return args -> {
+        switch (args.getEvent()) {
+            case VIRTUAL_ROUTER_NAME_CHANGED -> cache.invalidateAll();
+            case DOWN -> alerts.page("Solace session down", args.getException());
+            default -> { }
+        }
+    };
+}
+```
+
+### `VIRTUAL_ROUTER_NAME_CHANGED` is the one that bites
+
+It means the session came back on the *other* broker of an HA pair. Two things did not come with it:
+
+- **temporary endpoints** — every `PUBLISH_SUBSCRIBE` queue and every reply destination in this
+  application, which are per-client and per-broker;
+- **unacknowledged guaranteed messages** that had not been replicated.
+
+Containers rebind their temporary queues automatically, but anything that assumed continuity across
+the failover — an in-flight request whose reply destination has just been recreated, a cache keyed on
+broker state — has to be told. That is what this event is for.
+
+### Session state, and what health reports
+
+The factory tracks a `SolaceSessionState` from these events:
+
+| State | Healthy? | |
+| :--- | :--- | :--- |
+| `NOT_CONNECTED` | yes | No session created yet. An application that has not needed the broker is not broken |
+| `CONNECTED` | yes | Normal |
+| `RECONNECTING` | **no** | Retrying; nothing is flowing |
+| `DOWN` | **no** | Stopped retrying; restart required |
+
+`SolaceSessionFactory.getSessionState()` is the accessor, and `isHealthy()` derives from it. Both are
+`default` methods, so a custom session factory keeps compiling and simply reports `CONNECTED`.
+
+The Actuator health indicator reports all four distinctly, and `solace.session.state` gauges them —
+see [16.3](16-operations.md#163-actuator-health).
+
+### Two layers, two questions
+
+| | Answers |
+| :--- | :--- |
+| **Session** events ([13.7](#137-session-events)) | Is the connection to the broker up? |
+| **Flow** events ([9.8](09-consuming-messages.md#98-flow-events)) | Is *this consumer* receiving? |
+
+A session can be perfectly healthy while one container's flow is down — its queue was deleted, say.
+A session can be reconnecting while every flow object still looks bound. Health reporting needs both,
+which is why the indicator checks the session state *and* every container's `isDegraded()`.
+
+---
+
 **Next:** [14. Extension points](14-extension-points.md)
