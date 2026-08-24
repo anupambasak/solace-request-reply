@@ -8,6 +8,8 @@ import cris.prs.messaging.solace.support.InstanceIdProvider;
 import lombok.Setter;
 import org.springframework.util.Assert;
 
+import java.util.List;
+
 /**
  * Default container factory &mdash; the Solace equivalent of
  * {@code ConcurrentKafkaListenerContainerFactory}. Registered by the auto-configuration under the
@@ -89,15 +91,14 @@ public class DefaultSolaceListenerContainerFactory implements SolaceListenerCont
     @Override
     public SolaceMessageListenerContainer createListenerContainer(SolaceListenerEndpoint endpoint) {
         SolaceMessageListener listener = endpoint.getMessageListener();
+        if (listener == null && !endpoint.getDispatchTargets().isEmpty()) {
+            listener = topicDispatchingListener(endpoint);
+        }
         if (listener == null) {
             Assert.state(endpoint.getInvocableHandlerMethod() != null,
                     "Endpoint '" + endpoint.getId() + "' has neither a message listener nor a handler method");
-            MethodSolaceListenerAdapter adapter = new MethodSolaceListenerAdapter(
-                    endpoint.getInvocableHandlerMethod(), this.messageConverter, this.headerMapper);
-            adapter.setPayloadType(endpoint.getPayloadType());
-            adapter.setReplyDestination(endpoint.getReplyDestination());
-            adapter.setReplyTemplate(this.replyTemplate);
-            listener = adapter;
+            listener = adapterFor(endpoint.getInvocableHandlerMethod(), endpoint.getPayloadType(),
+                    endpoint.getReplyDestination());
         }
         else if (listener instanceof AbstractSolaceListenerAdapter adapter) {
             if (adapter.replyTemplate == null) {
@@ -116,6 +117,45 @@ public class DefaultSolaceListenerContainerFactory implements SolaceListenerCont
             container.setErrorHandler(this.errorHandler);
         }
         return container;
+    }
+
+    /**
+     * Build the routing table for a topic-dispatching endpoint.
+     *
+     * <p>Each target gets its own adapter, and therefore its own payload type &mdash; which is the
+     * whole point of sharing an endpoint between methods that take different types.</p>
+     *
+     * @param endpoint the endpoint carrying the dispatch targets
+     * @return the dispatching listener
+     */
+    private SolaceMessageListener topicDispatchingListener(SolaceListenerEndpoint endpoint) {
+        List<TopicDispatchingSolaceListener.Target> targets = endpoint.getDispatchTargets().stream()
+                .map(target -> new TopicDispatchingSolaceListener.Target(
+                        List.copyOf(target.getTopics()),
+                        adapterFor(target.getInvocableHandlerMethod(), target.getPayloadType(),
+                                target.getReplyDestination()),
+                        target.getDescription()))
+                .toList();
+        return new TopicDispatchingSolaceListener(endpoint.getId(), targets);
+    }
+
+    /**
+     * Build the adapter for one handler method.
+     *
+     * @param handlerMethod    the method to invoke
+     * @param payloadType      the type its message bodies are converted into
+     * @param replyDestination overrides where its return value is published, or empty
+     * @return the adapter
+     */
+    private MethodSolaceListenerAdapter adapterFor(
+            org.springframework.messaging.handler.invocation.InvocableHandlerMethod handlerMethod,
+            Class<?> payloadType, String replyDestination) {
+        MethodSolaceListenerAdapter adapter = new MethodSolaceListenerAdapter(handlerMethod,
+                this.messageConverter, this.headerMapper);
+        adapter.setPayloadType(payloadType);
+        adapter.setReplyDestination(replyDestination);
+        adapter.setReplyTemplate(this.replyTemplate);
+        return adapter;
     }
 
     /**

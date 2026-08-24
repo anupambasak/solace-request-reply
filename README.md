@@ -490,6 +490,17 @@ services answer on the client's shared reply destination and a third brings its 
 | `GET /request-reply/benchmark?total=100000&concurrency=1000` | one | high-concurrency load test |
 | `GET /request-reply/reply-destination` | — | both reply topics this pod listens on: `shared` and `inventory` |
 
+**Operator endpoints** — browsing reads a queue **without consuming it**, so nothing is taken away
+from the consumer that should process it.
+
+| Endpoint | Does |
+| :--- | :--- |
+| `GET /admin/queue/depth?queue=task.workers&limit=1000` | Count what is spooled. Counts by walking — the client API has no depth call, that is a SEMP question — so `limit` bounds the work |
+| `GET /admin/queue/peek?queue=task.workers&limit=10` | Look at the first few messages, with their delivery counts |
+| `GET /admin/dmq/peek?limit=10` | Look inside the dead message queue — the messages the application gave up on |
+| `GET /admin/containers` | Every listener container: running, degraded, active, last flow event, replay setting |
+| `GET /admin/replay?listenerId=taskWorker&from=BEGINNING` | Re-deliver spooled messages. **Affects the whole endpoint**, so every consumer of it receives them |
+
 | Service | Request topic | Endpoint |
 | :--- | :--- | :--- |
 | one — booking | `request-reply/request-1` | `request-reply-queue-1.request-reply-group-1` |
@@ -545,6 +556,9 @@ gradle :solace-library:test :client:test :server:test
 | `server` &middot; `TaskWorkerTest` | each task handed to this instance is processed once, and a redelivered one reports which attempt it is |
 | `server` &middot; `QuoteConsumerTest` | the second service replies with a type derived from the request |
 | `server` &middot; `InventoryConsumerTest` | the third service maps its request type to a different reply type |
+| `solace-library` &middot; `SolaceTopicMatcherTest` | Solace wildcard semantics exactly — `*` is one level, `>` is one or more, and neither matches zero |
+| `solace-library` &middot; `TopicDispatchingSolaceListenerTest` | routing by matched subscription, declaration order breaking ties, and an unclaimed message being acknowledged rather than redelivered forever |
+| `solace-library` &middot; `ReplayStartPointTest` | `BEGINNING` and ISO-8601 parsing, and that an unparseable value fails at startup |
 | `solace-library` &middot; `SolaceSessionStateTest` | a reconnecting session is not healthy, a never-connected one is not a fault, and the `SolaceSessionFactory` defaults keep a custom factory compiling |
 | `solace-library` &middot; `FlowTuningTest` | an untouched flow-tuning block is a no-op, active flow indication is derived from the access type, and a standby flow is not degraded |
 | `solace-library` &middot; `SettlementOutcomeTest` | which outcomes need bind-time negotiation, and that a lambda error handler still defers to the container |

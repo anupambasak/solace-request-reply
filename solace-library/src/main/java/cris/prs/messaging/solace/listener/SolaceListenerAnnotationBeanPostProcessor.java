@@ -4,6 +4,7 @@ import com.solacesystems.jcsmp.BytesXMLMessage;
 import cris.prs.messaging.solace.annotation.SolaceListener;
 import cris.prs.messaging.solace.core.EndpointMode;
 import cris.prs.messaging.solace.core.ExchangePattern;
+import cris.prs.messaging.solace.core.ReplayStartPoint;
 import cris.prs.messaging.solace.core.SettlementOutcome;
 import cris.prs.messaging.solace.core.SolaceRecord;
 import lombok.extern.slf4j.Slf4j;
@@ -32,8 +33,10 @@ import java.lang.reflect.Method;
 import java.lang.reflect.Parameter;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.concurrent.atomic.AtomicInteger;
 
 /**
@@ -120,11 +123,172 @@ public class SolaceListenerAnnotationBeanPostProcessor
                 SolaceListenerConfigUtils.SOLACE_LISTENER_ENDPOINT_REGISTRY_BEAN_NAME,
                 SolaceListenerEndpointRegistry.class);
 
-        this.listenerMethods.forEach(listenerMethod -> register(listenerMethod, registry));
+        // Listeners that opted into topic dispatch are merged into one endpoint per queue+group;
+        // everything else registers one endpoint per method, exactly as before.
+        Map<String, List<ListenerMethod>> dispatchGroups = new LinkedHashMap<>();
+        List<ListenerMethod> standalone = new ArrayList<>();
+        for (ListenerMethod listenerMethod : this.listenerMethods) {
+            String key = topicDispatchKey(listenerMethod);
+            if (key == null) {
+                standalone.add(listenerMethod);
+            }
+            else {
+                dispatchGroups.computeIfAbsent(key, ignored -> new ArrayList<>()).add(listenerMethod);
+            }
+        }
+
+        standalone.forEach(listenerMethod -> register(listenerMethod, registry));
+        dispatchGroups.forEach((key, group) -> registerDispatchGroup(key, group, registry));
         this.listenerMethods.clear();
     }
 
+    /**
+     * The dispatch group a listener belongs to, or {@code null} when it wants its own endpoint.
+     *
+     * <p>Keyed by the resolved queue, group and container factory, since those are what decide which
+     * physical endpoint a listener would have bound on its own.</p>
+     *
+     * @param listenerMethod the annotated method
+     * @return the group key, or {@code null} when {@code topicDispatch} is not set
+     */
+    private String topicDispatchKey(ListenerMethod listenerMethod) {
+        SolaceListener annotation = listenerMethod.annotation();
+        if (!Boolean.TRUE.equals(resolveBoolean(annotation.topicDispatch()))) {
+            return null;
+        }
+        String queue = resolve(annotation.queue());
+        Assert.state(StringUtils.hasText(queue),
+                "@SolaceListener on " + listenerMethod.method() + " sets topicDispatch but declares "
+                        + "no queue; a dispatch group is identified by the endpoint it shares");
+        return queue + '|' + resolve(annotation.group()) + '|' + resolve(annotation.containerFactory());
+    }
+
+    /**
+     * Register one endpoint shared by every listener in a dispatch group.
+     *
+     * <p>Container settings come from the first listener; a later one that states a different
+     * {@code pattern}, {@code endpointMode}, {@code concurrency}, {@code transactional} or
+     * {@code selector} fails startup rather than having its setting silently dropped. Subscriptions
+     * are the union, in declaration order, which is also the order the dispatcher matches in.</p>
+     *
+     * @param key      the group key, for error messages
+     * @param group    the listeners sharing the endpoint, in declaration order
+     * @param registry where the container is registered
+     */
+    private void registerDispatchGroup(String key, List<ListenerMethod> group,
+            SolaceListenerEndpointRegistry registry) {
+        ListenerMethod first = group.get(0);
+        SolaceListenerEndpoint endpoint = buildEndpoint(first);
+        endpoint.setInvocableHandlerMethod(null);
+
+        List<String> topics = new ArrayList<>(endpoint.getTopics());
+        endpoint.setDispatchTargets(new ArrayList<>());
+        endpoint.getDispatchTargets().add(dispatchTarget(first));
+
+        for (ListenerMethod listenerMethod : group.subList(1, group.size())) {
+            SolaceListenerEndpoint candidate = buildEndpoint(listenerMethod);
+            assertCompatible(first, listenerMethod, endpoint, candidate);
+            candidate.getTopics().stream().filter(topic -> !topics.contains(topic)).forEach(topics::add);
+            endpoint.getDispatchTargets().add(dispatchTarget(listenerMethod));
+        }
+
+        endpoint.setTopics(topics);
+        Assert.state(!topics.isEmpty(), "The topic dispatch group '" + key
+                + "' declares no topics; there would be nothing to route by");
+
+        SolaceListenerContainerFactory factory = resolveContainerFactory(
+                resolve(first.annotation().containerFactory()), first);
+        registry.registerListenerContainer(endpoint, factory);
+        log.debug("Registered topic-dispatching container '{}' for {} listener(s) on {}",
+                endpoint.getId(), group.size(), topics);
+    }
+
+    /**
+     * Build one target in a dispatch group's routing table.
+     *
+     * @param listenerMethod the annotated method
+     * @return the target
+     */
+    private TopicDispatchTarget dispatchTarget(ListenerMethod listenerMethod) {
+        SolaceListener annotation = listenerMethod.annotation();
+        TopicDispatchTarget target = new TopicDispatchTarget();
+        target.setTopics(Arrays.stream(annotation.topics()).map(this::resolve).toList());
+        target.setPayloadType(resolvePayloadType(listenerMethod.method()));
+        target.setReplyDestination(resolve(annotation.replyDestination()));
+        target.setInvocableHandlerMethod(this.handlerMethodFactory
+                .createInvocableHandlerMethod(listenerMethod.bean(), listenerMethod.method()));
+        target.setDescription(listenerMethod.beanName() + '.' + listenerMethod.method().getName());
+        return target;
+    }
+
+    /**
+     * Fail startup when two listeners in a dispatch group disagree about the endpoint they share.
+     *
+     * <p>They bind one flow set between them, so a setting stated on the second listener could only
+     * be honoured by ignoring the first. Saying so is better than picking one silently.</p>
+     *
+     * @param first      the listener whose settings the group uses
+     * @param candidate  the listener being merged in
+     * @param merged     the endpoint built from {@code first}
+     * @param proposed   the endpoint built from {@code candidate}
+     */
+    private void assertCompatible(ListenerMethod first, ListenerMethod candidate,
+            SolaceListenerEndpoint merged, SolaceListenerEndpoint proposed) {
+        assertSame(first, candidate, "pattern", merged.getPattern(), proposed.getPattern());
+        assertSame(first, candidate, "endpointMode", merged.getEndpointMode(), proposed.getEndpointMode());
+        assertSame(first, candidate, "concurrency", merged.getConcurrency(), proposed.getConcurrency());
+        assertSame(first, candidate, "transactional", merged.getTransactional(), proposed.getTransactional());
+        assertSame(first, candidate, "selector", merged.getSelector(), proposed.getSelector());
+        assertSame(first, candidate, "accessType", merged.getAccessType(), proposed.getAccessType());
+    }
+
+    /**
+     * Assert that one setting agrees across a dispatch group.
+     *
+     * @param first     the listener whose settings the group uses
+     * @param candidate the listener being merged in
+     * @param attribute the attribute's name, for the error message
+     * @param expected  the group's value
+     * @param actual    the candidate's value
+     */
+    private void assertSame(ListenerMethod first, ListenerMethod candidate, String attribute,
+            Object expected, Object actual) {
+        Assert.state(Objects.equals(expected, actual),
+                "@SolaceListener on " + candidate.method() + " sets " + attribute + "=" + actual
+                        + ", but it shares a topic dispatch endpoint with " + first.method()
+                        + " which uses " + expected + ". Listeners sharing an endpoint share its "
+                        + "flows, so they must agree on how it is bound.");
+    }
+
     private void register(ListenerMethod listenerMethod, SolaceListenerEndpointRegistry registry) {
+        SolaceListener annotation = listenerMethod.annotation();
+        SolaceListenerEndpoint endpoint = buildEndpoint(listenerMethod);
+
+        endpoint.setPayloadType(resolvePayloadType(listenerMethod.method()));
+        InvocableHandlerMethod handlerMethod = this.handlerMethodFactory
+                .createInvocableHandlerMethod(listenerMethod.bean(), listenerMethod.method());
+        endpoint.setInvocableHandlerMethod(handlerMethod);
+
+        SolaceListenerContainerFactory factory = resolveContainerFactory(
+                resolve(annotation.containerFactory()), listenerMethod);
+        Assert.state(!endpoint.getTopics().isEmpty() || StringUtils.hasText(endpoint.getQueue()),
+                "@SolaceListener on " + listenerMethod.method() + " must declare topics or a queue");
+
+        registry.registerListenerContainer(endpoint, factory);
+        log.debug("Registered Solace listener container '{}' for {}.{}", endpoint.getId(),
+                listenerMethod.beanName(), listenerMethod.method().getName());
+    }
+
+    /**
+     * Build the endpoint an annotated method describes, without the handler method.
+     *
+     * <p>Shared by the ordinary one-endpoint-per-method path and by topic dispatch, which builds one
+     * of these per member of a group so it can compare them before merging.</p>
+     *
+     * @param listenerMethod the annotated method
+     * @return the endpoint, with every attribute resolved and the pattern's defaults applied
+     */
+    private SolaceListenerEndpoint buildEndpoint(ListenerMethod listenerMethod) {
         SolaceListener annotation = listenerMethod.annotation();
         SolaceListenerEndpoint endpoint = new SolaceListenerEndpoint();
 
@@ -136,6 +300,7 @@ public class SolaceListenerAnnotationBeanPostProcessor
         endpoint.setGroup(resolve(annotation.group()));
         endpoint.setSelector(resolve(annotation.selector()));
         endpoint.setReplyDestination(resolve(annotation.replyDestination()));
+        endpoint.setReplayFrom(ReplayStartPoint.parse(resolve(annotation.replayFrom())));
 
         String pattern = resolve(annotation.pattern());
         if (StringUtils.hasText(pattern)) {
@@ -162,20 +327,7 @@ public class SolaceListenerAnnotationBeanPostProcessor
 
         // Last, so that anything stated explicitly above wins over the pattern's defaults.
         endpoint.applyPatternDefaults();
-
-        endpoint.setPayloadType(resolvePayloadType(listenerMethod.method()));
-        InvocableHandlerMethod handlerMethod = this.handlerMethodFactory
-                .createInvocableHandlerMethod(listenerMethod.bean(), listenerMethod.method());
-        endpoint.setInvocableHandlerMethod(handlerMethod);
-
-        SolaceListenerContainerFactory factory = resolveContainerFactory(
-                resolve(annotation.containerFactory()), listenerMethod);
-        Assert.state(!endpoint.getTopics().isEmpty() || StringUtils.hasText(endpoint.getQueue()),
-                "@SolaceListener on " + listenerMethod.method() + " must declare topics or a queue");
-
-        registry.registerListenerContainer(endpoint, factory);
-        log.debug("Registered Solace listener container '{}' for {}.{}", endpoint.getId(),
-                listenerMethod.beanName(), listenerMethod.method().getName());
+        return endpoint;
     }
 
     /**

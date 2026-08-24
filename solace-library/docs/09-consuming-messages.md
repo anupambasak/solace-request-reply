@@ -23,6 +23,9 @@ happens to a message between the broker and that method.
 | `SettlementOutcome` | `ACCEPTED` / `FAILED` / `REJECTED` / `NONE` — what happens to a message whose listener threw. |
 | `SolaceFlowListener` | `void onFlowEvent(SolaceFlowEventArgs)` — flow lifecycle callback. |
 | `SolaceFlowEvent` | `UP` / `DOWN` / `RECONNECTING` / `RECONNECTED` / `ACTIVE` / `INACTIVE` / `UNKNOWN`. |
+| `TopicDispatchingSolaceListener` | Routes a shared endpoint's messages to the method whose subscription matched. |
+| `TopicDispatchTarget` | One method in a dispatch group: its topics, handler and payload type. |
+| `ReplayStartPoint` | `BEGINNING`, or an instant. Where a replay starts. |
 | `ContainerProperties` | Every container setting; also the type `solace.listener.*` binds to. |
 | `ContainerKeepAlive` | Package-private, reference-counted non-daemon thread. |
 
@@ -564,7 +567,164 @@ Leave all of it alone until you have a measured problem. Then:
 
 ---
 
-## 9.10 Redelivery and the dead message queue
+## 9.10 Topic dispatch — several methods, one endpoint
+
+Every `@SolaceListener` normally gets its own endpoint and its own flows. A service subscribing to
+twenty related topics therefore pays for twenty queues, twenty provisioning rounds and twenty binds.
+Topic dispatch lets those methods share one endpoint:
+
+```java
+@SolaceListener(pattern = "POINT_TO_POINT", queue = "notifications", group = "v1",
+        topics = "routed/deployment/>", topicDispatch = "true")
+public void onDeployment(Notification notification) { … }
+
+@SolaceListener(pattern = "POINT_TO_POINT", queue = "notifications", group = "v1",
+        topics = "routed/incident/*", topicDispatch = "true")
+public void onIncident(Notification notification) { … }
+
+// declared LAST: the first match wins
+@SolaceListener(pattern = "POINT_TO_POINT", queue = "notifications", group = "v1",
+        topics = "routed/>", topicDispatch = "true")
+public void onAnythingElse(SolaceRecord<Notification> record) { … }
+```
+
+One durable queue `notifications.v1`, carrying the union of the three subscriptions. Each delivered
+message is routed to the method whose subscription matched — and **each method keeps its own payload
+type**, which is the point.
+
+### It is opt-in
+
+`topicDispatch = "true"` is required on every member. Merging listeners that merely happen to share a
+queue name would change what an existing application does, silently.
+
+Members are grouped by resolved **queue + group + containerFactory** — the things that decide which
+physical endpoint each would have bound on its own.
+
+### First match wins, in declaration order
+
+Matching is by declaration order, **not by specificity**. A catch-all declared before the specific
+subscriptions swallows everything:
+
+```java
+// WRONG — onAnythingElse takes every message
+@SolaceListener(topics = "routed/>",           topicDispatch = "true") void onAnythingElse(…)
+@SolaceListener(topics = "routed/incident/*",  topicDispatch = "true") void onIncident(…)
+```
+
+Declare the specific ones first, or do not overlap.
+
+### Members must agree on the endpoint
+
+They share one flow set, so a setting on a later member could only be honoured by ignoring the first.
+A disagreement on `pattern`, `endpointMode`, `concurrency`, `transactional`, `selector` or
+`accessType` **fails at startup**, naming both methods, rather than being silently dropped.
+
+The container id, subscriptions aside, comes from the first member — give that one an explicit `id`
+if you want to find the container in the registry or in a log line.
+
+### Unmatched messages are acknowledged
+
+A message matching no target is logged at warning and acknowledged. Failing it would redeliver
+forever: nothing about a retry makes a subscription match that did not match the first time, and the
+endpoint would fill with messages no method wants.
+
+The warning is the useful signal — it usually means the durable endpoint carries a subscription no
+target claims any more, left behind by an earlier version of the code. **A durable endpoint keeps its
+subscriptions across restarts**, so removing a `@SolaceListener` does not remove its subscription from
+the queue.
+
+### Wildcard rules
+
+Client-side matching follows the broker's rules exactly (`SolaceTopicMatcher`):
+
+| Pattern | Matches | Does not match |
+| :--- | :--- | :--- |
+| `orders/*` | `orders/created` | `orders`, `orders/eu/created` |
+| `orders/>` | `orders/created`, `orders/eu/created` | `orders` |
+| `orders/cr*` | `orders/created`, `orders/cr` | `orders/cancelled` |
+| `>` | everything | — |
+
+`*` is exactly one level; `>` is one or more trailing levels and only means anything as the final
+character.
+
+### When not to use it
+
+Sharing an endpoint means sharing its **concurrency, its transaction setting and its backlog**. A slow
+handler on one topic delays every other topic on that queue. Give a topic its own endpoint when it
+needs its own throughput or its own failure isolation — the same trade as
+[splitting a reply destination](10-request-reply.md#106-when-to-split-a-reply-destination).
+
+---
+
+## 9.11 Message replay
+
+Replay asks the broker to re-deliver messages it has already spooled. It turns the broker into a
+short-term event store: rebuild a projection after a bug, or bring a new service online with history
+rather than only new events.
+
+### As an operation (preferred)
+
+```java
+DefaultSolaceMessageListenerContainer container =
+        (DefaultSolaceMessageListenerContainer) registry.getListenerContainer("orders");
+
+container.replay(ReplayStartPoint.beginning());
+container.replay(ReplayStartPoint.from(Instant.now().minus(Duration.ofHours(6))));
+container.replay(null);                       // back to live delivery on the next bind
+```
+
+The container stops and restarts, because a replay start point can only be given to a flow as it
+binds. Everything spooled from that point is delivered again, then live delivery resumes.
+
+Replay is an **operational act**, not a deployment-time setting, which is why this is the preferred
+form.
+
+### As configuration
+
+```java
+@SolaceListener(pattern = "POINT_TO_POINT", queue = "orders", group = "rebuild",
+        topics = "orders/>", replayFrom = "BEGINNING")
+public void rebuild(Order order) { … }
+```
+
+`BEGINNING`, or an ISO-8601 instant such as `2026-08-23T10:15:30Z`. Placeholders work
+(`replayFrom = "${app.replay-from:}"`), and an unparseable value fails at startup naming what was
+expected.
+
+**Leaving a start point in an annotation replays on every restart.** That is occasionally what you
+want — a rebuild-on-boot projection — and usually not.
+
+### Three things to be deliberate about
+
+1. **It affects the endpoint, not this instance.** On a shared queue every consumer of that endpoint
+   receives the replayed messages. It is not a private read.
+2. **Handlers see the messages again.** Anything with side effects must be idempotent — and
+   `isRedelivered()` does **not** distinguish a replayed message from a first delivery.
+3. **A replay the broker cannot satisfy fails the flow.** Replay must be enabled for the Message VPN
+   and the replay log must still cover the period asked for. The failure arrives as a `DOWN`
+   [flow event](#98-flow-events) — an error in the log and a DOWN health status — not as an exception
+   from the call that requested it.
+
+That third point is why flow events were the prerequisite for this feature: without them a failed
+replay would leave a silently non-consuming container.
+
+### Replaying onto a private endpoint
+
+The usual way to avoid disturbing live consumers is to replay onto an endpoint nobody else uses —
+a separate group, so the replayed stream lands on its own queue:
+
+```java
+@SolaceListener(id = "projection-rebuild", pattern = "POINT_TO_POINT",
+        queue = "orders", group = "rebuild-${HOSTNAME:local}",
+        topics = "orders/>", autoStartup = "false")
+public void rebuild(Order order) { … }
+```
+
+Registered but idle; start it with a replay when the rebuild is wanted.
+
+---
+
+## 9.12 Redelivery and the dead message queue
 
 ```yaml
 solace:
@@ -595,7 +755,7 @@ queue you will see the property-mismatch warning and must change it on the broke
 
 ---
 
-## 9.11 Lifecycle and manual control
+## 9.13 Lifecycle and manual control
 
 Containers are lifecycled as a group by `SolaceListenerEndpointRegistry`, itself a `SmartLifecycle`
 bean. To control one by hand:
@@ -619,7 +779,7 @@ instance id.
 
 ---
 
-## 9.12 Programmatic registration
+## 9.14 Programmatic registration
 
 `@SolaceListener` is a convenience over an API you can use directly — useful when endpoints are
 discovered at runtime:
@@ -648,7 +808,7 @@ listeners, nothing does it here.
 
 ---
 
-## 9.13 The keep-alive thread
+## 9.15 The keep-alive thread
 
 Every JCSMP thread is a daemon thread. A listener-only application with no web server would start,
 register everything, and exit immediately — the JVM has no non-daemon thread to keep it alive.

@@ -66,6 +66,8 @@ public class SolaceMetricsBinder implements SmartLifecycle {
      * @param endpointRegistry  supplies the listener containers to sample
      * @param replyingTemplates every request-reply template in the context, including additional
      *                          reply destinations declared by the application; may be empty
+     * @param sessionFactory    sampled for connection state and broker-side statistics
+     * @param sessionStatistics JCSMP {@code StatType} names to publish as counters
      */
     public SolaceMetricsBinder(MeterRegistry meterRegistry,
             SolaceListenerEndpointRegistry endpointRegistry,

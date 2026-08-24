@@ -106,6 +106,32 @@ public interface SolaceOperations<T> {
     <R> R executeInTransaction(TransactionCallback<T, R> callback);
 
     /**
+     * Read messages from a queue without consuming them.
+     *
+     * <p>The operator's view of an endpoint: what is on the dead message queue, what a stuck backlog
+     * contains, what a poison message actually says. Nothing is acknowledged, so every message stays
+     * spooled and is still delivered to whatever consumer is bound.</p>
+     *
+     * <p>The returned browser holds a bind on the endpoint and <b>must be closed</b>.</p>
+     *
+     * @param queue       name of the queue to browse
+     * @param payloadType the type message bodies are converted into
+     * @param <B>         the browsed payload type
+     * @return an open browser; close it, ideally with try-with-resources
+     */
+    <B> SolaceBrowser<B> browse(String queue, Class<B> payloadType);
+
+    /**
+     * Read messages from a queue without consuming them, with a selector or a wait timeout.
+     *
+     * @param spec        what to browse and how
+     * @param payloadType the type message bodies are converted into
+     * @param <B>         the browsed payload type
+     * @return an open browser; close it, ideally with try-with-resources
+     */
+    <B> SolaceBrowser<B> browse(BrowseSpec spec, Class<B> payloadType);
+
+    /**
      * Callback for {@link #executeInTransaction(TransactionCallback)}.
      *
      * @param <T> the operations' payload type

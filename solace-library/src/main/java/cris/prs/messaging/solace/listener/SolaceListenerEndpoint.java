@@ -2,6 +2,7 @@ package cris.prs.messaging.solace.listener;
 
 import cris.prs.messaging.solace.core.EndpointMode;
 import cris.prs.messaging.solace.core.ExchangePattern;
+import cris.prs.messaging.solace.core.ReplayStartPoint;
 import cris.prs.messaging.solace.core.SettlementOutcome;
 import lombok.Data;
 import org.springframework.messaging.handler.invocation.InvocableHandlerMethod;
@@ -52,6 +53,23 @@ public class SolaceListenerEndpoint {
 
     /** Overrides {@code solace.listener.error-outcome} for this listener; unset inherits it. */
     private SettlementOutcome errorOutcome;
+
+    /**
+     * Where a replay starts, or {@code null} for no replay.
+     *
+     * <p>Applied to every flow this container binds. Replay affects the whole endpoint, so on a
+     * shared queue this re-delivers to every consumer of it, not only to this instance.</p>
+     */
+    private ReplayStartPoint replayFrom;
+
+    /**
+     * Handler methods sharing this endpoint, routed by matched subscription.
+     *
+     * <p>Empty for an ordinary listener. When populated, the container's message listener is a
+     * {@code TopicDispatchingSolaceListener} over these targets and {@code invocableHandlerMethod} is
+     * unused.</p>
+     */
+    private List<TopicDispatchTarget> dispatchTargets = new ArrayList<>();
 
     /** {@code null} means "use the container factory default". */
     private ContainerProperties.DispatchMode dispatch;

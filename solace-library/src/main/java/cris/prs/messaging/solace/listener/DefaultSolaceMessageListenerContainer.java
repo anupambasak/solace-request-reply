@@ -20,6 +20,7 @@ import com.solacesystems.jcsmp.XMLMessageConsumer;
 import com.solacesystems.jcsmp.XMLMessageListener;
 import com.solacesystems.jcsmp.transaction.TransactedSession;
 import cris.prs.messaging.solace.core.EndpointMode;
+import cris.prs.messaging.solace.core.ReplayStartPoint;
 import cris.prs.messaging.solace.core.SettlementOutcome;
 import cris.prs.messaging.solace.core.SolaceFlowEvent;
 import cris.prs.messaging.solace.core.SolaceMessagingException;
@@ -147,6 +148,14 @@ public class DefaultSolaceMessageListenerContainer implements SolaceMessageListe
     @Setter
     private SolaceListenerMetrics listenerMetrics = SolaceListenerMetrics.NO_OP;
 
+    /**
+     * Where the next bind replays from, or {@code null} for live delivery only.
+     *
+     * <p>Seeded from the endpoint and changed at runtime by {@link #replay(ReplayStartPoint)}.</p>
+     */
+    @Getter
+    private volatile ReplayStartPoint replayFrom;
+
     /** Set once a settle(ACCEPTED) has failed, after which acknowledgement uses ackMessage(). */
     private volatile boolean settleOnSuccessUnavailable;
 
@@ -171,6 +180,7 @@ public class DefaultSolaceMessageListenerContainer implements SolaceMessageListe
         this.containerProperties = containerProperties;
         this.instanceId = instanceId;
         this.messageListener = endpoint.getMessageListener();
+        this.replayFrom = endpoint.getReplayFrom();
     }
 
     /**
@@ -239,6 +249,7 @@ public class DefaultSolaceMessageListenerContainer implements SolaceMessageListe
      *
      * @return the outcome to apply when no error handler overrides it, never {@code null}
      */
+    @SuppressWarnings("deprecation")   // ackOnError is the documented fallback while it still exists
     private SettlementOutcome errorOutcome() {
         if (this.endpoint.getErrorOutcome() != null) {
             return this.endpoint.getErrorOutcome();
@@ -444,6 +455,10 @@ public class DefaultSolaceMessageListenerContainer implements SolaceMessageListe
             }
             this.containerProperties.getFlow().applyTo(flowProperties,
                     accessType == ContainerProperties.AccessType.EXCLUSIVE);
+            ReplayStartPoint replay = this.replayFrom;
+            if (replay != null) {
+                flowProperties.setReplayStartLocation(replay.toReplayStartLocation());
+            }
             FlowEventHandler eventHandler = flowEventHandler(i);
             FlowReceiver flow;
             if (transactional()) {
@@ -555,6 +570,50 @@ public class DefaultSolaceMessageListenerContainer implements SolaceMessageListe
         }
         catch (RuntimeException ex) {
             log.warn("Flow listener of container '{}' threw on a {} event", getListenerId(), event, ex);
+        }
+    }
+
+    /**
+     * Re-deliver messages the broker still holds, from a chosen point.
+     *
+     * <p>Replay is an <b>operational act</b>, not a deployment-time setting, which is why this is a
+     * method on a running container rather than only an annotation attribute. Obtain the container
+     * from {@code SolaceListenerEndpointRegistry} and call it when a projection needs rebuilding:</p>
+     *
+     * <pre>{@code
+     * DefaultSolaceMessageListenerContainer container =
+     *         (DefaultSolaceMessageListenerContainer) registry.getListenerContainer("orders");
+     * container.replay(ReplayStartPoint.from(Instant.now().minus(Duration.ofHours(6))));
+     * }</pre>
+     *
+     * <p>The container is stopped and restarted, because a replay start point can only be given to a
+     * flow as it binds. Everything spooled from that point is delivered again before live delivery
+     * resumes.</p>
+     *
+     * <p>Three consequences worth being deliberate about:</p>
+     * <ul>
+     *   <li><b>It affects the endpoint, not this instance.</b> On a shared queue every consumer of
+     *       that endpoint receives the replayed messages.</li>
+     *   <li><b>Handlers see the messages again.</b> Anything with side effects needs to be idempotent
+     *       &mdash; {@code SolaceRecord.isRedelivered()} does <em>not</em> distinguish a replayed
+     *       message from a first delivery.</li>
+     *   <li><b>A replay the broker cannot satisfy fails the flow.</b> Replay must be enabled for the
+     *       Message VPN and the log must still cover the period asked for. The failure arrives as a
+     *       {@code DOWN} flow event, not as an exception from this call.</li>
+     * </ul>
+     *
+     * @param from where to replay from, or {@code null} to return to live delivery on the next bind
+     */
+    public void replay(ReplayStartPoint from) {
+        boolean wasRunning = isRunning();
+        if (wasRunning) {
+            stop();
+        }
+        this.replayFrom = from;
+        log.info("Container '{}' will bind with replay from {}", getListenerId(),
+                from == null ? "live delivery only" : from);
+        if (wasRunning) {
+            start();
         }
     }
 

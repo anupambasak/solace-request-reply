@@ -86,6 +86,8 @@ Placeholders are resolved through the `BeanFactory`'s embedded value resolver, s
 | `selector` | `""` | Broker-side SQL92 predicate over message properties, e.g. `"region = 'EU' AND priority > 5"`. Filtering happens on the broker, so unmatched messages never cross the network. |
 | `transactional` | from YAML (`false`) | Bind each flow to a `TransactedSession`. Forces `INLINE` dispatch; see [11. Transactions](11-transactions.md). |
 | `errorOutcome` | from YAML | `ACCEPTED`, `FAILED`, `REJECTED` or `NONE` — what happens to a message whose listener throws. Ignored when `transactional` is set. See [9.6](09-consuming-messages.md#96-acknowledgement-settlement-and-errors). |
+| `replayFrom` | `""` | `BEGINNING`, or an ISO-8601 instant. Re-delivers spooled messages on **every bind**, so it replays again on each restart — prefer the runtime operation. Affects the whole endpoint. See [9.11](09-consuming-messages.md#911-message-replay). |
+| `topicDispatch` | `""` | `"true"` shares one endpoint with the other listeners declaring the same `queue` and `group`, routing by matched subscription. Every member must declare it. See [9.10](09-consuming-messages.md#910-topic-dispatch--several-methods-one-endpoint). |
 | `dispatch` | from YAML (`INLINE`) | `INLINE` or `EXECUTOR`. `EXECUTOR` with `transactional=true` fails at startup. |
 | `autoStartup` | from YAML (`true`) | Start with the context, or wait for `registry.getListenerContainer(id).start()`. |
 | `appendInstanceIdToQueue` | from pattern | Append the instance id to the endpoint name, making it private to this instance. This one attribute is the difference between fan-out and competing consumers. |
@@ -203,6 +205,29 @@ public void onEuOrder(Order order) { … }
 public void onDrain() { … }
 ```
 → subscribes to `control/drain/<instance-id>`. Publishing to that exact topic reaches one pod.
+
+**Several methods sharing one endpoint**
+
+```java
+@SolaceListener(pattern = "POINT_TO_POINT", queue = "notifications", group = "v1",
+        topics = "routed/incident/*", topicDispatch = "true")
+public void onIncident(Notification notification) { … }
+
+@SolaceListener(pattern = "POINT_TO_POINT", queue = "notifications", group = "v1",
+        topics = "routed/>", topicDispatch = "true")     // declared last: first match wins
+public void onAnythingElse(SolaceRecord<Notification> record) { … }
+```
+→ one durable queue `notifications.v1` with both subscriptions, routed by topic. Each method keeps its
+own payload type.
+
+**Rebuilding from history**
+
+```java
+@SolaceListener(id = "rebuild", pattern = "POINT_TO_POINT", queue = "orders", group = "rebuild",
+        topics = "orders/>", replayFrom = "BEGINNING", autoStartup = "false")
+public void rebuild(Order order) { … }
+```
+→ registered but idle; start it when a rebuild is wanted. Note `replayFrom` replays on **every** bind.
 
 **Started manually**
 

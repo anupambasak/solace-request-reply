@@ -11,7 +11,7 @@ outside it — see [4.9](04-spring-integration.md#49-why-the-auto-configuration-
 
 | Type | Kind | Purpose |
 | :--- | :--- | :--- |
-| `SolaceOperations<T>` | interface | The send contract: six `send` overloads plus `executeInTransaction`. Nested `TransactionCallback<T,R>` with `R doInSolace(SolaceOperations<T>)`. Counterpart of `KafkaOperations`. |
+| `SolaceOperations<T>` | interface | The send contract: six `send` overloads, `executeInTransaction`, and two `browse` overloads. Nested `TransactionCallback<T,R>` with `R doInSolace(SolaceOperations<T>)`. Counterpart of `KafkaOperations`. |
 | `SolaceTemplate<T>` | class | The implementation. Holds the delivery defaults, converts, maps headers, picks the transaction-aware producer. `createMessage` and `producer()` are `protected` for subclassing. |
 | `SolaceSessionFactory` | interface | `getSharedSession`, `createSession`, `getSharedProducer`, `getProducer(session)`, `createTransactedSession()`, `createTransactedSession(session)`, `closeSession`, plus the `default`s `getSessionState()`, `isHealthy()` and `getSessionStatistics(names)`. |
 | `SolaceSessionState` | enum | `NOT_CONNECTED`, `CONNECTED`, `RECONNECTING`, `DOWN`; `isHealthy()`. Four states rather than a boolean, because a reconnecting session is neither healthy nor permanently broken. |
@@ -24,6 +24,10 @@ outside it — see [4.9](04-spring-integration.md#49-why-the-auto-configuration-
 | `SolaceHeaderMapper` | interface | `fromHeaders(Map, XMLMessage)` / `toHeaders(BytesXMLMessage)`. |
 | `DefaultSolaceHeaderMapper` | class | Maps the `solace_*` fields, copies everything else to SDT user properties. Statics: `toDestination(Object)` (`queue:` prefix ⇒ queue), `sanitize(Map)`, `deliveryCountOf(BytesXMLMessage)` (guarded, `-1` when unsupported), constant `QUEUE_PREFIX`. |
 | `SolaceHeaders` | final class | The well-known header names. See [12.2](12-conversion-and-headers.md#122-solaceheadermapper). |
+| `SolaceBrowser<T>` | interface | `AutoCloseable` cursor over a queue's spooled messages: `next()`, `take(int)`, `stream()`, `stream(int)`, `remove(record)`. Reads without acknowledging. |
+| `DefaultSolaceBrowser<T>` | class | The implementation, over a JCSMP `Browser`. Lazy stream, and `getNextNoWait()` for a zero timeout because JCSMP reads `getNext(0)` as "wait forever". |
+| `BrowseSpec` | class | `queue`, `selector`, `waitTimeout`, `transportWindowSize`; statics `of(queue)` and `of(queue, selector)`. |
+| `ReplayStartPoint` | final class | `beginning()`, `from(Instant)`, `parse(String)`, `isBeginning()`, `toReplayStartLocation()`. Immutable and compared by value. |
 | `SolaceRecord<T>` | class | Payload plus destination, correlation id, replyTo, headers, raw message, `isRedelivered()`, `getDeliveryCount()` and `isDeliveryCountSupported()`. |
 | `SettlementOutcome` | enum | `ACCEPTED`, `FAILED`, `REJECTED`, `NONE`; `jcsmpOutcome()`, `requiresNegotiation()`. What happens to a message whose listener threw. |
 | `SolaceFlowEvent` | enum | `UP`, `DOWN`, `RECONNECTING`, `RECONNECTED`, `ACTIVE`, `INACTIVE`, `UNKNOWN`; `from(FlowEvent)`, `isDegraded()`. |
@@ -43,7 +47,7 @@ outside it — see [4.9](04-spring-integration.md#49-why-the-auto-configuration-
 | `SolaceListenerContainerFactory` | interface | `createListenerContainer(SolaceListenerEndpoint)`. |
 | `DefaultSolaceListenerContainerFactory` | class | Builds containers from the shared collaborators and the default `ContainerProperties`. Settable: `transactionManager`, `replyTemplate`, `errorHandler`, `taskExecutor`. |
 | `SolaceMessageListenerContainer` | interface | `SmartLifecycle` + `getListenerId()` + `setupMessageListener(...)`. |
-| `DefaultSolaceMessageListenerContainer` | class | Provisioning, flow binding, subscriptions, dispatch, transactions, shutdown. `getResolvedQueueName()`, `getActiveFlowCount()`, and from flow events `isActive()`, `isDegraded()`, `getLastFlowEvent()`. |
+| `DefaultSolaceMessageListenerContainer` | class | Provisioning, flow binding, subscriptions, dispatch, transactions, shutdown. `getResolvedQueueName()`, `getActiveFlowCount()`, `replay(ReplayStartPoint)`, and from flow events `isActive()`, `isDegraded()`, `getLastFlowEvent()`. |
 | `ContainerProperties` | class | Every container setting; the type `solace.listener.*` binds to. Nested: `Flow`, `Endpoint`, `DeadMessageQueue`, and the enums `DispatchMode`, `AccessType`, `Permission`. |
 | `ContainerProperties.Flow` | class | Per-flow tuning, every value nullable; `applyTo(ConsumerFlowProperties, boolean)` applies only what was set. |
 | `SolaceFlowListener` | interface | `void onFlowEvent(SolaceFlowEventArgs)`. Flow lifecycle callback; the basis of leader election over an exclusive endpoint. |
@@ -116,6 +120,7 @@ unaffected.
 | `InstanceIdProvider` | interface | `String getInstanceId()`. |
 | `HostnameInstanceIdProvider` | class | `HOSTNAME` → `POD_NAME` → local host → random, then sanitised. Static `sanitize(String)`. |
 | `ReplyDestinationResolver` | final class | `resolveTopic(prefix, appendInstanceId, instanceId)` and `resolveQueueBaseName(configuredQueue, topicPrefix)`. |
+| `SolaceTopicMatcher` | final class | `matches(pattern, topic)` implementing Solace wildcard rules client-side, for topic dispatch. |
 
 → [13. Multi-instance](13-multi-instance.md)
 

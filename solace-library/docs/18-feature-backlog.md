@@ -32,6 +32,9 @@ marks unsupported for JCSMP, or that lives outside the client API entirely, is l
 | Session event handling | `SolaceSessionListener`, `SolaceSessionEvent`, `SolaceSessionState` |
 | Broker-side session statistics | `SolaceSessionStatistics`, `solace.metrics.session-statistics` |
 | `noLocal` | `solace.listener.flow.no-local` |
+| Queue browsing | `SolaceOperations.browse(...)`, `SolaceBrowser`, `BrowseSpec` |
+| Message replay | `ReplayStartPoint`, `@SolaceListener(replayFrom = ...)`, `container.replay(...)` |
+| Topic dispatch | `@SolaceListener(topicDispatch = "true")`, `TopicDispatchingSolaceListener` |
 | Structured data types (partially) | headers → SDT user properties |
 | Micrometer metrics | `SolaceListenerMetrics`, `SolaceRequestReplyMetrics`, the `observability` package |
 | Actuator health indicator | `SolaceHealthIndicator`, `SolaceSessionFactory.isHealthy()` |
@@ -260,26 +263,86 @@ two things about it surprise people:
   to *this* instance but is still delivered to another. It suppresses local delivery; it does not
   remove the message.
 
----
+### Queue browsing
 
-## Tier 1 — closes a real gap in what is already built
+*`JCSMPSession.createBrowser(BrowserProperties)`, `Browser.getNextNoWait()`, `Browser.remove(...)`.*
 
-### 1. Queue browsing
+`SolaceOperations.browse(queue, type)` returns an `AutoCloseable` `SolaceBrowser` over what is spooled
+on an endpoint, read **without acknowledging**. The backlog asked for a stream of `SolaceRecord`; it
+also got `next()`, `take(int)` and `remove(record)`, because a browse is used interactively as often
+as it is used in a pipeline.
 
-*`JCSMPSession.createBrowser(BrowserProperties)`.*
+Two implementation details worth recording. The stream is genuinely lazy, so `findFirst()` or
+`.limit(n)` stops the browse rather than draining the queue first. And a zero wait timeout uses
+`getNextNoWait()` rather than `getNext(0)` — **JCSMP reads a zero timeout as "wait forever"**, which
+would hang at the end of every queue.
 
-The library provisions a dead message queue but offers no way to look inside it. Browsing reads
-messages from a queue **without consuming them**, which is exactly what an operator needs for a DMQ,
-and what an admin endpoint needs for queue depth and inspection.
+`remove` is the one destructive operation and is documented as such: it is what makes browsing a DMQ
+useful (inspect a poison message, then drop it) and the reason not to point a browse at a live work
+queue by accident.
 
-**Shape:** a `SolaceBrowser` / `SolaceOperations.browse(queue, limit)` returning a stream of
-`SolaceRecord`. Natural companion to the DMQ support already present. **Effort: M.**
+**Still open:** queue depth as a number. Counting by walking is what the client API allows; a real
+depth is a SEMP question, and SEMP is out of scope.
+
+### Message replay
+
+*JCSMP 10.11+. `ConsumerFlowProperties.setReplayStartLocation(...)`,
+`JCSMPFactory.createReplayStartLocationBeginning()` / `createReplayStartLocationDate(Date)`.*
+
+Both shapes the backlog proposed, because they answer different questions.
+`@SolaceListener(replayFrom = "BEGINNING" | ISO-8601)` is the deployment-time form — occasionally what
+you want for a rebuild-on-boot projection, and documented as replaying on *every* restart, which
+usually is not. `DefaultSolaceMessageListenerContainer.replay(ReplayStartPoint)` is the operational
+form, and the backlog was right that it is the more useful one.
+
+`ReplayStartPoint` is immutable and compared by value, parses `BEGINNING` or an ISO-8601 instant, and
+fails at startup on anything else naming what was expected.
+
+The three consequences are documented prominently because none is obvious: replay affects the **whole
+endpoint**, so every consumer of a shared queue receives the replayed messages; handlers see messages
+again and `isRedelivered()` does **not** mark a replayed message; and a replay the broker cannot
+satisfy fails the flow, arriving as a `DOWN` flow event rather than as an error from the call. That
+last one is exactly why flow event handling was the prerequisite — without it, a failed replay would
+leave a silently non-consuming container.
+
+### Topic dispatch
+
+*Client-side, by design.*
+
+Several `@SolaceListener` methods sharing a `queue` and `group`, with the container binding **one**
+endpoint carrying the union of their subscriptions and routing each message to the method whose
+subscription matched. Each method keeps its own payload type, which is the point.
+
+**JCSMP's native topic dispatch was rejected after checking the jar**: it needs a
+`ConsumerNotificationDispatcherFactory` from `com.solacesystems.jcsmp.protocol.nio.impl`, an internal
+package. `SolaceTopicMatcher` implements the broker's wildcard rules client-side instead — `*` is
+exactly one level, `>` is one or more trailing levels and only as the final character — which is both
+portable and testable without a broker.
+
+Three deliberate decisions:
+
+- **Opt-in via `topicDispatch = "true"`, not implicit by shared queue name.** Merging listeners that
+  merely happen to share a queue would silently change what an existing application does.
+- **First match wins, in declaration order, not by specificity.** Simple and predictable; the docs say
+  to declare specific subscriptions before catch-alls, and the demo does.
+- **Members must agree on `pattern`, `endpointMode`, `concurrency`, `transactional`, `selector` and
+  `accessType`.** They share one flow set, so honouring a later member's setting would mean ignoring
+  the first — a startup failure naming both methods beats a silent drop.
+
+An unmatched message is acknowledged rather than failed: nothing about a retry makes a subscription
+match that did not match the first time, so failing it would fill the endpoint with messages no method
+wants. The warning it logs is the useful signal, and usually means a durable endpoint still carries a
+subscription from an earlier version of the code.
+
+**Still open:** the backlog rated this **L** on the assumption it changed the container's dispatch
+path. It did not — the merge happens in the annotation post-processor and the container is unchanged,
+which is why it came in nearer **M**.
 
 ---
 
 ## Tier 2 — new capability, larger surface
 
-### 2. Partitioned queues
+### 1. Partitioned queues
 
 *JCSMP 10.19+.*
 
@@ -294,23 +357,7 @@ users expect per-key ordering, and today's point-to-point silently does not prov
 **Shape:** a `partitionKey` on send (a message property), a partition count on endpoint provisioning,
 and documentation of the ordering guarantee in `exchange-patterns.md`. **Effort: M.**
 
-### 3. Message replay
-
-*JCSMP 10.11+. `ConsumerFlowProperties.setReplayStartLocation(ReplayStartLocation)`,
-`JCSMPFactory.createReplayStartLocationBeginning()` / `createReplayStartLocationDate(Date)`.*
-
-Replay re-delivers messages the broker has already spooled, from the beginning of the replay log or
-from a timestamp. It turns the broker into a short-term event store: rebuild a projection after a
-bug, or bring a new service online with history rather than only new events.
-
-Needs care in the container: a replay flow is a distinct mode, replay failures arrive as flow events,
-and replay on a shared endpoint affects every consumer of it.
-
-**Shape:** `@SolaceListener(replayFrom = "BEGINNING" | ISO-8601)`, or a runtime operation on a
-container obtained from the registry — the latter is more useful, since replay is an operational act
-rather than a deployment-time setting. Flow event handling, which it needs, is now in place. **Effort: M.**
-
-### 4. Distributed tracing
+### 2. Distributed tracing
 
 *JCSMP 10.17+ manual, 10.26+ auto-instrumentation; `solace-opentelemetry-jcsmp-integration`.*
 
@@ -322,7 +369,7 @@ unrelated spans.
 **Shape:** propagate the OpenTelemetry context into message properties on send and extract it into
 the listener's scope, behind an optional dependency so tracing stays opt-in. **Effort: M.**
 
-### 5. PubSub+ Cache
+### 3. PubSub+ Cache
 
 *`JCSMPSession.createCacheSession(…)`, supported by JCSMP per the matrix.*
 
@@ -334,18 +381,7 @@ instance can initialise its state from the topic rather than from a database.
 optionally an `@SolaceListener(cacheOnStart = true)` that primes a listener before live delivery.
 Requires a PubSub+ Cache deployment, so it must degrade cleanly when absent. **Effort: L.**
 
-### 6. Topic dispatch
-
-*Listed as supported for JCSMP.*
-
-One flow or session, with per-topic listeners registered against it. Today each `@SolaceListener`
-gets its own endpoint and flows; a service subscribing to twenty related topics pays for twenty
-endpoints. Topic dispatch lets one endpoint fan out to different handler methods by topic.
-
-**Shape:** several `@SolaceListener` methods sharing a `queue`, with the container dispatching by
-matched subscription. A meaningful change to the container's dispatch path. **Effort: L.**
-
-### 7. Structured Data Types as a payload format
+### 4. Structured Data Types as a payload format
 
 *Supported; the library uses SDT only for headers.*
 
@@ -405,16 +441,16 @@ Stated explicitly so the list is honest about scope.
 
 ## Suggested order
 
-1. **Queue browsing** (#1) — the last piece of the error-handling story with no answer, and it matters
-   more now that `REJECTED` puts messages on the DMQ deliberately.
-2. **Partitioned queues** (#2) — the largest conceptual gap against the Kafka model this library
-   imitates.
-3. **Message replay** (#3) — unblocked; flow and session events were its prerequisite.
-4. **Distributed tracing** (#4) — the platform capability that most rewards the request-reply shape,
-   and the header mapper is already the natural place to carry context.
+Tier 1 is empty. What remains is genuinely larger work, in rough order of value:
 
-Tier 1 is down to one item. Error handling, consumer tuning, flow and session observability are all
-complete; what remains there is inspection rather than behaviour.
+1. **Distributed tracing** (#2) — the platform capability that most rewards the request-reply shape,
+   and the header mapper is already the natural place to carry context. The smallest of what is left.
+2. **Partitioned queues** (#1) — the largest conceptual gap against the Kafka model this library
+   imitates, and the one a Kafka user asks about first.
+3. **Batch listeners** — not a Solace feature but the most-missed piece of the Spring for Kafka
+   analogy, and the only remaining item that changes the container's dispatch path.
+4. **PubSub+ Cache** (#3) — worthwhile, but a distinct client-side subsystem rather than an addition
+   to what exists.
 
 ---
 

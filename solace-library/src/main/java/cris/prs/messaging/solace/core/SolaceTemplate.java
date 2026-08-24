@@ -1,8 +1,11 @@
 package cris.prs.messaging.solace.core;
 
+import com.solacesystems.jcsmp.Browser;
+import com.solacesystems.jcsmp.BrowserProperties;
 import com.solacesystems.jcsmp.DeliveryMode;
 import com.solacesystems.jcsmp.Destination;
 import com.solacesystems.jcsmp.JCSMPException;
+import com.solacesystems.jcsmp.JCSMPFactory;
 import com.solacesystems.jcsmp.XMLMessage;
 import com.solacesystems.jcsmp.XMLMessageProducer;
 import cris.prs.messaging.solace.transaction.SolaceResourceHolder;
@@ -167,6 +170,44 @@ public class SolaceTemplate<T> implements SolaceOperations<T> {
         finally {
             SolaceTransactionUtils.unbindResourceHolder(this.sessionFactory);
             holder.closeIfOwned();
+        }
+    }
+
+    /** {@inheritDoc} */
+    @Override
+    public <B> SolaceBrowser<B> browse(String queue, Class<B> payloadType) {
+        return browse(BrowseSpec.of(queue), payloadType);
+    }
+
+    /**
+     * {@inheritDoc}
+     *
+     * <p>Browses on the shared session. A browser binds to the endpoint like a consumer, so it counts
+     * against that endpoint's bind limit &mdash; an exclusive endpoint that already has its consumer
+     * will reject one.</p>
+     */
+    @Override
+    public <B> SolaceBrowser<B> browse(BrowseSpec spec, Class<B> payloadType) {
+        Assert.notNull(spec, "'spec' must not be null");
+        Assert.hasText(spec.getQueue(), "'queue' must not be empty");
+        Assert.notNull(payloadType, "'payloadType' must not be null");
+
+        BrowserProperties browserProperties = new BrowserProperties();
+        browserProperties.setEndpoint(JCSMPFactory.onlyInstance().createQueue(spec.getQueue()));
+        if (StringUtils.hasText(spec.getSelector())) {
+            browserProperties.setSelector(spec.getSelector());
+        }
+        if (spec.getTransportWindowSize() != null) {
+            browserProperties.setTransportWindowSize(spec.getTransportWindowSize());
+        }
+        try {
+            Browser browser = this.sessionFactory.getSharedSession().createBrowser(browserProperties);
+            return new DefaultSolaceBrowser<>(browser, this.messageConverter, this.headerMapper,
+                    payloadType, spec.getWaitTimeout(), spec.getQueue());
+        }
+        catch (JCSMPException ex) {
+            throw new SolaceMessagingException(
+                    "Unable to browse queue '" + spec.getQueue() + "'", ex);
         }
     }
 

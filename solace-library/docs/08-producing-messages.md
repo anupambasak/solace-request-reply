@@ -16,6 +16,8 @@ the counterpart of `KafkaTemplate` / `KafkaOperations`.
 | `void send(Message<?> message)` | You already have a Spring `Message`. The destination comes from its `solace_targetDestination` header, else the template default. |
 | `void send(Destination destination, XMLMessage message)` | Full control: you built the JCSMP message yourself. No conversion, no header mapping. |
 | `<R> R executeInTransaction(TransactionCallback<T,R> callback)` | A programmatic local transaction without a `TransactionTemplate`. |
+| `<B> SolaceBrowser<B> browse(String queue, Class<B> type)` | Read a queue **without consuming it** — see [8.9](#89-browsing-a-queue). |
+| `<B> SolaceBrowser<B> browse(BrowseSpec spec, Class<B> type)` | The same, with a selector or a wait timeout. |
 
 Destination strings are **topics** unless prefixed `queue:`:
 
@@ -199,6 +201,76 @@ transactionTemplate.executeWithoutResult(status ->
 
 Batching is not a throughput optimisation here — it is an atomicity guarantee. A transacted session
 adds a round trip at commit.
+
+---
+
+## 8.9 Browsing a queue
+
+Browsing reads what is spooled on an endpoint **without acknowledging it**. The messages stay on the
+queue and are still delivered to whatever consumer is bound. It is the operator's view: what is on the
+dead message queue, why a backlog is not draining, what a poison message actually contains.
+
+```java
+try (SolaceBrowser<Order> browser = solace.browse("#DEAD_MSG_QUEUE", Order.class)) {
+    browser.stream(100).forEach(record ->
+            log.info("dead: {} after {} deliveries",
+                    record.getPayload(), record.getDeliveryCount()));
+}
+```
+
+`SolaceBrowser` is `AutoCloseable` and **must be closed** — it holds a bind on the endpoint, which
+counts against that endpoint's bind limit, so an unclosed browser can keep a real consumer from
+binding. `close()` throws nothing, so try-with-resources needs no catch.
+
+| Method | |
+| :--- | :--- |
+| `Optional<SolaceRecord<T>> next()` | The next message, or empty at the end of the queue |
+| `List<SolaceRecord<T>> take(int max)` | Up to `max`; a shorter list means the queue ran out |
+| `Stream<SolaceRecord<T>> stream()` | Lazy, unbounded — ends when the queue does |
+| `Stream<SolaceRecord<T>> stream(int limit)` | Lazy, bounded. Prefer this |
+| `void remove(SolaceRecord<T> record)` | **Destructive** — deletes the message from the queue |
+| `void close()` | Release the bind. Idempotent |
+
+The stream is genuinely lazy, so `findFirst()` or `.limit(n)` stops the browse rather than draining
+the queue first.
+
+### `BrowseSpec`
+
+| Property | Default | |
+| :--- | :--- | :--- |
+| `queue` | — | The queue name. A **queue**, not a topic: browsing reads a spooled endpoint |
+| `selector` | — | Broker-side filter, so unmatched messages are never transferred |
+| `waitTimeout` | `0` | How long `next()` waits. Zero does not block, which is what a drain loop wants |
+| `transportWindowSize` | JCSMP's | Messages in flight; raising it speeds up a long browse |
+
+```java
+BrowseSpec spec = BrowseSpec.of("orders.workers", "priority > 5");
+spec.setWaitTimeout(Duration.ofSeconds(1));
+try (SolaceBrowser<Order> browser = solace.browse(spec, Order.class)) { … }
+```
+
+### What browsing is not
+
+- **Not a consumer.** No acknowledgement, no redelivery, no transaction, no notification of new
+  arrivals. A browser sees the queue as it walks it.
+- **Not a depth call.** The client API has no "how many messages" question — that is SEMP. Counting
+  means walking, which is why bounding the walk matters on a large backlog.
+- **Not available on every endpoint.** A browser binds like a consumer, so an **exclusive** endpoint
+  that already has its one consumer will reject it, and a **non-durable** queue belongs to the client
+  that created it. In practice browsing is for durable queues, and the DMQ above all.
+
+### `remove` is the one destructive operation
+
+```java
+try (SolaceBrowser<Object> browser = solace.browse("#DEAD_MSG_QUEUE", Object.class)) {
+    browser.stream(50)
+            .filter(record -> isUnrecoverable(record.getPayload()))
+            .forEach(browser::remove);       // gone; no consumer will ever see these
+}
+```
+
+That is what makes browsing useful operationally — inspect a poison message, then drop it — and the
+reason not to point a browse at a live work queue by accident.
 
 ---
 

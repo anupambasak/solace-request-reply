@@ -101,20 +101,21 @@ The library does not hide these, so it is worth being precise about them.
 3. **Error handling** — settlement outcomes (`ACCEPTED` / `FAILED` / `REJECTED` / `NONE`) per
    container or per failure, delivery counts, redelivery limits and the dead message queue.
 4. **Flow lifecycle** — reconnects, lost binds and active-consumer changes surfaced as events, with
-   per-flow tuning of the transport window and acknowledgement behaviour.
-5. **Threading and dispatch** — inline on the JCSMP delivery thread, or handed to a Spring
+   per-flow tuning of the transport window and acknowledgement behaviour, and message replay.
+5. **Operator access** — browse a queue without consuming it, including the dead message queue.
+6. **Threading and dispatch** — inline on the JCSMP delivery thread, or handed to a Spring
    `AsyncTaskExecutor` with bounded back-pressure.
-6. **Message conversion** — Jackson by default, over a two-interface SPI you can replace.
-7. **Header mapping** — Spring `MessageHeaders` ↔ Solace properties, including the standard fields.
-8. **Request-reply correlation** — per-instance reply destinations, correlation ids, timeouts,
+7. **Message conversion** — Jackson by default, over a two-interface SPI you can replace.
+8. **Header mapping** — Spring `MessageHeaders` ↔ Solace properties, including the standard fields.
+9. **Request-reply correlation** — per-instance reply destinations, correlation ids, timeouts,
    futures, and latency measurement.
-9. **Transactions** — a real `PlatformTransactionManager`, so `@Transactional` and
+10. **Transactions** — a real `PlatformTransactionManager`, so `@Transactional` and
    `TransactionTemplate` work.
-10. **Multi-instance safety** — every per-instance destination carries a sanitised pod/host id.
-11. **Lifecycle** — `SmartLifecycle` phases ordered so containers are consuming before the
+11. **Multi-instance safety** — every per-instance destination carries a sanitised pod/host id.
+12. **Lifecycle** — `SmartLifecycle` phases ordered so containers are consuming before the
    request-reply template can send, and a non-daemon keep-alive thread so a listener-only app does
    not exit.
-12. **Observability** — Micrometer meters for listener throughput, latency, container state and
+13. **Observability** — Micrometer meters for listener throughput, latency, container state and
     request-reply traffic, plus an Actuator health indicator at `/actuator/health/solace`. Both are
     optional and both disappear cleanly when their dependency is absent.
 
@@ -122,6 +123,7 @@ The library does not hide these, so it is worth being precise about them.
 
 - **XA / distributed transactions.** JCSMP does not offer them.
 - **Batch listeners.** One message per invocation. (See [18. Feature backlog](18-feature-backlog.md).)
+- **Queue depth as a number.** Browsing counts by walking; a real depth is a SEMP question.
 - **Schema registry, Avro, Protobuf.** The converter SPI is the extension point.
 - **Broker administration.** It provisions the endpoints it needs and nothing else; use SEMP or the
   admin UI for the rest.

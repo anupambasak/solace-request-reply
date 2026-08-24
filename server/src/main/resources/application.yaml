@@ -42,6 +42,12 @@ app:
     concurrency: 5
     transactional: true
 
+  # topic dispatch: three handler methods share this one endpoint, routed by matched subscription
+  router:
+    queue: notification-router
+    group: v1
+    topic-prefix: routed
+
 solace:
   # Broker connection: solace-java-spring-boot-starter
   java:

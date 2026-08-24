@@ -113,6 +113,40 @@ public @interface SolaceListener {
     String errorOutcome() default "";
 
     /**
+     * Where to replay from on every bind: {@code BEGINNING}, or an ISO-8601 instant such as
+     * {@code 2026-08-23T10:15:30Z}. Empty means live delivery only.
+     *
+     * <p>Replay affects the <b>whole endpoint</b>, so on a shared queue this re-delivers to every
+     * consumer of it. Prefer the runtime operation
+     * {@code DefaultSolaceMessageListenerContainer.replay(...)} for anything operational &mdash;
+     * leaving a start point in an annotation means every restart replays again.</p>
+     *
+     * @return the replay start point, or empty for live delivery only
+     */
+    String replayFrom() default "";
+
+    /**
+     * Share one endpoint with the other listeners that declare the same {@link #queue()} and
+     * {@link #group()}, routing each message to the method whose {@link #topics()} matched.
+     *
+     * <p>Without this, twenty listeners on related topics cost twenty queues, twenty binds and twenty
+     * sets of provisioning. With it they cost one, and each method still receives its own payload
+     * type.</p>
+     *
+     * <p>Opt-in rather than implicit, because merging listeners that merely happen to share a queue
+     * name would change what an existing application does. Every listener in a group must declare it,
+     * and the group's container settings come from the first &mdash; a conflicting {@code pattern},
+     * {@code endpointMode}, {@code concurrency}, {@code transactional} or {@code selector} on a later
+     * one fails at startup rather than being silently ignored.</p>
+     *
+     * <p>The first matching subscription wins, in declaration order, so overlapping subscriptions
+     * resolve by order and not by specificity.</p>
+     *
+     * @return {@code "true"} to share an endpoint with the rest of its group
+     */
+    String topicDispatch() default "";
+
+    /**
      * Whether the container starts with the application context.
      *
      * @return whether to start automatically, or empty for the container default

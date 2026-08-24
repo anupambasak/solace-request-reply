@@ -109,6 +109,8 @@ public class SolaceAutoConfiguration {
      *
      * @param springJCSMPFactory contributed by {@code solace-java-spring-boot-starter} from
      *                           {@code solace.java.*}
+     * @param sessionListener    optional session lifecycle callback; without one the factory's own
+     *                           logging is the only reporting of a reconnect
      * @return the session factory, which is also the key Solace transactions bind under
      */
     @Bean
