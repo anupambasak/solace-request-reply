@@ -22,7 +22,6 @@ subprojects {
 
     group = "cris.prs.msg"
     version = semver.info.version
-//    version = "0.1.1"
     ext {
         set('hazelcast.version', libs.versions.hazelcastVersion.get())
     }
