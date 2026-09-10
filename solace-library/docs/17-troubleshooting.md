@@ -18,7 +18,7 @@ The auto-configuration did not run. Two causes, in order of likelihood:
 1. **The application component-scans the auto-configuration package.** A component-scanned
    `@AutoConfiguration` class is treated as an ordinary `@Configuration`, so its conditions are
    evaluated before the Solace starter has contributed `SpringJCSMPFactory`, and every bean is
-   skipped. Keep `cris.prs.solace.autoconfigure` out of `@ComponentScan`.
+   skipped. Keep `org.cris.prs.solace.autoconfigure` out of `@ComponentScan`.
 2. **`solace.java.host` is not configured**, so the Solace starter contributed nothing and
    `@ConditionalOnClass`/dependency conditions never lead anywhere.
 
@@ -360,8 +360,8 @@ Look for `@Transactional` on the listener method. The flow's transaction is alre
 ```yaml
 logging:
   level:
-    cris.prs.messaging.solace: DEBUG
-    cris.prs.messaging.solace.requestreply: TRACE
+    org.cris.prs.messaging.solace: DEBUG
+    org.cris.prs.messaging.solace.requestreply: TRACE
     com.solacesystems.jcsmp: DEBUG            # very verbose
     org.springframework.transaction: DEBUG
 ```

@@ -54,7 +54,7 @@ Two dependency-free SPIs — `SolaceListenerMetrics` in the `listener` package a
 implementation, so instrumentation costs nothing when it is not wired up, and neither package gains a
 dependency on a metrics library.
 
-The Micrometer implementations live in a new `cris.prs.messaging.solace.observability` package and are
+The Micrometer implementations live in a new `org.cris.prs.messaging.solace.observability` package and are
 registered by `SolaceObservabilityConfiguration` when a `MeterRegistry` bean is present. Counters and
 timers are recorded as messages flow; the state gauges are registered by `SolaceMetricsBinder`, a
 `SmartLifecycle` in the highest phase — a Micrometer `MeterBinder` would have bound before the

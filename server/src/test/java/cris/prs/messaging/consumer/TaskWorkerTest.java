@@ -1,7 +1,7 @@
 package cris.prs.messaging.consumer;
 
 import cris.prs.messaging.Task;
-import cris.prs.messaging.solace.core.SolaceRecord;
+import org.cris.prs.messaging.solace.core.SolaceRecord;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 

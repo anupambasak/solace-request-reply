@@ -1,7 +1,7 @@
 package cris.prs.messaging.service;
 
 import cris.prs.messaging.Notification;
-import cris.prs.messaging.solace.core.SolaceTemplate;
+import org.cris.prs.messaging.solace.core.SolaceTemplate;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;

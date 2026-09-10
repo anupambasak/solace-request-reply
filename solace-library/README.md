@@ -97,7 +97,7 @@ Read in order for a full picture, or jump to what you need.
 ## Package layout
 
 ```
-cris.prs.messaging.solace
+org.cris.prs.messaging.solace
  ├── core/           sessions, SolaceTemplate, converters, headers, records, enums
  ├── listener/       containers, factory, registry, adapters, the annotation post-processor
  ├── requestreply/   ReplyingSolaceTemplate, ReplyEndpointSpec, the factory, futures
@@ -105,7 +105,7 @@ cris.prs.messaging.solace
  ├── support/        InstanceIdProvider, ReplyDestinationResolver
  └── annotation/     @EnableSolace, @SolaceListener
 
-cris.prs.solace.autoconfigure     ← deliberately OUTSIDE cris.prs.messaging
+org.cris.prs.solace.autoconfigure     ← deliberately OUTSIDE cris.prs.messaging
  └── SolaceAutoConfiguration, SolaceProperties, bootstrap and annotation-driven config
 ```
 

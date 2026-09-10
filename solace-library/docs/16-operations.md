@@ -6,12 +6,12 @@ Running the library in production: what it logs, what to watch, and how to size 
 
 ## 16.1 Logging
 
-All library logging is SLF4J under `cris.prs.messaging.solace`.
+All library logging is SLF4J under `org.cris.prs.messaging.solace`.
 
 ```yaml
 logging:
   level:
-    cris.prs.messaging.solace: INFO      # lifecycle and provisioning
+    org.cris.prs.messaging.solace: INFO      # lifecycle and provisioning
     com.solacesystems.jcsmp: WARN        # very chatty at INFO
 ```
 
@@ -45,8 +45,8 @@ logging:
 ```yaml
 logging:
   level:
-    cris.prs.messaging.solace: DEBUG               # registration, provisioning detail
-    cris.prs.messaging.solace.requestreply: TRACE  # every request: correlationId, destinations
+    org.cris.prs.messaging.solace: DEBUG               # registration, provisioning detail
+    org.cris.prs.messaging.solace.requestreply: TRACE  # every request: correlationId, destinations
     org.springframework.transaction: DEBUG         # transaction boundaries
 ```
 

@@ -1,8 +1,8 @@
 package cris.prs.messaging.service;
 
 import cris.prs.messaging.Person;
-import cris.prs.messaging.solace.requestreply.ReplyingSolaceTemplate;
-import cris.prs.messaging.solace.requestreply.RequestReplyFuture;
+import org.cris.prs.messaging.solace.requestreply.ReplyingSolaceTemplate;
+import org.cris.prs.messaging.solace.requestreply.RequestReplyFuture;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;

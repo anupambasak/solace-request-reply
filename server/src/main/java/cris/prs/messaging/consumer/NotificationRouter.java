@@ -1,8 +1,8 @@
 package cris.prs.messaging.consumer;
 
 import cris.prs.messaging.Notification;
-import cris.prs.messaging.solace.annotation.SolaceListener;
-import cris.prs.messaging.solace.core.SolaceRecord;
+import org.cris.prs.messaging.solace.annotation.SolaceListener;
+import org.cris.prs.messaging.solace.core.SolaceRecord;
 import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;

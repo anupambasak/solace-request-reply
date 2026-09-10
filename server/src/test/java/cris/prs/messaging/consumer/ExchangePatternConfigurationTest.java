@@ -1,10 +1,10 @@
 package cris.prs.messaging.consumer;
 
-import cris.prs.messaging.solace.annotation.SolaceListener;
-import cris.prs.messaging.solace.core.EndpointMode;
-import cris.prs.messaging.solace.core.ExchangePattern;
-import cris.prs.messaging.solace.listener.ContainerProperties;
-import cris.prs.messaging.solace.listener.SolaceListenerEndpoint;
+import org.cris.prs.messaging.solace.annotation.SolaceListener;
+import org.cris.prs.messaging.solace.core.EndpointMode;
+import org.cris.prs.messaging.solace.core.ExchangePattern;
+import org.cris.prs.messaging.solace.listener.ContainerProperties;
+import org.cris.prs.messaging.solace.listener.SolaceListenerEndpoint;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;

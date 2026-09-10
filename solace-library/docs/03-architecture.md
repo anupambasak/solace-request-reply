@@ -9,7 +9,7 @@ higher one, and nothing anywhere knows about an application's domain types.
 
 ```
 ┌──────────────────────────────────────────────────────────────────────────┐
-│  cris.prs.solace.autoconfigure                                           │
+│  org.cris.prs.solace.autoconfigure                                           │
 │  Spring Boot wiring: SolaceProperties, conditions, bean definitions.     │
 │  The ONLY package that knows about Spring Boot.                          │
 └───────────────────────────────┬──────────────────────────────────────────┘
@@ -40,7 +40,7 @@ higher one, and nothing anywhere knows about an application's domain types.
 
 Two structural rules are load-bearing:
 
-1. **`cris.prs.solace.autoconfigure` is outside `cris.prs.messaging`.** An application that
+1. **`org.cris.prs.solace.autoconfigure` is outside `cris.prs.messaging`.** An application that
    component-scans `cris.prs.messaging` must not pick the auto-configuration class up as an ordinary
    `@Configuration`; if it does, its conditions are evaluated before the Solace starter has
    contributed `SpringJCSMPFactory`, and every bean silently disappears. The package boundary is the

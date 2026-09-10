@@ -248,7 +248,7 @@ Turn on Spring's transaction logging:
 logging:
   level:
     org.springframework.transaction: DEBUG
-    cris.prs.messaging.solace.transaction: DEBUG
+    org.cris.prs.messaging.solace.transaction: DEBUG
 ```
 
 `Creating new transaction with name [null]` is normal for a container-driven transaction: the name is

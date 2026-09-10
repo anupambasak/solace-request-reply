@@ -1,1 +1,1 @@
-cris.prs.solace.autoconfigure.SolaceAutoConfiguration
+org.cris.prs.solace.autoconfigure.SolaceAutoConfiguration

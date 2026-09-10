@@ -248,7 +248,7 @@ names the actual likely cause:
 
 > No SolaceListenerContainerFactory named 'solaceListenerContainerFactory' is available … The Solace
 > auto-configuration did not run: check that `solace.java.host` is configured and that the
-> application does not component scan the `cris.prs.solace.autoconfigure` package.
+> application does not component scan the `org.cris.prs.solace.autoconfigure` package.
 
 That fallback exists because an application which component-scans the auto-configuration package
 ends up with the post-processor but not the factory — a confusing state that deserves a plain
@@ -397,7 +397,7 @@ without interference — though the two commit separately, and are not atomic to
 
 ## 4.9 Why the auto-configuration package is separate
 
-`cris.prs.solace.autoconfigure` sits deliberately outside `cris.prs.messaging`.
+`org.cris.prs.solace.autoconfigure` sits deliberately outside `cris.prs.messaging`.
 
 The reference applications use `@ComponentScan("cris.prs.messaging")`. A component-scanned
 `@AutoConfiguration` class is treated as an ordinary `@Configuration`: it is processed during the

@@ -1,14 +1,14 @@
 package cris.prs.messaging.rest;
 
 import cris.prs.messaging.Task;
-import cris.prs.messaging.solace.core.BrowseSpec;
-import cris.prs.messaging.solace.core.SolaceBrowser;
-import cris.prs.messaging.solace.core.SolaceRecord;
-import cris.prs.messaging.solace.core.ReplayStartPoint;
-import cris.prs.messaging.solace.core.SolaceTemplate;
-import cris.prs.messaging.solace.listener.DefaultSolaceMessageListenerContainer;
-import cris.prs.messaging.solace.listener.SolaceListenerEndpointRegistry;
-import cris.prs.messaging.solace.listener.SolaceMessageListenerContainer;
+import org.cris.prs.messaging.solace.core.BrowseSpec;
+import org.cris.prs.messaging.solace.core.SolaceBrowser;
+import org.cris.prs.messaging.solace.core.SolaceRecord;
+import org.cris.prs.messaging.solace.core.ReplayStartPoint;
+import org.cris.prs.messaging.solace.core.SolaceTemplate;
+import org.cris.prs.messaging.solace.listener.DefaultSolaceMessageListenerContainer;
+import org.cris.prs.messaging.solace.listener.SolaceListenerEndpointRegistry;
+import org.cris.prs.messaging.solace.listener.SolaceMessageListenerContainer;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.web.bind.annotation.GetMapping;

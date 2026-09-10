@@ -29,7 +29,6 @@ semver {
 }
 
 group 'cris.prs.msg'
-version = semver.info.version
 
 bootJar{
     enabled = true

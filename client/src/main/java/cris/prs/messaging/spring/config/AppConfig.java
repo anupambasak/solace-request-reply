@@ -1,10 +1,10 @@
 package cris.prs.messaging.spring.config;
 
-import cris.prs.messaging.solace.core.EndpointMode;
-import cris.prs.messaging.solace.requestreply.ReplyEndpointSpec;
-import cris.prs.messaging.solace.requestreply.ReplyingSolaceTemplate;
-import cris.prs.messaging.solace.requestreply.ReplyingSolaceTemplateFactory;
-import cris.prs.messaging.solace.transaction.SolaceTransactionManager;
+import org.cris.prs.messaging.solace.core.EndpointMode;
+import org.cris.prs.messaging.solace.requestreply.ReplyEndpointSpec;
+import org.cris.prs.messaging.solace.requestreply.ReplyingSolaceTemplate;
+import org.cris.prs.messaging.solace.requestreply.ReplyingSolaceTemplateFactory;
+import org.cris.prs.messaging.solace.transaction.SolaceTransactionManager;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;

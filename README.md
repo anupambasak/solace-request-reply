@@ -45,7 +45,7 @@ sequenceDiagram
 > [5. Configuration](solace-library/docs/05-configuration.md) or
 > [17. Troubleshooting](solace-library/docs/17-troubleshooting.md). What follows is the short version.
 
-Everything lives under `cris.prs.messaging.solace`.
+Everything lives under `org.cris.prs.messaging.solace`.
 
 | Spring for Apache Kafka | This library |
 | :--- | :--- |
@@ -62,7 +62,7 @@ Everything lives under `cris.prs.messaging.solace`.
 
 ### Auto-configuration
 
-`SolaceAutoConfiguration` lives in `cris.prs.solace.autoconfigure` — outside the applications'
+`SolaceAutoConfiguration` lives in `org.cris.prs.solace.autoconfigure` — outside the applications'
 component scanned `cris.prs.messaging` package, as a starter should — and is registered in
 `META-INF/spring/org.springframework.boot.autoconfigure.AutoConfiguration.imports`, running after
 the Solace starter's own auto-configuration. Putting `solace-library` on the classpath is enough to

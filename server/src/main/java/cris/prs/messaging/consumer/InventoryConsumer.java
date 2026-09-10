@@ -2,8 +2,8 @@ package cris.prs.messaging.consumer;
 
 import cris.prs.messaging.InventoryCheck;
 import cris.prs.messaging.InventoryStatus;
-import cris.prs.messaging.solace.annotation.SolaceListener;
-import cris.prs.messaging.solace.core.SolaceHeaders;
+import org.cris.prs.messaging.solace.annotation.SolaceListener;
+import org.cris.prs.messaging.solace.core.SolaceHeaders;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.messaging.handler.annotation.Header;
 import org.springframework.stereotype.Component;

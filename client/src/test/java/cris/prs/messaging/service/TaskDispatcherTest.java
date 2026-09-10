@@ -1,7 +1,7 @@
 package cris.prs.messaging.service;
 
 import cris.prs.messaging.Task;
-import cris.prs.messaging.solace.core.SolaceTemplate;
+import org.cris.prs.messaging.solace.core.SolaceTemplate;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;

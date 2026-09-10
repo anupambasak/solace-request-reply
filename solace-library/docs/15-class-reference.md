@@ -2,7 +2,7 @@
 
 Every public type in the library, what it is for, and where it is explained in depth.
 
-Base package `cris.prs.messaging.solace`, except the auto-configuration, which is deliberately
+Base package `org.cris.prs.messaging.solace`, except the auto-configuration, which is deliberately
 outside it — see [4.9](04-spring-integration.md#49-why-the-auto-configuration-package-is-separate).
 
 ---
@@ -137,7 +137,7 @@ unaffected.
 
 ---
 
-## 15.8 `cris.prs.solace.autoconfigure`
+## 15.8 `org.cris.prs.solace.autoconfigure`
 
 | Type | Purpose |
 | :--- | :--- |
