@@ -105,7 +105,7 @@ org.cris.prs.messaging.solace
  ├── support/        InstanceIdProvider, ReplyDestinationResolver
  └── annotation/     @EnableSolace, @SolaceListener
 
-org.cris.prs.solace.autoconfigure     ← deliberately OUTSIDE cris.prs.messaging
+org.cris.prs.solace.autoconfigure     ← deliberately OUTSIDE org.cris.prs.messaging
  └── SolaceAutoConfiguration, SolaceProperties, bootstrap and annotation-driven config
 ```
 
