@@ -102,6 +102,13 @@ With `http-adapter: VERTX` (or `AUTO` with Vert.x present) each Apicurio client 
 alive until it is closed. The auto-configured `SchemaCodecs` is closed by Spring; one created by hand must
 be closed by whoever created it. The library default, `JDK`, avoids Vert.x entirely.
 
+### `SecurityException: Forbidden com.example.Foo! This class is not trusted to be included in Avro schemas`
+
+Avro 1.11.4+ loads only the classes it trusts. Payload classes and listener types are trusted
+automatically; a class reached only through a field, such as a nested DTO, is not. Add its package to
+`solace.schema-registry.avro.trusted-packages`, or set the JVM property
+`org.apache.avro.SERIALIZABLE_PACKAGES`.
+
 ### `NoSuchMethodError` or `ClassNotFoundException` in `com.google.protobuf` or `com.fasterxml.jackson`
 
 Apicurio 3.3 is built against Protobuf 4.36 and Jackson 2.21; Spring Boot 3.5 manages Jackson at 2.19 and

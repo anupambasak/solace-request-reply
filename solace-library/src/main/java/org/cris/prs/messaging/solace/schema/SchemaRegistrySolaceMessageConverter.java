@@ -14,7 +14,9 @@ import org.cris.prs.messaging.solace.core.SolaceMessageConverter;
 import org.cris.prs.messaging.solace.support.SolaceTopicMatcher;
 import org.springframework.util.Assert;
 
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 
 /**
  * A {@link SolaceMessageConverter} that serialises and validates payloads against schemas held in Apicurio
@@ -28,8 +30,9 @@ import java.util.List;
  *   <li>A payload one format recognises natively &mdash; an Avro record, a Protobuf message, a
  *       {@code JsonNode} &mdash; goes through that format's codec, whatever its destination.</li>
  *   <li>Any other payload goes through the registry only if its destination matches one of the
- *       {@code destinations} expressions (all destinations when there are none), and then with JSON Schema,
- *       serialised by the application's {@code ObjectMapper}. With JSON Schema not enabled that is a
+ *       {@code destinations} expressions (all destinations when there are none), in the format the
+ *       {@linkplain #setPojoFormats POJO format} for that destination names &mdash; JSON Schema by default,
+ *       or Avro by reflection. A format that is not enabled, or cannot write POJOs, is a
  *       {@link SchemaRegistryConversionException.Reason#TYPE_MISMATCH}.</li>
  * </ol>
  * <p>The body carries Apicurio's standard framing &mdash; magic byte, schema id, encoded payload &mdash;
@@ -64,6 +67,8 @@ public class SchemaRegistrySolaceMessageConverter implements SolaceMessageConver
     private List<String> destinations = List.of();
 
     private boolean requireSchemaId;
+
+    private Map<String, SchemaFormat> pojoFormats = Map.of();
 
     /**
      * Create a converter falling back to {@link JacksonSolaceMessageConverter} over the same mapper.
@@ -113,6 +118,33 @@ public class SchemaRegistrySolaceMessageConverter implements SolaceMessageConver
     }
 
     /**
+     * Choose, per destination, the format POJO payloads are written in.
+     *
+     * @param pojoFormats Solace topic expression to format, tried in iteration order, first match wins;
+     *                    a destination no expression matches uses JSON Schema. {@code null} clears it
+     */
+    public void setPojoFormats(Map<String, SchemaFormat> pojoFormats) {
+        this.pojoFormats = pojoFormats == null ? Map.of() : new LinkedHashMap<>(pojoFormats);
+    }
+
+    /**
+     * The format POJO payloads sent to a destination are written in.
+     *
+     * @param destinationName the topic or queue name; may be {@code null}
+     * @return the first matching {@linkplain #setPojoFormats POJO format}, or {@code JSON_SCHEMA}
+     */
+    public SchemaFormat pojoFormatFor(String destinationName) {
+        if (destinationName != null) {
+            for (Map.Entry<String, SchemaFormat> entry : this.pojoFormats.entrySet()) {
+                if (SolaceTopicMatcher.matches(entry.getKey(), destinationName)) {
+                    return entry.getValue();
+                }
+            }
+        }
+        return SchemaFormat.JSON_SCHEMA;
+    }
+
+    /**
      * The codecs this converter delegates serde work to.
      *
      * @return the codecs
@@ -144,14 +176,16 @@ public class SchemaRegistrySolaceMessageConverter implements SolaceMessageConver
             if (!isGoverned(name)) {
                 return this.fallback.toMessage(payload, destination);
             }
-            codec = this.codecs.get(SchemaFormat.JSON_SCHEMA);
-            if (codec == null) {
+            SchemaFormat format = pojoFormatFor(name);
+            codec = this.codecs.get(format);
+            if (codec == null || !codec.acceptsPojos()) {
                 throw new SchemaRegistryConversionException(SchemaRegistryConversionException.Reason.TYPE_MISMATCH,
-                        "Destination '" + name + "' is governed by the schema registry, but the payload is a "
-                                + payload.getClass().getName() + ", which is neither an Avro record nor a Protobuf "
-                                + "message, and JSON Schema is not enabled. Enable JSON_SCHEMA in "
-                                + "solace.schema-registry.formats, or exclude the destination from "
-                                + "solace.schema-registry.destinations", null);
+                        "Destination '" + name + "' is governed by the schema registry, and POJOs sent to it are "
+                                + "written as " + format + ", but " + (codec == null ? format + " is not enabled"
+                                : "the " + format + " codec cannot write a " + payload.getClass().getName())
+                                + ". Enable the format (Avro needs solace.schema-registry.avro.datum-provider: "
+                                + "REFLECT), send a native Avro record or Protobuf message, or exclude the "
+                                + "destination from solace.schema-registry.destinations", null);
             }
         }
         byte[] body;

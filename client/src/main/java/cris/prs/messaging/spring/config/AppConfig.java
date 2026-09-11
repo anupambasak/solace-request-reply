@@ -63,4 +63,60 @@ public class AppConfig {
         spec.setReplyTimeout(replyTimeout);
         return factory.create(spec);
     }
+
+    /**
+     * The reply destination of the Avro quote demo, {@code request-reply/quote-avro/reply/<pod>}.
+     *
+     * <p>The schema-registry demos each get their own, rather than the shared one, because a reply
+     * destination is also a registry mapping: {@code request-reply/quote-avro/reply/>} names the one
+     * artifact every pod's Avro replies are validated against. A shared destination would carry
+     * {@code Person} and {@code Quote} replies in JSON, Avro and Protobuf at once, which no single
+     * topic mapping can describe.</p>
+     *
+     * @param factory          builds the template and the container consuming its reply destination
+     * @param replyTopicPrefix base reply topic; the instance id is appended to it
+     * @param concurrency      flows consuming the replies; clamped to 1 on a non-durable endpoint
+     * @param replyTimeout     how long a request waits for its reply
+     * @return the Avro quote request-reply template
+     */
+    @Bean
+    public ReplyingSolaceTemplate quoteAvroReplyingSolaceTemplate(
+            ReplyingSolaceTemplateFactory factory,
+            @Value("${app.quote-avro.reply-topic-prefix:request-reply/quote-avro/reply}") String replyTopicPrefix,
+            @Value("${app.quote-avro.reply-concurrency:1}") int concurrency,
+            @Value("${app.quote-avro.reply-timeout:30s}") Duration replyTimeout) {
+        return factory.create(replyEndpoint("quoteAvroReplyContainer", replyTopicPrefix, concurrency, replyTimeout));
+    }
+
+    /**
+     * The reply destination of the Protobuf quote demo, {@code request-reply/quote-protobuf/reply/<pod>};
+     * its own for the same reason as {@link #quoteAvroReplyingSolaceTemplate}'s.
+     *
+     * @param factory          builds the template and the container consuming its reply destination
+     * @param replyTopicPrefix base reply topic; the instance id is appended to it
+     * @param concurrency      flows consuming the replies; clamped to 1 on a non-durable endpoint
+     * @param replyTimeout     how long a request waits for its reply
+     * @return the Protobuf quote request-reply template
+     */
+    @Bean
+    public ReplyingSolaceTemplate quoteProtobufReplyingSolaceTemplate(
+            ReplyingSolaceTemplateFactory factory,
+            @Value("${app.quote-protobuf.reply-topic-prefix:request-reply/quote-protobuf/reply}") String replyTopicPrefix,
+            @Value("${app.quote-protobuf.reply-concurrency:1}") int concurrency,
+            @Value("${app.quote-protobuf.reply-timeout:30s}") Duration replyTimeout) {
+        return factory.create(replyEndpoint("quoteProtobufReplyContainer", replyTopicPrefix, concurrency,
+                replyTimeout));
+    }
+
+    private static ReplyEndpointSpec replyEndpoint(String id, String replyTopicPrefix, int concurrency,
+            Duration replyTimeout) {
+        ReplyEndpointSpec spec = new ReplyEndpointSpec();
+        spec.setId(id);
+        spec.setReplyTopicPrefix(replyTopicPrefix);
+        spec.setAppendInstanceId(true);
+        spec.setEndpointMode(EndpointMode.NON_DURABLE_QUEUE);
+        spec.setConcurrency(concurrency);
+        spec.setReplyTimeout(replyTimeout);
+        return spec;
+    }
 }

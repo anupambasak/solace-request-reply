@@ -8,8 +8,6 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.messaging.handler.annotation.Header;
 import org.springframework.stereotype.Component;
 
-import java.util.UUID;
-
 /**
  * Second request-reply service, independent of {@link ServiceConsumer}.
  *
@@ -40,14 +38,8 @@ public class QuoteConsumer {
     public Quote quote(Person person,
             @Header(name = SolaceHeaders.CORRELATION_ID, required = false) String correlationId) {
         log.debug("Handling quote correlationId={} payload={}", correlationId, person);
-        Quote quote = new Quote(UUID.randomUUID().toString(), person.getName(),
-                premiumFor(person), "INR", System.currentTimeMillis());
+        Quote quote = QuotePricing.quoteFor(person);
         log.debug("Quoted {} {} for {}", quote.getAmount(), quote.getCurrency(), quote.getPersonName());
         return quote;
-    }
-
-    /** A stand-in calculation: enough to make the reply depend on the request. */
-    private double premiumFor(Person person) {
-        return Math.round((1_000 + person.getAge() * 42.5) * 100.0) / 100.0;
     }
 }

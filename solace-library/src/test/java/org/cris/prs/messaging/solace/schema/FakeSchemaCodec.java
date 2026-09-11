@@ -36,6 +36,9 @@ class FakeSchemaCodec implements SchemaCodec {
 
     RuntimeException failWith;
 
+    /** Whether this fake writes POJOs; JSON Schema always does, Avro only in reflect mode. */
+    boolean acceptsPojos;
+
     /**
      * @param format        the format to claim
      * @param nativeType    the payload type this format recognises natively, or {@code null} for none
@@ -44,6 +47,12 @@ class FakeSchemaCodec implements SchemaCodec {
         this.format = format;
         this.nativeType = nativeType;
         this.nativePayload = payload -> nativeType != null && nativeType.isInstance(payload);
+        this.acceptsPojos = format == SchemaFormat.JSON_SCHEMA;
+    }
+
+    @Override
+    public boolean acceptsPojos() {
+        return this.acceptsPojos;
     }
 
     @Override

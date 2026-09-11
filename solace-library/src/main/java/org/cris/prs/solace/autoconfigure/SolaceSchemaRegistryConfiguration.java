@@ -5,6 +5,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.cris.prs.messaging.solace.core.SolaceMessageConverter;
 import org.cris.prs.messaging.solace.listener.SolaceListenerErrorHandler;
 import org.cris.prs.messaging.solace.schema.SchemaCodecs;
+import org.cris.prs.messaging.solace.schema.SchemaFormat;
 import org.cris.prs.messaging.solace.schema.SchemaRegistryErrorHandler;
 import org.cris.prs.messaging.solace.schema.SchemaRegistrySettings;
 import org.cris.prs.messaging.solace.schema.SchemaRegistrySolaceMessageConverter;
@@ -13,6 +14,9 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+
+import java.util.LinkedHashMap;
+import java.util.Map;
 
 /**
  * Apicurio Registry wiring, active when {@code solace.schema-registry.url} is set.
@@ -70,7 +74,7 @@ public class SolaceSchemaRegistryConfiguration {
      *
      * @param codecs       the enabled formats' codecs
      * @param objectMapper the application's mapper when one exists
-     * @param properties   supplies the governed destinations and strictness
+     * @param properties   supplies the governed destinations, strictness and per-topic POJO formats
      * @return the converter every template, listener and request-reply template uses
      */
     @Bean
@@ -82,6 +86,13 @@ public class SolaceSchemaRegistryConfiguration {
                 objectMapper.getIfAvailable(ObjectMapper::new));
         converter.setDestinations(settings.getDestinations());
         converter.setRequireSchemaId(settings.isRequireSchemaId());
+        Map<String, SchemaFormat> pojoFormats = new LinkedHashMap<>();
+        for (SchemaRegistrySettings.TopicMapping mapping : settings.getTopicProfile()) {
+            if (mapping.getFormat() != null) {
+                pojoFormats.putIfAbsent(mapping.getTopicExpression(), mapping.getFormat());
+            }
+        }
+        converter.setPojoFormats(pojoFormats);
         return converter;
     }
 

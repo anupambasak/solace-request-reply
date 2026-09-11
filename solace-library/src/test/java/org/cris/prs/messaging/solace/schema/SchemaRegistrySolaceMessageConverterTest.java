@@ -181,6 +181,38 @@ class SchemaRegistrySolaceMessageConverterTest {
         }
 
         @Test
+        @DisplayName("a POJO to a topic whose POJO format is AVRO goes to an Avro codec that accepts POJOs")
+        void pojoFormatPerTopic() throws Exception {
+            FakeSchemaCodec avro = new FakeSchemaCodec(SchemaFormat.AVRO, FakeProto.class);
+            avro.acceptsPojos = true;
+            SchemaRegistrySolaceMessageConverter withAvro =
+                    new SchemaRegistrySolaceMessageConverter(SchemaCodecs.of(json, avro), mapper);
+            withAvro.setDestinations(List.of("orders/>"));
+            withAvro.setPojoFormats(java.util.Map.of("orders/avro/>", SchemaFormat.AVRO));
+
+            XMLMessage message = withAvro.toMessage(new Order("o-1", 3), "orders/avro/place");
+            withAvro.toMessage(new Order("o-2", 1), "orders/place");
+
+            assertEquals(List.of("orders/avro/place"), avro.serializedTo);
+            assertEquals(List.of("orders/place"), json.serializedTo);
+            assertEquals("AVRO", formatOf(message));
+        }
+
+        @Test
+        @DisplayName("a POJO format whose codec cannot write POJOs is a type mismatch")
+        void pojoFormatWithoutPojoSupport() {
+            FakeSchemaCodec avro = new FakeSchemaCodec(SchemaFormat.AVRO, FakeProto.class);
+            SchemaRegistrySolaceMessageConverter withAvro =
+                    new SchemaRegistrySolaceMessageConverter(SchemaCodecs.of(json, avro), mapper);
+            withAvro.setPojoFormats(java.util.Map.of("orders/>", SchemaFormat.AVRO));
+
+            SchemaRegistryConversionException failure = assertThrows(SchemaRegistryConversionException.class,
+                    () -> withAvro.toMessage(new Order("o-1", 3), "orders/place"));
+
+            assertEquals(SchemaRegistryConversionException.Reason.TYPE_MISMATCH, failure.getReason());
+        }
+
+        @Test
         @DisplayName("a registry that cannot be reached is classified as retryable")
         void registryDownIsRetryable() {
             json.failWith = new IllegalStateException("lookup failed", new ConnectException("refused"));

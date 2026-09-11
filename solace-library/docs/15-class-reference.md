@@ -120,17 +120,17 @@ The only package that imports `io.apicurio`, Apache Avro or Protocol Buffers, an
 
 | Type | Kind | Purpose |
 | :--- | :--- | :--- |
-| `SchemaRegistrySolaceMessageConverter` | class | Registry-aware converter with a fallback; `setDestinations`, `setRequireSchemaId`, `isGoverned`, `getCodecs`. |
-| `SchemaCodec` | interface | One format's serde in bytes: `getFormat`, `isSchemaPayload`, `producesType`, `serialize`, `deserialize`, `close`. |
+| `SchemaRegistrySolaceMessageConverter` | class | Registry-aware converter with a fallback; `setDestinations`, `setRequireSchemaId`, `setPojoFormats`, `pojoFormatFor`, `isGoverned`, `getCodecs`. |
+| `SchemaCodec` | interface | One format's serde in bytes: `getFormat`, `isSchemaPayload`, `acceptsPojos`, `producesType`, `serialize`, `deserialize`, `close`. |
 | `SchemaCodecs` | final class | The enabled codecs: `create(settings, objectMapper, classLoader)`, `of(...)`, `get`, `all`, `forPayload`, `forTargetType`, `close`. |
 | `ApicurioSchemaCodec` | abstract class | Lazy Apicurio serde creation; closes what it created. Nested `Lazy<T>`. |
-| `AvroSchemaCodec` | class | Avro records; generic or specific by the listener's type. |
+| `AvroSchemaCodec` | class | Avro records; generic or specific by the listener's type; plain POJOs by reflection with `avro.datum-provider: REFLECT`. |
 | `ProtobufSchemaCodec` | class | Protobuf messages; `DynamicMessage` re-parsed into the listener's generated type. |
 | `JsonSchemaCodec` | class | JSON Schema with the application's `ObjectMapper`; decodes to `JsonNode`. |
 | `SolaceTopicProfileStrategy<S>` | class | Apicurio `ArtifactReferenceResolverStrategy` over Solace topic expressions; `match(topic)`. |
 | `SchemaFormat` | enum | `AVRO`, `PROTOBUF`, `JSON_SCHEMA`; `getArtifactType()`, `getSerializerClassName()`, `getArtifact()`, `fromArtifactType(String)`. |
 | `SchemaRegistryHeaders` | final class | `SCHEMA_FORMAT`, `MAGIC_BYTE`, `isFramed(byte[])`. |
-| `SchemaRegistrySettings` | class | Bound settings, Apicurio-free; `validate()`. Nested `OAuth`, `Tls`, `TopicMapping`, `ExplicitArtifact`, `Cache`, `Retry`, `Avro`, `Protobuf`, `JsonSchema`; enums `HttpAdapter`, `IfArtifactExists`, `IdOption`, `AvroEncoding`. |
+| `SchemaRegistrySettings` | class | Bound settings, Apicurio-free; `validate()`. Nested `OAuth`, `Tls`, `TopicMapping`, `ExplicitArtifact`, `Cache`, `Retry`, `Avro`, `Protobuf`, `JsonSchema`; enums `HttpAdapter`, `IfArtifactExists`, `IdOption`, `AvroEncoding`, `AvroDatumProvider`. |
 | `SchemaRegistryConversionException` | class | `getReason()`; `classify(message, cause)`. Nested enum `Reason` with `isRetryable()`. |
 | `SchemaRegistryErrorHandler` | class | `REJECTED` for non-retryable schema failures, delegate otherwise; static `find(Throwable)`. |
 

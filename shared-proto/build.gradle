@@ -1,0 +1,38 @@
+plugins {
+    id 'eclipse'
+    id 'idea'
+    id 'java-library'
+    alias(libs.plugins.protoBufPlugin)
+}
+
+/*
+ * Protocol Buffers contract for the Protobuf quote demo, plus the mapping to and from the shared DTOs.
+ *
+ * Kept out of shared-dto on purpose: that module declares nothing beyond Lombok, and a Protobuf
+ * contract needs generated classes and protobuf-java. Avro needs no module like this one — the Avro
+ * demo sends the shared DTOs as they are, by Avro reflection (solace.schema-registry.avro.datum-provider).
+ */
+
+description = 'Protobuf messages for the schema-registry demo, and their mapping to the shared DTOs'
+
+jar {
+    enabled = true
+}
+
+dependencies {
+    api libs.protoJava
+    api project(':shared-dto')
+
+    testImplementation platform('org.junit:junit-bom:5.10.0')
+    testImplementation 'org.junit.jupiter:junit-jupiter'
+}
+
+protobuf {
+    protoc {
+        artifact = "com.google.protobuf:protoc:${libs.versions.protoVersion.get()}"
+    }
+}
+
+test {
+    useJUnitPlatform()
+}

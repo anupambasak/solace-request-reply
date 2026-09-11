@@ -75,8 +75,9 @@ public class SchemaRegistrySettings {
     /**
      * Solace topic expressions whose messages are governed by the registry.
      *
-     * <p>Outbound, a POJO sent to a matching destination is serialised with JSON Schema through the
-     * registry; elsewhere it falls back to plain JSON. An Avro record or a Protobuf message always goes
+     * <p>Outbound, a POJO sent to a matching destination is serialised through the registry &mdash; in
+     * the {@code format} of the first {@code topic-profile} mapping matching the destination, JSON Schema
+     * when none says; elsewhere it falls back to plain JSON. An Avro record or a Protobuf message always goes
      * through the registry, since nothing else can serialise it. Inbound, a registry-framed body is always
      * decoded through the registry, whatever its destination. Empty &mdash; the default &mdash; means every
      * destination.</p>
@@ -158,6 +159,18 @@ public class SchemaRegistrySettings {
             throw new IllegalStateException("solace.schema-registry.url must be set");
         }
         String strategy = this.artifactResolverStrategy;
+        for (TopicMapping mapping : this.topicProfile) {
+            if (mapping.getFormat() == SchemaFormat.PROTOBUF) {
+                throw new IllegalStateException("solace.schema-registry.topic-profile entry '"
+                        + mapping.getTopicExpression() + "' sets format PROTOBUF, but a POJO cannot be written as "
+                        + "Protobuf. Send generated Protobuf messages instead; they need no format setting");
+            }
+            if (mapping.getFormat() == SchemaFormat.AVRO && !this.avro.isReflect()) {
+                throw new IllegalStateException("solace.schema-registry.topic-profile entry '"
+                        + mapping.getTopicExpression() + "' sets format AVRO for POJOs, which needs "
+                        + "solace.schema-registry.avro.datum-provider: REFLECT or REFLECT_ALLOW_NULL");
+            }
+        }
         if (STRATEGY_RECORD.equalsIgnoreCase(strategy)
                 && (this.formats.isEmpty() || this.formats.stream().anyMatch(f -> f != SchemaFormat.AVRO))) {
             throw new IllegalStateException("solace.schema-registry.artifact-resolver-strategy=RECORD is Avro "
@@ -208,6 +221,31 @@ public class SchemaRegistrySettings {
         CONTENT_ID,
         /** The id of the artifact version. */
         GLOBAL_ID
+    }
+
+    /** How Avro maps Java objects to records; selects an Apicurio {@code AvroDatumProvider}. */
+    public enum AvroDatumProvider {
+        /** Generated {@code SpecificRecord}s and {@code GenericRecord}s only (Apicurio's default). */
+        DEFAULT("io.apicurio.registry.serde.avro.DefaultAvroDatumProvider"),
+        /** Plain Java objects too, by Avro reflection over their fields. */
+        REFLECT("io.apicurio.registry.serde.avro.ReflectAvroDatumProvider"),
+        /** As {@code REFLECT}, with every field nullable in the derived schema. */
+        REFLECT_ALLOW_NULL("io.apicurio.registry.serde.avro.ReflectAllowNullAvroDatumProvider");
+
+        private final String className;
+
+        AvroDatumProvider(String className) {
+            this.className = className;
+        }
+
+        /**
+         * The Apicurio datum provider class.
+         *
+         * @return its fully qualified name
+         */
+        public String getClassName() {
+            return this.className;
+        }
     }
 
     /** Avro body encoding; mirrors Apicurio's {@code AvroEncoding}. */
@@ -291,6 +329,14 @@ public class SchemaRegistrySettings {
 
         /** Artifact version; resolved by the lookup settings when unset. */
         private String version;
+
+        /**
+         * The format POJO payloads sent to a matching, governed destination are written in:
+         * {@code JSON_SCHEMA} (the default when unset) or {@code AVRO}, which needs
+         * {@code avro.datum-provider: REFLECT}. Avro records and Protobuf messages always use their own
+         * format, whatever this says.
+         */
+        private SchemaFormat format;
     }
 
     /** An artifact every serialisation is pinned to. */
@@ -367,6 +413,30 @@ public class SchemaRegistrySettings {
 
         /** Check a record's own schema against the registry's before writing. Apicurio default: {@code true}. */
         private Boolean validateWriterSchema;
+
+        /**
+         * How Java objects become Avro records. Unset means Apicurio's default, which handles generated
+         * and generic records only; {@code REFLECT} or {@code REFLECT_ALLOW_NULL} lets plain POJOs &mdash;
+         * shared DTOs &mdash; be written and read as Avro, with a schema derived from their fields.
+         */
+        private AvroDatumProvider datumProvider;
+
+        /**
+         * Packages whose classes Avro may instantiate by name, in addition to the class of every payload sent
+         * and every listener type, which are trusted automatically. Needed for types the codec never sees
+         * directly &mdash; a DTO's nested fields. Avro 1.11.4+ refuses untrusted classes.
+         */
+        private List<String> trustedPackages = new ArrayList<>();
+
+        /**
+         * Whether POJOs can be written as Avro.
+         *
+         * @return {@code true} for a reflect datum provider
+         */
+        public boolean isReflect() {
+            return this.datumProvider == AvroDatumProvider.REFLECT
+                    || this.datumProvider == AvroDatumProvider.REFLECT_ALLOW_NULL;
+        }
 
         /** Raw Apicurio keys for the Avro serde only, applied last. */
         private Map<String, String> properties = new LinkedHashMap<>();

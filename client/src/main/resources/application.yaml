@@ -16,6 +16,19 @@ app:
     # one flow. Raising this needs a durable reply queue first.
     reply-concurrency: 1
     reply-timeout: 30s
+  # Schema registry demos: the quote service with Avro and with Protobuf payloads. Each has its own
+  # reply destination, because a shared one carries replies of several types and no single topic-to-schema
+  # mapping fits them all. The formats and artifacts are under solace.schema-registry.
+  quote-avro:
+    topic: request-reply/quote-avro/request
+    reply-topic-prefix: request-reply/quote-avro/reply
+    reply-concurrency: 1
+    reply-timeout: 30s
+  quote-protobuf:
+    topic: request-reply/quote-protobuf/request
+    reply-topic-prefix: request-reply/quote-protobuf/reply
+    reply-concurrency: 1
+    reply-timeout: 30s
   notification:
     topic: notification/broadcast
   task:
@@ -52,6 +65,42 @@ solace:
     concurrency: 1
     reply-timeout: 30s
     delivery-mode: PERSISTENT
+
+  # Schema registry: Apicurio Registry, used by the Avro and Protobuf quote demos only.
+  # Nothing contacts the registry at startup; each serde is created on the first message that needs it.
+  schema-registry:
+    url: ${APICURIO_REGISTRY_URL:http://api-apicurio-apps-dev.ocptnd1.prs/apis/registry/v3}
+    formats: [AVRO, PROTOBUF]
+    # POJOs are governed only on the Avro demo's topics; every other exchange keeps sending plain JSON.
+    # (Protobuf messages are generated classes, recognised wherever they are sent.)
+    destinations:
+      - "request-reply/quote-avro/>"
+    # A dev registry: register a schema the first time it is used. In production, register from CI.
+    auto-register: true
+    # Map topics to registry artifacts. Reply topics end in the requester's instance id, so they are
+    # mapped by prefix with '>' -- one artifact for every client pod, not one per pod.
+    topic-profile:
+      - topic-expression: "request-reply/quote-avro/request"
+        group-id: solace-request-reply
+        artifact-id: quote-avro-request
+        format: AVRO
+      - topic-expression: "request-reply/quote-avro/reply/>"
+        group-id: solace-request-reply
+        artifact-id: quote-avro-reply
+        format: AVRO
+      - topic-expression: "request-reply/quote-protobuf/request"
+        group-id: solace-request-reply
+        artifact-id: quote-protobuf-request
+      - topic-expression: "request-reply/quote-protobuf/reply/>"
+        group-id: solace-request-reply
+        artifact-id: quote-protobuf-reply
+    avro:
+      # Lets the shared DTOs (Person, Quote) travel as Avro unchanged, with a schema derived from their
+      # fields; ALLOW_NULL makes every field nullable, so a missing name does not fail serialisation.
+      datum-provider: REFLECT_ALLOW_NULL
+      # Avro only instantiates classes it trusts. Payload and listener types are trusted automatically;
+      # this covers anything nested inside them.
+      trusted-packages: [cris.prs.messaging]
 
 management:
   server:

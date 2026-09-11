@@ -64,6 +64,16 @@ public class JsonSchemaCodec extends ApicurioSchemaCodec {
     /**
      * {@inheritDoc}
      *
+     * <p>Always {@code true}: any POJO serialises to JSON.</p>
+     */
+    @Override
+    public boolean acceptsPojos() {
+        return true;
+    }
+
+    /**
+     * {@inheritDoc}
+     *
      * <p>Always {@code false}: JSON Schema can produce any type, so it is the converter's default for a
      * framed message whose format is not otherwise known, rather than a match by type.</p>
      */

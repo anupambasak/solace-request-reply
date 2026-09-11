@@ -17,6 +17,14 @@ import java.util.Map;
  * with Apicurio's specific reader, anything else a {@code GenericRecord}. The two deserializers are created
  * independently, on first need.</p>
  *
+ * <p>With {@code avro.datum-provider: REFLECT} (or {@code REFLECT_ALLOW_NULL}) it also writes and reads
+ * plain Java objects, by Avro reflection: the schema is derived from the class's fields, and a reader
+ * instantiates the class the schema names. That is what lets a shared DTO travel as Avro unchanged.</p>
+ *
+ * <p>Avro only loads classes it trusts. The class of every payload sent and every listener type is trusted
+ * automatically, and {@code avro.trusted-packages} adds packages for nested field types; see
+ * {@code AvroClassTrust}.</p>
+ *
  * <p>Needs {@code io.apicurio:apicurio-registry-serde-common-avro} on the classpath.</p>
  */
 public class AvroSchemaCodec extends ApicurioSchemaCodec {
@@ -34,6 +42,7 @@ public class AvroSchemaCodec extends ApicurioSchemaCodec {
      */
     public AvroSchemaCodec(SchemaRegistrySettings settings) {
         super(settings);
+        AvroClassTrust.trustPackages(settings.getAvro().getTrustedPackages());
     }
 
     /** {@inheritDoc} */
@@ -52,6 +61,16 @@ public class AvroSchemaCodec extends ApicurioSchemaCodec {
         return payload instanceof GenericContainer;
     }
 
+    /**
+     * {@inheritDoc}
+     *
+     * <p>{@code true} with a reflect datum provider.</p>
+     */
+    @Override
+    public boolean acceptsPojos() {
+        return this.settings.getAvro().isReflect();
+    }
+
     /** {@inheritDoc} */
     @Override
     public boolean producesType(Class<?> targetType) {
@@ -61,13 +80,18 @@ public class AvroSchemaCodec extends ApicurioSchemaCodec {
     /** {@inheritDoc} */
     @Override
     public byte[] serialize(String destinationName, Object payload) {
+        // Avro only loads classes it trusts; the payload's class is one the application is already using.
+        AvroClassTrust.trust(payload.getClass());
         return this.serializer.get().serializeData(destinationName, payload);
     }
 
     /** {@inheritDoc} */
     @Override
     public Object deserialize(String destinationName, byte[] body, Class<?> targetType) {
-        boolean specific = targetType != null && SpecificRecord.class.isAssignableFrom(targetType);
+        // A reader instantiates the class the schema names; the listener's own type is safe to trust.
+        AvroClassTrust.trust(targetType);
+        boolean specific = !this.settings.getAvro().isReflect()
+                && targetType != null && SpecificRecord.class.isAssignableFrom(targetType);
         AvroDeserializer<Object> deserializer = specific ? this.specificDeserializer.get() : this.genericDeserializer.get();
         return deserializer.deserializeData(destinationName, body);
     }
@@ -90,6 +114,9 @@ public class AvroSchemaCodec extends ApicurioSchemaCodec {
         }
         ApicurioConfiguration.putIfSet(avro, AvroSerdeConfig.AVRO_VALIDATE_WRITER_SCHEMA,
                 settings.getValidateWriterSchema());
+        if (settings.getDatumProvider() != null) {
+            avro.put(AvroSerdeConfig.AVRO_DATUM_PROVIDER, settings.getDatumProvider().getClassName());
+        }
         return avro;
     }
 }

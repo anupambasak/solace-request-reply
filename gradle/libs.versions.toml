@@ -21,7 +21,9 @@ modelMapperModuleJsrVersion="1.2.1"
 modelMapperModuledataTypesVersion="1.2.1"
 hibernateToolsVersion="5.6.15.Final"
 webJarsLocatorVersion="0.59"
-protoVersion="4.31.1"
+# Protobuf: aligned with the protobuf-java that Apicurio Registry serdes 3.3.x are built against;
+# generated code must not be newer than the runtime.
+protoVersion="4.36.1"
 springDataAerospikeVersion="5.2.0"
 aerospikeReactorClientVersion="9.0.5"
 aerospikeClientVersion="8.0.0"
@@ -64,6 +66,7 @@ modelMapperModuledataTypes = {module = "com.github.chhsiao90:modelmapper-module-
 hibernateTools = {module = "org.hibernate:hibernate-tools", version.ref = "hibernateToolsVersion"}
 webJarsLocator = {module = "org.webjars:webjars-locator-core", version.ref = "webJarsLocatorVersion"}
 protoCompiler = {module = "com.google.protobuf:protoc", version.ref = "protoVersion"}
+protoJava = {module = "com.google.protobuf:protobuf-java", version.ref = "protoVersion"}
 protoJavaUtil = {module = "com.google.protobuf:protobuf-java-util", version.ref = "protoVersion"}
 protoJacksonDataformat = {module = "com.fasterxml.jackson.dataformat:jackson-dataformat-protobuf", version.ref = "protoJacksonDataformatVersion"}
 springDataAerospike = {module = "com.aerospike:spring-data-aerospike", version.ref = "springDataAerospikeVersion"}

@@ -34,6 +34,17 @@ public interface SchemaCodec extends AutoCloseable {
     boolean isSchemaPayload(Object payload);
 
     /**
+     * Whether this codec can also serialise a plain Java object &mdash; one for which
+     * {@link #isSchemaPayload(Object)} is {@code false} &mdash; sent to a governed destination.
+     *
+     * @return {@code true} for JSON Schema, and for Avro with a reflect datum provider; the default is
+     *         {@code false}
+     */
+    default boolean acceptsPojos() {
+        return false;
+    }
+
+    /**
      * Whether this format can produce the given listener type, used to pick a codec for a registry-framed
      * message that does not say which format it is.
      *

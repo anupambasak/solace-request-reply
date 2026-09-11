@@ -80,6 +80,21 @@ class SchemaRegistrySettingsTest {
     }
 
     @Test
+    @DisplayName("a mapping's POJO format must be one that can write POJOs")
+    void mappingFormat() {
+        SchemaRegistrySettings settings = valid();
+        settings.getTopicProfile().get(0).setFormat(SchemaFormat.PROTOBUF);
+        assertThrows(IllegalStateException.class, settings::validate);
+
+        settings.getTopicProfile().get(0).setFormat(SchemaFormat.AVRO);
+        assertTrue(assertThrows(IllegalStateException.class, settings::validate).getMessage()
+                .contains("avro.datum-provider"));
+
+        settings.getAvro().setDatumProvider(SchemaRegistrySettings.AvroDatumProvider.REFLECT_ALLOW_NULL);
+        assertDoesNotThrow(settings::validate);
+    }
+
+    @Test
     @DisplayName("artifact types map back to formats")
     void artifactTypes() {
         assertEquals(SchemaFormat.JSON_SCHEMA, SchemaFormat.fromArtifactType("JSON"));

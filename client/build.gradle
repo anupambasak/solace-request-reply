@@ -70,6 +70,10 @@ dependencies {
     implementation 'org.springframework.boot:spring-boot-starter-actuator'
     implementation project(":shared-dto")
     implementation project(":solace-library")
+    // Schema registry demo: Apicurio serdes for the two formats it uses, and the Protobuf contract.
+    implementation project(":shared-proto")
+    implementation libs.apicurioSerdeAvro
+    implementation libs.apicurioSerdeProtobuf
     implementation libs.javaFaker
     developmentOnly("org.springframework.boot:spring-boot-devtools")
 

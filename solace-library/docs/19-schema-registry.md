@@ -58,7 +58,7 @@ registry expects its messages governed.
 
 | Format | Payload you send | Types a listener can ask for | Apicurio module |
 | :--- | :--- | :--- | :--- |
-| `AVRO` | any Avro record: `GenericRecord` or a generated `SpecificRecord` | `GenericRecord`, or the generated class | `apicurio-registry-serde-common-avro` |
+| `AVRO` | any Avro record: `GenericRecord` or a generated `SpecificRecord`; with `avro.datum-provider: REFLECT`, also a plain POJO on a governed destination | `GenericRecord`, the generated class, or (reflect) the POJO class | `apicurio-registry-serde-common-avro` |
 | `PROTOBUF` | any `com.google.protobuf.Message`: a generated class or `DynamicMessage` | the generated class, `DynamicMessage`, `Message` | `apicurio-registry-serde-common-protobuf` |
 | `JSON_SCHEMA` | a POJO on a governed destination, or a Jackson `JsonNode` anywhere | any POJO, or `JsonNode` | `apicurio-registry-serde-common-jsonschema` |
 
@@ -67,6 +67,21 @@ says which format it is (19.4).
 
 **Avro.** Two deserializers are created on demand: one with Apicurio's specific reader, for listeners
 that ask for a generated `SpecificRecord`, and one for everything else, which yields `GenericRecord`.
+
+**Avro with plain Java objects.** `avro.datum-provider: REFLECT` (or `REFLECT_ALLOW_NULL`, which makes
+every field nullable) switches Apicurio to Avro *reflection*: a POJO is written with a schema derived
+from its fields, and a reader instantiates the class the schema names. That is how an existing DTO
+travels as Avro without generated code. Which destinations write POJOs as Avro rather than JSON Schema is
+set per topic, by `format: AVRO` on the `topic-profile` mapping (19.5). The reading side needs the same
+class, under the same name, on its classpath.
+
+**Trusted classes.** Since 1.11.4, Avro only loads a class named in a schema if that class is trusted; this
+check exists to stop a hostile schema from naming a dangerous class. Without trust, a DTO fails with
+*"Forbidden cris.prs.messaging.Person! This class is not trusted to be included in Avro schemas"*. The
+codec trusts every payload class it is given to send and every type a listener asks for, since the
+application already uses those classes. For the types of nested fields, add their packages to
+`avro.trusted-packages`. Avro's own JVM properties `org.apache.avro.SERIALIZABLE_PACKAGES` and
+`SERIALIZABLE_CLASSES` keep working alongside.
 
 **Protobuf.** Apicurio writes the message type name ahead of the body, so one schema can hold several
 message types. One deserializer yields a `DynamicMessage`. When the listener asks for a generated class,
@@ -95,7 +110,7 @@ schema.
 | :--- | :--- | :--- |
 | `null`, `byte[]`, `String` | any | Plain, as without a registry |
 | An Avro record, a Protobuf message or a `JsonNode` | any | That format's codec |
-| Any other object | matches `destinations` | JSON Schema. If JSON Schema isn't enabled, a `TYPE_MISMATCH` failure |
+| Any other object | matches `destinations` | the POJO format of the first `topic-profile` mapping matching the destination that sets `format` — `AVRO` (needs a reflect datum provider) — else JSON Schema. A format that isn't enabled or can't write POJOs is a `TYPE_MISMATCH` failure |
 | Any other object | doesn't match | Plain JSON |
 
 ### Inbound
@@ -172,7 +187,9 @@ names the schema. `artifact-resolver-strategy` selects the strategy:
 
 `TOPIC_PROFILE` mappings are Solace topic expressions: `*` matches one level, and a trailing `>` matches
 the rest. They are matched client-side with the broker's rules and tried in order; the first match wins.
-Each mapping needs an `artifact-id`; `group-id` and `version` are optional. A topic that no mapping
+Each mapping needs an `artifact-id`; `group-id` and `version` are optional. A mapping may also set
+`format: AVRO` (or `JSON_SCHEMA`, the default): the format *POJO* payloads sent to its topics are written
+in. Avro records and Protobuf messages always use their own format, so `PROTOBUF` is rejected there. A topic that no mapping
 matches is a `SCHEMA_NOT_FOUND` failure. Use `explicit-artifact.*` instead to pin every serialisation to
 one artifact.
 
@@ -320,6 +337,7 @@ An unset property keeps the Apicurio default; only the two defaults in 19.6 diff
 | `artifact-resolver-strategy` | `TOPIC_PROFILE` | `TOPIC_PROFILE`, `DESTINATION`, `TOPIC`, `RECORD`, or a class name (19.5). |
 | `topic-profile[].topic-expression`, `.artifact-id` | none | Required per entry. |
 | `topic-profile[].group-id`, `.version` | none | Optional. |
+| `topic-profile[].format` | `JSON_SCHEMA` | The format POJOs sent to the mapping's topics use: `JSON_SCHEMA` or `AVRO` (19.2). |
 | `find-latest` | Apicurio: `false` | Resolve the latest artifact version. |
 | `explicit-artifact.group-id`, `.artifact-id`, `.version` | none | Pin every serialisation to one artifact. |
 | `auto-register` | Apicurio: `false` | Register unknown schemas on first use. **Development only.** |
@@ -333,6 +351,8 @@ An unset property keeps the Apicurio default; only the two defaults in 19.6 diff
 | `retry.count`, `retry.backoff` | Apicurio: `3`, `300ms` | Registry request retries. |
 | `avro.encoding` | Apicurio: `BINARY` | `BINARY` or `JSON`. |
 | `avro.validate-writer-schema` | Apicurio: `true` | Check a record's own schema against the registry's before writing. |
+| `avro.trusted-packages` | none | Packages Avro may instantiate classes from, beyond payload and listener types (trusted automatically). |
+| `avro.datum-provider` | Apicurio: `DEFAULT` | `DEFAULT` (generated and generic records), `REFLECT` or `REFLECT_ALLOW_NULL` (plain POJOs too). |
 | `protobuf.validation` | Apicurio: `true` | Check a message's descriptor against the registry schema before writing. |
 | `protobuf.derive-class` | Apicurio: `false` | Deserialise to the class the schema's Java options name. |
 | `json-schema.validation` | Apicurio: `true` | Validate on both sides. |
@@ -345,7 +365,8 @@ Startup validation rejects:
 - no `url`;
 - `TOPIC_PROFILE` with neither mappings nor an explicit artifact;
 - a mapping without a `topic-expression` or an `artifact-id`;
-- `RECORD` with any format other than Avro enabled.
+- `RECORD` with any format other than Avro enabled;
+- a mapping with `format: PROTOBUF`, or `format: AVRO` without a reflect datum provider.
 
 Remember [5.1](05-configuration.md#a-yaml-trap-worth-knowing): a `schema-registry:` block with every
 child commented out fails startup.
@@ -356,8 +377,8 @@ child commented out fails startup.
 
 | Type | Purpose |
 | :--- | :--- |
-| `SchemaRegistrySolaceMessageConverter` | The converter: the routing in 19.3 and 19.4, over `SchemaCodecs`, with a fallback converter (Jackson by default). `setDestinations`, `setRequireSchemaId`, `isGoverned(name)`, `getCodecs()`. |
-| `SchemaCodec` | One format's serde, in bytes: `getFormat`, `isSchemaPayload`, `producesType`, `serialize`, `deserialize`, `close`. The converter works only against this interface, which keeps Apicurio optional and the routing testable without a registry. |
+| `SchemaRegistrySolaceMessageConverter` | The converter: the routing in 19.3 and 19.4, over `SchemaCodecs`, with a fallback converter (Jackson by default). `setDestinations`, `setRequireSchemaId`, `setPojoFormats`, `pojoFormatFor(name)`, `isGoverned(name)`, `getCodecs()`. |
+| `SchemaCodec` | One format's serde, in bytes: `getFormat`, `isSchemaPayload`, `acceptsPojos`, `producesType`, `serialize`, `deserialize`, `close`. The converter works only against this interface, which keeps Apicurio optional and the routing testable without a registry. |
 | `SchemaCodecs` | The enabled codecs, one per format. `create(settings, objectMapper, classLoader)`, `of(codec...)`, `get(format)`, `forPayload`, `forTargetType`, `close`. |
 | `ApicurioSchemaCodec` | Base for the Apicurio codecs: lazy serde creation, closes everything it created. |
 | `AvroSchemaCodec`, `ProtobufSchemaCodec`, `JsonSchemaCodec` | The three formats. With the base class and `SolaceTopicProfileStrategy`, the only classes that import `io.apicurio`, Avro or Protobuf. |
@@ -383,7 +404,26 @@ To plug in a custom codec, for another registry or a test fake, declare
 
 ---
 
-## 19.10 Not supported
+## 19.10 The demo in this repository
+
+The quote service runs in both formats in the `client` and `server` modules, against a dev Apicurio
+Registry with `auto-register: true`:
+
+- **Avro:** `QuoteAvroConsumer` takes the shared `Person` and returns the shared `Quote`, written by
+  reflection. Its topics are mapped with `format: AVRO`, and `request-reply/quote-avro/>` is the only
+  destination where POJOs are governed.
+- **Protobuf:** `QuoteProtobufConsumer` takes the generated `QuoteRequest` and returns the generated
+  `QuoteReply`, from `shared-proto/src/main/proto/quote.proto`, mapped to and from the DTOs by
+  `QuoteProtoMapper`.
+- **Reply destinations:** each demo has its own, `request-reply/quote-avro/reply/<pod>` and
+  `request-reply/quote-protobuf/reply/<pod>`, mapped with `>`.
+
+The endpoints are `GET /request-reply/quote-avro/send` and `/request-reply/quote-protobuf/send`. See the
+repository README.
+
+---
+
+## 19.11 Not supported
 
 | | Why |
 | :--- | :--- |

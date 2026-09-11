@@ -191,6 +191,9 @@ curl "http://localhost:8080/request-reply/quote/send-batch?count=5"
 curl "http://localhost:8080/request-reply/inventory/send"               # service three -> InventoryStatus
 curl "http://localhost:8080/request-reply/inventory/send-multiple?count=10"
 curl "http://localhost:8080/request-reply/inventory/send-batch?count=5"
+
+curl "http://localhost:8080/request-reply/quote-avro/send"              # quote, as Avro via Apicurio Registry
+curl "http://localhost:8080/request-reply/quote-protobuf/send"          # quote, as Protobuf via Apicurio Registry
 ```
 
 Scale the server to prove the distinction:
@@ -435,6 +438,7 @@ transactional durable listener.
 solace-request-reply/
  ├── gradle/libs.versions.toml     # version catalog
  ├── shared-dto/                   # Person, Notification, Task, Quote, InventoryCheck/Status, ReplyResult — the client/server contract
+ ├── shared-proto/                 # quote.proto (QuoteRequest, QuoteReply) + QuoteProtoMapper — the Protobuf demo's contract
  ├── solace-library/               # the Spring-for-Solace library (auto-configured starter)
  ├── client/                       # WebFlux REST service, requester
  ├── server/                       # @SolaceListener request handler
@@ -489,6 +493,9 @@ services answer on the client's shared reply destination and a third brings its 
 | `GET /request-reply/inventory/send-batch?count=5` | three | `InventoryStatus` |
 | `GET /request-reply/benchmark?total=100000&concurrency=1000` | one | high-concurrency load test |
 | `GET /request-reply/reply-destination` | — | both reply topics this pod listens on: `shared` and `inventory` |
+| `GET /request-reply/quote-avro/send` (`/send-multiple`, `/send-batch`) | quote, **Avro** | `Quote` |
+| `GET /request-reply/quote-protobuf/send` (`/send-multiple`, `/send-batch`) | quote, **Protobuf** | `Quote` (mapped from `QuoteReply`) |
+| `GET /request-reply/schema-registry/reply-destination` | — | the two schema-registry demos' own reply topics |
 
 **Operator endpoints** — browsing reads a queue **without consuming it**, so nothing is taken away
 from the consumer that should process it.
@@ -506,6 +513,8 @@ from the consumer that should process it.
 | one — booking | `request-reply/request-1` | `request-reply-queue-1.request-reply-group-1` |
 | two — quote | `request-reply/request-2` | `request-reply-queue-2.request-reply-group-2` |
 | three — inventory | `request-reply/request-3` | `request-reply-queue-3.request-reply-group-3` |
+| quote, Avro | `request-reply/quote-avro/request` | `request-reply-queue-4.request-reply-group-4` |
+| quote, Protobuf | `request-reply/quote-protobuf/request` | `request-reply-queue-5.request-reply-group-5` |
 
 A second service needs **its own request topic as well as its own queue**. Two queues subscribed to
 the same topic each receive a copy of every request, so both services would answer and the requester
@@ -521,6 +530,31 @@ these holds: a slow service would head-of-line block the others on a shared repl
 sit in different trust domains, you want the blast radius of a stuck reply flow bounded, or you want
 per-service reply metrics. Otherwise share — one endpoint per pod beats pods x services. Nothing
 changes on the responder either way: the requester, not the listener, chooses where the reply goes.
+
+### Schema registry demos: the quote service in Avro and in Protobuf
+
+The quote service runs twice more with its payloads governed by
+[Apicurio Registry](http://api-apicurio-apps-dev.ocptnd1.prs/apis/registry/v3) (override with
+`APICURIO_REGISTRY_URL`). Same question, same answer, same shared `Quote` DTO returned by the REST
+endpoint &mdash; only the wire format differs, and all of it is the library's converter plus
+configuration under `solace.schema-registry` in both `application.yaml`s:
+
+| | Avro | Protobuf |
+| :--- | :--- | :--- |
+| What travels | the shared DTOs `Person` → `Quote`, **unchanged**, by Avro reflection (`avro.datum-provider: REFLECT_ALLOW_NULL`) | generated `QuoteRequest` → `QuoteReply` from `shared-proto/src/main/proto/quote.proto`, mapped to and from the DTOs by `QuoteProtoMapper` |
+| Why it is Avro / Protobuf | the `topic-profile` mappings for its topics say `format: AVRO` | a generated `Message` is recognised by type; no setting needed |
+| Server listener | `QuoteAvroConsumer.quote(Person) → Quote` | `QuoteProtobufConsumer.quote(QuoteRequest) → QuoteReply` |
+| Registry artifacts (group `solace-request-reply`) | `quote-avro-request`, `quote-avro-reply` | `quote-protobuf-request`, `quote-protobuf-reply` |
+| Reply destination | its own: `request-reply/quote-avro/reply/<pod>` | its own: `request-reply/quote-protobuf/reply/<pod>` |
+
+Every body carries Apicurio's framing (magic byte, schema id) and a `schemaFormat` user property, so
+the same bytes are readable by any Apicurio consumer. The registry is a dev one with
+`auto-register: true`: the first request of each kind registers its schema. Each demo gets its **own
+reply destination** because a reply topic is also a registry mapping (`…/reply/>` → one artifact for
+every client pod), and the shared destination carries JSON `Person` and `Quote` replies that no single
+mapping could describe. Every other exchange is unaffected: POJOs are governed only on
+`request-reply/quote-avro/>` (`solace.schema-registry.destinations`), so they keep sending plain JSON.
+See [`solace-library/docs/19-schema-registry.md`](solace-library/docs/19-schema-registry.md).
 
 Across all three patterns the three verbs mean the same thing:
 
@@ -556,6 +590,8 @@ gradle :solace-library:test :client:test :server:test
 | `server` &middot; `TaskWorkerTest` | each task handed to this instance is processed once, and a redelivered one reports which attempt it is |
 | `server` &middot; `QuoteConsumerTest` | the second service replies with a type derived from the request |
 | `server` &middot; `InventoryConsumerTest` | the third service maps its request type to a different reply type |
+| `server` &middot; `SchemaQuoteConsumersTest` | the Avro and Protobuf quote services answer as the JSON one does, on the DTOs and on the generated messages |
+| `shared-proto` &middot; `QuoteProtoMapperTest` | `Quote` and `Person` survive the round trip through the Protobuf messages and their bytes |
 | `solace-library` &middot; `SolaceTopicMatcherTest` | Solace wildcard semantics exactly — `*` is one level, `>` is one or more, and neither matches zero |
 | `solace-library` &middot; `TopicDispatchingSolaceListenerTest` | routing by matched subscription, declaration order breaking ties, and an unclaimed message being acknowledged rather than redelivered forever |
 | `solace-library` &middot; `ReplayStartPointTest` | `BEGINNING` and ISO-8601 parsing, and that an unparseable value fails at startup |
@@ -581,6 +617,7 @@ template mocked. End-to-end behaviour is verified by scaling the deployment as s
 | Language | Java | 24 |
 | Framework | Spring Boot / WebFlux | 3.5.4 |
 | Messaging | Solace JCSMP / `solace-spring-boot-bom` | 10.27.2 / 2.5.0 |
+| Schema registry | Apicurio Registry serdes (Avro, Protobuf) / protobuf-java | 3.3.3 / 4.36.1 |
 | Data generation | DataFaker | 2.4.2 |
 | Containerization | Google Jib | 3.4.5 |
 | Orchestration | Skaffold / Kubernetes | v4beta14 |
