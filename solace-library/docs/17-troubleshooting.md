@@ -84,6 +84,30 @@ calling `setTaskExecutor`.
 
 ---
 
+### `solace.schema-registry.url is set but no Apicurio serde module is on the classpath`
+
+The Apicurio jars are optional dependencies of the library. Add the module for each format you use:
+`io.apicurio:apicurio-registry-serde-common-avro`, `…-protobuf`, `…-jsonschema`. The library fails here on
+purpose rather than falling back to plain JSON. The same applies to a format named in
+`solace.schema-registry.formats` whose module is missing.
+
+### `solace.schema-registry.topic-profile is empty, so no topic resolves to a schema`
+
+`TOPIC_PROFILE` is the default strategy and needs mappings. Add `topic-profile` entries, set
+`explicit-artifact.artifact-id`, or choose another `artifact-resolver-strategy`.
+
+### The application hangs on shutdown after using the schema registry
+
+With `http-adapter: VERTX` (or `AUTO` with Vert.x present) each Apicurio client can keep an event loop
+alive until it is closed. The auto-configured `SchemaCodecs` is closed by Spring; one created by hand must
+be closed by whoever created it. The library default, `JDK`, avoids Vert.x entirely.
+
+### `NoSuchMethodError` or `ClassNotFoundException` in `com.google.protobuf` or `com.fasterxml.jackson`
+
+Apicurio 3.3 is built against Protobuf 4.36 and Jackson 2.21; Spring Boot 3.5 manages Jackson at 2.19 and
+does not manage Protobuf at all. Align `protobuf-java` with your generated classes and Apicurio's, and check
+`gradle :<app>:dependencyInsight --dependency protobuf-java` (and `jackson-databind`).
+
 ## 17.2 Binding and provisioning
 
 ### `400 Subscription Already Exists`
@@ -294,6 +318,33 @@ queues subscribed to the same topic, which is the fan-out arrangement rather tha
 one.
 
 ---
+
+### A reply is decoded with the wrong format
+
+The reply carried the request's `schemaFormat` property. Fixed in the header mapper — a header no longer
+overwrites a user property the converter wrote — so this means a custom `SolaceHeaderMapper` that writes
+user properties unconditionally. Skip names already present on the message, as `DefaultSolaceHeaderMapper`
+does.
+
+### One registry artifact per pod
+
+`artifact-resolver-strategy: DESTINATION` (or `TOPIC`) with request-reply: every instance's reply topic
+carries its instance id, so each is a different artifact. Use `TOPIC_PROFILE` and map the reply **prefix**
+with `>`. See [19.5](19-schema-registry.md#195-where-the-schema-comes-from-artifact-resolution).
+
+### `[MISSING_SCHEMA_ID]`, `[VALIDATION_FAILED]`, `[SCHEMA_NOT_FOUND]`, `[UNSUPPORTED_FORMAT]`, `[TYPE_MISMATCH]`
+
+A message will never convert. With `SchemaRegistryErrorHandler` and
+`solace.listener.negative-acknowledgement: true` it is rejected straight to the DMQ; browse it there
+with `browse("#DEAD_MSG_QUEUE", MyType.class)`. `MISSING_SCHEMA_ID` usually means a producer not yet on
+the registry — relax `require-schema-id` while migrating. `SCHEMA_NOT_FOUND` with "No
+solace.schema-registry.topic-profile mapping matches topic" means the topic needs a mapping.
+
+### `[REGISTRY_UNAVAILABLE]` on every message
+
+The registry is unreachable (or refused the credentials: 401/403 are classified here too) and nothing
+was cached. With `cache.fault-tolerant-refresh: true` (the library default) schemas already resolved keep
+working; this appears for schemas first needed during the outage.
 
 ## 17.4 Request-reply
 

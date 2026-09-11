@@ -85,9 +85,22 @@ using one here produced a context where the whole configuration silently vanishe
 | `solaceTransactionManager` | `SolaceTransactionManager` | missing bean | Registered whether or not anything is transactional |
 | `solaceTemplate` | `SolaceTemplate<Object>` | missing bean **by name** | `@Primary`; defaults from `solace.template.*` |
 | `solaceListenerTaskExecutor` | `AsyncTaskExecutor` | missing bean by name | `SimpleAsyncTaskExecutor`, only used by `EXECUTOR` dispatch |
-| `solaceListenerContainerFactory` | `DefaultSolaceListenerContainerFactory` | missing bean by name | Name is `SolaceListenerConfigUtils.DEFAULT_SOLACE_LISTENER_CONTAINER_FACTORY_BEAN_NAME` |
+| `solaceListenerContainerFactory` | `DefaultSolaceListenerContainerFactory` | missing bean by name | Name is `SolaceListenerConfigUtils.DEFAULT_SOLACE_LISTENER_CONTAINER_FACTORY_BEAN_NAME`. Given the application's `SolaceFlowListener` and `SolaceListenerErrorHandler` beans, when there are any |
 | `replyingSolaceTemplateFactory` | `ReplyingSolaceTemplateFactory` | missing bean | Builds additional reply destinations |
 | `replyingSolaceTemplate` | `ReplyingSolaceTemplate` | missing bean **by name** + `solace.request-reply.enabled` ≠ `false` | Built from `solace.request-reply.*` |
+
+Plus, from the imported `SolaceSchemaRegistryConfiguration` — only when `solace.schema-registry.url` is
+set, and imported **first** so that its converter is registered before the core
+`solaceMessageConverter` evaluates `@ConditionalOnMissingBean`:
+
+| Bean name | Type | Condition | Notes |
+| :--- | :--- | :--- | :--- |
+| `solaceSchemaCodecs` | `SchemaCodecs` | missing bean | One Apicurio codec per enabled format (Avro, Protobuf, JSON Schema). Fails startup, naming the fix, when a format's Apicurio module is missing. Never contacts the registry |
+| `solaceMessageConverter` | `SchemaRegistrySolaceMessageConverter` | missing `SolaceMessageConverter` | Replaces the Jackson converter, which it keeps as its fallback |
+| `solaceSchemaRegistryErrorHandler` | `SchemaRegistryErrorHandler` | missing `SolaceListenerErrorHandler` | Rejects non-retryable schema failures |
+
+It has no `@ConditionalOnClass` on the Apicurio jars, on purpose: a configured registry URL with a missing
+jar should fail, not silently fall back to plain JSON. See [19](19-schema-registry.md).
 
 Plus, from the imported `SolaceObservabilityConfiguration`:
 

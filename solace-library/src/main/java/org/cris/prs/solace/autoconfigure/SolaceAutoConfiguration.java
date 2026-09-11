@@ -14,6 +14,7 @@ import org.cris.prs.messaging.solace.core.SolaceTemplate;
 import org.cris.prs.messaging.solace.listener.DefaultSolaceListenerContainerFactory;
 import org.cris.prs.messaging.solace.listener.SolaceFlowListener;
 import org.cris.prs.messaging.solace.listener.SolaceListenerConfigUtils;
+import org.cris.prs.messaging.solace.listener.SolaceListenerErrorHandler;
 import org.cris.prs.messaging.solace.listener.SolaceListenerMetrics;
 import org.cris.prs.messaging.solace.requestreply.ReplyingSolaceTemplate;
 import org.cris.prs.messaging.solace.requestreply.ReplyingSolaceTemplateFactory;
@@ -57,7 +58,10 @@ import org.springframework.core.task.SimpleAsyncTaskExecutor;
         "org.springframework.boot.actuate.autoconfigure.metrics.CompositeMeterRegistryAutoConfiguration"})
 @ConditionalOnClass({JCSMPSession.class, SpringJCSMPFactory.class})
 @EnableConfigurationProperties(SolaceProperties.class)
-@Import({SolaceAnnotationDrivenConfiguration.class, SolaceObservabilityConfiguration.class})
+// SolaceSchemaRegistryConfiguration comes first: an imported configuration's beans are registered
+// before this class's own, which is what lets its converter make solaceMessageConverter() back off.
+@Import({SolaceSchemaRegistryConfiguration.class, SolaceAnnotationDrivenConfiguration.class,
+        SolaceObservabilityConfiguration.class})
 public class SolaceAutoConfiguration {
 
     /** Create the auto-configuration. Instantiated by Spring Boot, not by application code. */
@@ -219,6 +223,9 @@ public class SolaceAutoConfiguration {
      *                             collaborator when Micrometer is absent or metrics are disabled
      * @param flowListener         optional flow lifecycle callback; without one the container's own
      *                             logging is the only reporting
+     * @param errorHandler         optional; decides what happens to a message whose listener threw.
+     *                             Without one each container logs the failure and applies its
+     *                             configured {@code errorOutcome}
      * @return the container factory
      */
     @Bean(name = SolaceListenerConfigUtils.DEFAULT_SOLACE_LISTENER_CONTAINER_FACTORY_BEAN_NAME)
@@ -230,7 +237,8 @@ public class SolaceAutoConfiguration {
             @Qualifier("solaceTemplate") SolaceTemplate<Object> solaceTemplate,
             @Qualifier("solaceListenerTaskExecutor") AsyncTaskExecutor listenerTaskExecutor,
             ObjectProvider<SolaceListenerMetrics> listenerMetrics,
-            ObjectProvider<SolaceFlowListener> flowListener) {
+            ObjectProvider<SolaceFlowListener> flowListener,
+            ObjectProvider<SolaceListenerErrorHandler> errorHandler) {
         DefaultSolaceListenerContainerFactory factory = new DefaultSolaceListenerContainerFactory(
                 sessionFactory, messageConverter, headerMapper, instanceIdProvider, properties.getListener());
         factory.setTransactionManager(transactionManager);
@@ -238,6 +246,7 @@ public class SolaceAutoConfiguration {
         factory.setTaskExecutor(listenerTaskExecutor);
         factory.setListenerMetrics(listenerMetrics.getIfAvailable(() -> SolaceListenerMetrics.NO_OP));
         factory.setFlowListener(flowListener.getIfAvailable());
+        errorHandler.ifAvailable(factory::setErrorHandler);
         return factory;
     }
 

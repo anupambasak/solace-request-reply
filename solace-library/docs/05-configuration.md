@@ -285,6 +285,29 @@ See [16.2](16-operations.md#162-micrometer-metrics) for the meters and
 
 ---
 
+## 5.7a `solace.schema-registry.*`
+
+Optional. Setting `solace.schema-registry.url` turns on [Apicurio Registry](https://www.apicur.io/registry/)
+conversion for Avro, Protobuf and JSON Schema; everything else refines it. The full table, and which
+defaults differ from Apicurio's, is in
+[19.8](19-schema-registry.md#198-configuration-reference-solaceschema-registry).
+
+| Property | Default | Effect |
+| :--- | :--- | :--- |
+| `schema-registry.url` | — | Apicurio REST endpoint, e.g. `http://registry:8080/apis/registry/v3`; enables the feature |
+| `schema-registry.formats` | every format whose Apicurio module is present | `AVRO`, `PROTOBUF`, `JSON_SCHEMA` |
+| `schema-registry.destinations` | empty = all | Topic expressions where POJO payloads are governed (JSON Schema) |
+| `schema-registry.require-schema-id` | `false` | Reject a governed message whose body is not registry-framed |
+| `schema-registry.artifact-resolver-strategy` | `TOPIC_PROFILE` | How a topic resolves to a schema artifact |
+| `schema-registry.topic-profile[]` | — | `topic-expression` → `artifact-id` / `group-id` / `version` |
+| `schema-registry.cache.fault-tolerant-refresh` | **`true`** | Keep serving cached schemas through a registry outage (Apicurio's own default is `false`) |
+| `schema-registry.http-adapter` | **`JDK`** | Apicurio's HTTP client; `JDK` avoids a Vert.x event loop per serde (Apicurio's default is `AUTO`) |
+
+These are **not** endpoint or flow properties: they apply to conversion, on the next message after a
+restart.
+
+---
+
 ## 5.8 Precedence
 
 For a `@SolaceListener` container, from lowest to highest:

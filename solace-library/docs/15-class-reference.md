@@ -12,17 +12,17 @@ outside it — see [4.9](04-spring-integration.md#49-why-the-auto-configuration-
 | Type | Kind | Purpose |
 | :--- | :--- | :--- |
 | `SolaceOperations<T>` | interface | The send contract: six `send` overloads, `executeInTransaction`, and two `browse` overloads. Nested `TransactionCallback<T,R>` with `R doInSolace(SolaceOperations<T>)`. Counterpart of `KafkaOperations`. |
-| `SolaceTemplate<T>` | class | The implementation. Holds the delivery defaults, converts, maps headers, picks the transaction-aware producer. `createMessage` and `producer()` are `protected` for subclassing. |
+| `SolaceTemplate<T>` | class | The implementation. Holds the delivery defaults, converts, maps headers, picks the transaction-aware producer. `createMessage(payload, headers)` and `createMessage(destination, payload, headers)` are public; `producer()` is `protected` for subclassing. |
 | `SolaceSessionFactory` | interface | `getSharedSession`, `createSession`, `getSharedProducer`, `getProducer(session)`, `createTransactedSession()`, `createTransactedSession(session)`, `closeSession`, plus the `default`s `getSessionState()`, `isHealthy()` and `getSessionStatistics(names)`. |
 | `SolaceSessionState` | enum | `NOT_CONNECTED`, `CONNECTED`, `RECONNECTING`, `DOWN`; `isHealthy()`. Four states rather than a boolean, because a reconnecting session is neither healthy nor permanently broken. |
 | `SolaceSessionEvent` | enum | `RECONNECTING`, `RECONNECTED`, `DOWN`, `SUBSCRIPTION_ERROR`, `VIRTUAL_ROUTER_NAME_CHANGED`, `INCOMPLETE_LARGE_MESSAGE`, `UNKNOWN_TRANSACTED_SESSION`, `UNKNOWN`; `from(SessionEvent)`. |
 | `SolaceSessionListener` | interface | `void onSessionEvent(SolaceSessionEventArgs)`. The only way to see a transparent JCSMP reconnect. |
 | `SolaceSessionEventArgs` | class | Event, resulting state, info, exception, response code. |
 | `DefaultSolaceSessionFactory` | class | Wraps `SpringJCSMPFactory`. One lazy shared session, producers cached per session, every created session tracked and closed on `destroy()`. Passes a `SessionEventHandler` so reconnects are visible, and samples JCSMP session statistics. Nested `LoggingPublishEventHandler` logs async publish outcomes. |
-| `SolaceMessageConverter` | interface | `toMessage(Object)` / `fromMessage(BytesXMLMessage, Class)`. |
-| `JacksonSolaceMessageConverter` | class | JSON by default; reuses the application's `ObjectMapper`. Reads the **binary attachment** first, the XML content part as fallback. |
+| `SolaceMessageConverter` | interface | `toMessage(Object)` / `fromMessage(BytesXMLMessage, Class)`, plus the `default` `toMessage(Object, String destination)` that `SolaceTemplate` calls. |
+| `JacksonSolaceMessageConverter` | class | JSON by default; reuses the application's `ObjectMapper`. Reads the **binary attachment** first, the XML content part as fallback; static `bodyOf(BytesXMLMessage)` exposes that, reading a duplicate buffer so the body can be read twice. |
 | `SolaceHeaderMapper` | interface | `fromHeaders(Map, XMLMessage)` / `toHeaders(BytesXMLMessage)`. |
-| `DefaultSolaceHeaderMapper` | class | Maps the `solace_*` fields, copies everything else to SDT user properties. Statics: `toDestination(Object)` (`queue:` prefix ⇒ queue), `sanitize(Map)`, `deliveryCountOf(BytesXMLMessage)` (guarded, `-1` when unsupported), constant `QUEUE_PREFIX`. |
+| `DefaultSolaceHeaderMapper` | class | Maps the `solace_*` fields, copies everything else to SDT user properties — never overwriting one the converter already wrote. Statics: `toDestination(Object)` (`queue:` prefix ⇒ queue), `sanitize(Map)`, `deliveryCountOf(BytesXMLMessage)` (guarded, `-1` when unsupported), constant `QUEUE_PREFIX`. |
 | `SolaceHeaders` | final class | The well-known header names. See [12.2](12-conversion-and-headers.md#122-solaceheadermapper). |
 | `SolaceBrowser<T>` | interface | `AutoCloseable` cursor over a queue's spooled messages: `next()`, `take(int)`, `stream()`, `stream(int)`, `remove(record)`. Reads without acknowledging. |
 | `DefaultSolaceBrowser<T>` | class | The implementation, over a JCSMP `Browser`. Lazy stream, and `getNextNoWait()` for a zero timeout because JCSMP reads `getNext(0)` as "wait forever". |
@@ -113,6 +113,31 @@ unaffected.
 
 ---
 
+## 15.5a `schema` — optional Apicurio Registry integration (Avro, Protobuf, JSON Schema)
+
+The only package that imports `io.apicurio`, Apache Avro or Protocol Buffers, and only in the codecs and
+`SolaceTopicProfileStrategy`.
+
+| Type | Kind | Purpose |
+| :--- | :--- | :--- |
+| `SchemaRegistrySolaceMessageConverter` | class | Registry-aware converter with a fallback; `setDestinations`, `setRequireSchemaId`, `isGoverned`, `getCodecs`. |
+| `SchemaCodec` | interface | One format's serde in bytes: `getFormat`, `isSchemaPayload`, `producesType`, `serialize`, `deserialize`, `close`. |
+| `SchemaCodecs` | final class | The enabled codecs: `create(settings, objectMapper, classLoader)`, `of(...)`, `get`, `all`, `forPayload`, `forTargetType`, `close`. |
+| `ApicurioSchemaCodec` | abstract class | Lazy Apicurio serde creation; closes what it created. Nested `Lazy<T>`. |
+| `AvroSchemaCodec` | class | Avro records; generic or specific by the listener's type. |
+| `ProtobufSchemaCodec` | class | Protobuf messages; `DynamicMessage` re-parsed into the listener's generated type. |
+| `JsonSchemaCodec` | class | JSON Schema with the application's `ObjectMapper`; decodes to `JsonNode`. |
+| `SolaceTopicProfileStrategy<S>` | class | Apicurio `ArtifactReferenceResolverStrategy` over Solace topic expressions; `match(topic)`. |
+| `SchemaFormat` | enum | `AVRO`, `PROTOBUF`, `JSON_SCHEMA`; `getArtifactType()`, `getSerializerClassName()`, `getArtifact()`, `fromArtifactType(String)`. |
+| `SchemaRegistryHeaders` | final class | `SCHEMA_FORMAT`, `MAGIC_BYTE`, `isFramed(byte[])`. |
+| `SchemaRegistrySettings` | class | Bound settings, Apicurio-free; `validate()`. Nested `OAuth`, `Tls`, `TopicMapping`, `ExplicitArtifact`, `Cache`, `Retry`, `Avro`, `Protobuf`, `JsonSchema`; enums `HttpAdapter`, `IfArtifactExists`, `IdOption`, `AvroEncoding`. |
+| `SchemaRegistryConversionException` | class | `getReason()`; `classify(message, cause)`. Nested enum `Reason` with `isRetryable()`. |
+| `SchemaRegistryErrorHandler` | class | `REJECTED` for non-retryable schema failures, delegate otherwise; static `find(Throwable)`. |
+
+→ [19. Schema Registry](19-schema-registry.md)
+
+---
+
 ## 15.6 `support`
 
 | Type | Kind | Purpose |
@@ -145,7 +170,8 @@ unaffected.
 | `SolaceAnnotationDrivenConfiguration` | `@Configuration` carrying `@EnableSolace`, conditional on the post-processor being absent. Imported by the auto-configuration. |
 | `SolaceBootstrapConfiguration` | `ImportBeanDefinitionRegistrar` registering the post-processor and the registry as `ROLE_INFRASTRUCTURE` beans. |
 | `SolaceObservabilityConfiguration` | Imported by the auto-configuration. Two nested configurations, each guarded separately: Micrometer meters, and the Actuator health indicator. |
-| `SolaceProperties` | `@ConfigurationProperties("solace")`. Nested `Template`, `Listener extends ContainerProperties`, `RequestReply extends ReplyEndpointSpec`, `Metrics`, `Health`. |
+| `SolaceSchemaRegistryConfiguration` | Imported **first** by the auto-configuration; active when `solace.schema-registry.url` is set. Apicurio codecs, registry converter, error handler. |
+| `SolaceProperties` | `@ConfigurationProperties("solace")`. Nested `Template`, `Listener extends ContainerProperties`, `RequestReply extends ReplyEndpointSpec`, `Metrics`, `Health`, `SchemaRegistry extends SchemaRegistrySettings`. |
 
 → [4. Spring integration](04-spring-integration.md), [5. Configuration](05-configuration.md)
 
@@ -156,7 +182,10 @@ unaffected.
 | Bean name | Type | Condition |
 | :--- | :--- | :--- |
 | `solaceInstanceIdProvider` | `InstanceIdProvider` | missing bean |
-| `solaceMessageConverter` | `SolaceMessageConverter` | missing bean |
+| `solaceMessageConverter` | `SolaceMessageConverter` | missing bean (the registry converter when `solace.schema-registry.url` is set) |
+| `solaceSchemaCodecs` | `SchemaCodecs` | missing bean + `solace.schema-registry.url` |
+| `solaceSchemaRegistryErrorHandler` | `SchemaRegistryErrorHandler` | missing `SolaceListenerErrorHandler` + `solace.schema-registry.url` |
+| *(yours)* | `SolaceListenerErrorHandler` | optional — a single bean is given to every container of the default factory |
 | `solaceHeaderMapper` | `SolaceHeaderMapper` | missing bean |
 | `solaceSessionFactory` | `SolaceSessionFactory` | missing bean |
 | `solaceTransactionManager` | `SolaceTransactionManager` | missing bean |

@@ -79,6 +79,7 @@ Read in order for a full picture, or jump to what you need.
 | **[9. Consuming messages](docs/09-consuming-messages.md)** | Containers, endpoint naming, provisioning, concurrency, dispatch modes, settlement outcomes, delivery counts, flow events and tuning, redelivery and the DMQ |
 | **[10. Request-reply](docs/10-request-reply.md)** | Correlation, per-instance reply destinations, timeouts, futures, and when to give a service its own reply endpoint |
 | **[11. Transactions](docs/11-transactions.md)** | Solace local transactions through `@Transactional` and `TransactionTemplate`, the transacted-session budget, and the database interaction |
+| **[19. Schema Registry](docs/19-schema-registry.md)** | Avro, Protobuf and JSON Schema payloads governed by Apicurio Registry: the three formats, what is routed through the registry, the wire format, artifact resolution with per-instance reply topics, caching, and failure outcomes |
 
 ### Reference
 
@@ -103,6 +104,7 @@ org.cris.prs.messaging.solace
  ├── requestreply/   ReplyingSolaceTemplate, ReplyEndpointSpec, the factory, futures
  ├── transaction/    SolaceTransactionManager, resource holder, utils
  ├── support/        InstanceIdProvider, ReplyDestinationResolver
+ ├── schema/         optional schema registry converter: Avro, Protobuf, JSON Schema via Apicurio
  └── annotation/     @EnableSolace, @SolaceListener
 
 org.cris.prs.solace.autoconfigure     ← deliberately OUTSIDE org.cris.prs.messaging
@@ -150,4 +152,5 @@ be resolved and doclint reports it as an error. Use `{@code …}`.
 
 ## Requirements
 
-Java 21+ · Spring Boot 3.5.x · Solace JCSMP 10.27.x via `solace-java-spring-boot-starter` · Jackson
+Java 21+ · Spring Boot 3.5.x · Solace JCSMP 10.27.x via `solace-java-spring-boot-starter` · Jackson ·
+optionally Apicurio Registry serdes 3.3.x (Avro, Protobuf, JSON Schema)

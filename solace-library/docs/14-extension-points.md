@@ -9,11 +9,12 @@ Every collaborator is an interface with a default implementation registered
 
 | Interface | Default | Replace it to |
 | :--- | :--- | :--- |
-| `SolaceMessageConverter` | `JacksonSolaceMessageConverter` | Change the wire format — Protobuf, Avro, plain text, a schema registry |
+| `SolaceMessageConverter` | `JacksonSolaceMessageConverter`, or `SchemaRegistrySolaceMessageConverter` when `solace.schema-registry.url` is set | Change the wire format — plain text, a custom binary format. For Avro, Protobuf or JSON Schema with Apicurio Registry, configure it rather than replace it: [19](19-schema-registry.md) |
+| `SchemaCodecs` (`SchemaCodec`) | `AvroSchemaCodec`, `ProtobufSchemaCodec`, `JsonSchemaCodec` over Apicurio | Change how the registry converter serialises a format — a test fake, or a codec for another registry: `SchemaCodecs.of(myCodec)` |
 | `SolaceHeaderMapper` | `DefaultSolaceHeaderMapper` | Change header naming, add tracing propagation, filter what crosses |
 | `SolaceSessionFactory` | `DefaultSolaceSessionFactory` | Change session strategy — pooling, per-tenant connections |
 | `InstanceIdProvider` | `HostnameInstanceIdProvider` | Change how this instance is named |
-| `SolaceListenerErrorHandler` | logging lambda | Route failures to a dead-letter service, metrics, alerting — and decide each message's settlement outcome |
+| `SolaceListenerErrorHandler` | logging lambda; `SchemaRegistryErrorHandler` when the registry is enabled | Route failures to a dead-letter service, metrics, alerting — and decide each message's settlement outcome. A single bean is given to every container of the default factory |
 | `SolaceFlowListener` | none (logging only) | Act on a flow reconnect, or on becoming the active consumer |
 | `SolaceSessionListener` | none (logging only) | Act on a session reconnect or an HA failover |
 | `SolaceListenerContainerFactory` | `DefaultSolaceListenerContainerFactory` | Change how containers are built |
@@ -90,6 +91,25 @@ public class TracingSolaceHeaderMapper implements SolaceHeaderMapper {
 Delegating rather than reimplementing keeps the field mapping and the never-written list correct.
 
 ## 14.4 An error handler
+
+Declaring the bean is enough — the auto-configured container factory gives it to every container:
+
+```java
+@Bean
+SolaceListenerErrorHandler solaceListenerErrorHandler(DeadLetterService deadLetters, MeterRegistry meters) {
+    return (message, ex) -> {
+        meters.counter("solace.listener.errors").increment();
+        deadLetters.record(message, ex);
+    };
+}
+```
+
+(Before schema registry support was added a declared handler was silently ignored and only a hand-built
+factory could carry one; that was a bug, now fixed.) With Schema Registry enabled, wrap your handler in
+`SchemaRegistryErrorHandler` to keep poison-message rejection — see
+[19.7](19-schema-registry.md#197-failures-and-settlement).
+
+A hand-built factory still works, and is the way to give *some* listeners a different handler:
 
 ```java
 @Bean

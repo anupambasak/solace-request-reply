@@ -31,6 +31,10 @@ The library brings its own transitive dependencies:
 | `com.fasterxml.jackson.core:jackson-databind` | Default payload conversion |
 | `org.springframework.boot:spring-boot-starter-actuator` | Health/metrics surface for the host app |
 
+Schema registry support is optional. It is backed by Apicurio Registry: add
+`io.apicurio:apicurio-registry-serde-common-avro`, `…-protobuf` and/or `…-jsonschema` only for the formats
+you use. See [19. Schema Registry](19-schema-registry.md).
+
 ## 2.2 Configure the broker connection
 
 The connection itself is *not* this library's concern — it belongs to the Solace starter:

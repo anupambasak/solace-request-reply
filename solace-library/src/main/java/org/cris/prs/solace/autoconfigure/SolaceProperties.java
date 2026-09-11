@@ -4,6 +4,7 @@ import com.solacesystems.jcsmp.DeliveryMode;
 import org.cris.prs.messaging.solace.listener.ContainerProperties;
 import org.cris.prs.messaging.solace.observability.SolaceSessionStatistics;
 import org.cris.prs.messaging.solace.requestreply.ReplyEndpointSpec;
+import org.cris.prs.messaging.solace.schema.SchemaRegistrySettings;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
 import org.springframework.boot.context.properties.ConfigurationProperties;
@@ -36,6 +37,8 @@ public class SolaceProperties {
     private final Metrics metrics = new Metrics();
 
     private final Health health = new Health();
+
+    private final SchemaRegistry schemaRegistry = new SchemaRegistry();
 
     /** Create the properties with every value at its documented default. */
     public SolaceProperties() {
@@ -139,5 +142,18 @@ public class SolaceProperties {
          * that only consume and never originate requests, so no reply endpoint is bound.
          */
         private boolean enabled = true;
+    }
+
+    /**
+     * Apicurio Registry, bound from {@code solace.schema-registry.*}. Setting {@code url} enables
+     * it; see {@link SchemaRegistrySettings} for every property.
+     */
+    @Data
+    @EqualsAndHashCode(callSuper = true)
+    public static class SchemaRegistry extends SchemaRegistrySettings {
+
+        /** Create schema registry settings with every value at its documented default. */
+        public SchemaRegistry() {
+        }
     }
 }

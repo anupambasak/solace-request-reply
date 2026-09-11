@@ -62,8 +62,20 @@ dependencies {
     api 'org.springframework:spring-tx'
     api 'com.fasterxml.jackson.core:jackson-databind'
 
+    // Apicurio Registry serdes are optional, like Micrometer: only the schema package uses them, and an
+    // application adds the format modules it needs (Avro, Protobuf, JSON Schema). These are Apicurio's
+    // generic, Kafka-free serde modules.
+    compileOnly libs.apicurioSerdeAvro
+    compileOnly libs.apicurioSerdeProtobuf
+    compileOnly libs.apicurioSerdeJsonSchema
+
     testImplementation platform('org.junit:junit-bom:5.10.0')
     testImplementation 'org.junit.jupiter:junit-jupiter'
+    // ApplicationContextRunner, with the AssertJ and spring-test classes it needs; as client and server use.
+    testImplementation 'org.springframework.boot:spring-boot-starter-test'
+    testImplementation libs.apicurioSerdeAvro
+    testImplementation libs.apicurioSerdeProtobuf
+    testImplementation libs.apicurioSerdeJsonSchema
 }
 
 test {

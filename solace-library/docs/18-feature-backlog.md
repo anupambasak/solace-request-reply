@@ -38,6 +38,7 @@ marks unsupported for JCSMP, or that lives outside the client API entirely, is l
 | Structured data types (partially) | headers → SDT user properties |
 | Micrometer metrics | `SolaceListenerMetrics`, `SolaceRequestReplyMetrics`, the `observability` package |
 | Actuator health indicator | `SolaceHealthIndicator`, `SolaceSessionFactory.isHealthy()` |
+| Schema registry — Avro, Protobuf, JSON Schema via Apicurio Registry | `SchemaRegistrySolaceMessageConverter`, `solace.schema-registry.*` |
 
 ---
 
@@ -45,6 +46,57 @@ marks unsupported for JCSMP, or that lives outside the client API entirely, is l
 
 Both were Tier-"beyond the platform page" items; they are described here rather than only in the
 table above because the design choices are worth recording.
+
+### Schema registry: Avro, Protobuf and JSON Schema via Apicurio Registry
+
+*Was Tier 3, "Solace Schema Registry SERDES". Implemented on **Apicurio Registry** instead, with its
+generic, Kafka-free serde modules `io.apicurio:apicurio-registry-serde-common-{avro,protobuf,jsonschema}`
+3.3.x. Planned in [plans/schema-registry-serdes.md](plans/schema-registry-serdes.md); documented in
+[19. Schema Registry](19-schema-registry.md).*
+
+The backlog called it "another `SolaceMessageConverter`". The converter is the visible part, but reading
+the code against a registry-serde model found things the feature would have hit on day one, and those
+shaped it more than the converter did:
+
+- **The converter never saw the destination.** Artifact resolution works from the topic, and
+  `SolaceTemplate` dropped the destination before conversion. Fixed with a `default`
+  `toMessage(payload, destination)`, so every existing converter compiles unchanged.
+- **The header mapper would overwrite converter-written properties.** A listener replying with the
+  request's headers copied would have stamped the request's `schemaFormat` onto the reply. The mapper
+  now never overwrites a user property the converter wrote.
+- **Per-instance reply topics break topic-named artifacts.** Apicurio's topic strategies would create one
+  artifact per pod, forever. The default strategy is therefore this library's own `TOPIC_PROFILE`
+  (`SolaceTopicProfileStrategy`), which maps Solace wildcard expressions to artifacts. The docs say to
+  map the reply prefix with `>`.
+
+A fourth was a latent bug unrelated to schemas: a declared `SolaceListenerErrorHandler` bean was never
+given to the auto-configured container factory. It was fixed first, because rejecting poison messages is
+the point of `SchemaRegistryErrorHandler`.
+
+Decisions worth recording:
+
+- **Apicurio's standard framing is kept.** The body is `[0x00][id][payload]`, the same bytes Apicurio's
+  Kafka serdes write, so governed payloads cross a Kafka/Solace bridge unchanged. The format also travels
+  as a `schemaFormat` user property, which lets all three formats be enabled at once and gives selectors
+  something to filter on.
+- **The payload type picks the format** outbound: Avro records go to Avro, Protobuf messages to Protobuf,
+  and POJOs to JSON Schema on governed destinations.
+- **JSON Schema uses the application's `ObjectMapper`** both ways and decodes to `JsonNode`, so one
+  validating deserializer serves every listener type. **Protobuf** decodes to `DynamicMessage` and
+  re-parses it into the listener's generated class. Apicurio's own mechanism for both is a single fixed
+  return class per deserializer, which can't serve a container whose listeners want different types.
+- **Nothing contacts the registry at startup**, and `cache.fault-tolerant-refresh` defaults to `true`
+  against Apicurio's `false`, so a registry outage means "no new schemas" rather than "no messages".
+- **`http-adapter` defaults to `JDK`**, against Apicurio's `AUTO`: no Vert.x event loop per serde, and no
+  second Netty beside WebFlux's.
+- **A configured URL with a missing jar fails startup**, rather than falling back silently to plain JSON.
+
+An earlier draft targeted Solace's own Schema Registry SERDES. That needed JCSMP 10.28+ (`SerdeMessage`)
+and therefore a JCSMP pin above the starter BOM. Apicurio needs neither, so the pin was dropped with it.
+
+**Still open:** the Apicurio calls were written against the Apicurio 3.3.3 *source*. Maven Central wasn't
+reachable where they were written, so the first real build is the jar-level confirmation (constraint
+#23). Metrics per schema, and a demo exchange on a deployed registry, are not done.
 
 ### Micrometer metrics
 
@@ -407,7 +459,6 @@ documentation, not capability.
 | **Proxy connections** (HTTP, SOCKS5) | Config passthrough for restricted networks. **XS** |
 | **Durable endpoint deprovisioning** | The library provisions but never removes. A `deprovisionOnStop` flag would help ephemeral test environments; dangerous as a default. **S** |
 | **On-behalf-of subscription manager** | Lets one client manage another's subscriptions. Niche, but the only way to pre-subscribe an endpoint for a client that has not connected yet. **M** |
-| **Solace Schema Registry SERDES** (10.28+) | Another `SolaceMessageConverter`, with schema validation and evolution. **M** |
 
 ---
 
@@ -454,4 +505,4 @@ Tier 1 is empty. What remains is genuinely larger work, in rough order of value:
 
 ---
 
-**Back to:** [README](../README.md)
+**Next:** [19. Schema Registry](19-schema-registry.md)

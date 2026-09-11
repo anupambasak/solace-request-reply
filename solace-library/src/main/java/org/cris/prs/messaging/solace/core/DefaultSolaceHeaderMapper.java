@@ -8,6 +8,7 @@ import com.solacesystems.jcsmp.XMLMessage;
 import lombok.extern.slf4j.Slf4j;
 
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Set;
@@ -38,12 +39,21 @@ public class DefaultSolaceHeaderMapper implements SolaceHeaderMapper {
             "id",
             "timestamp");
 
-    /** {@inheritDoc} */
+    /**
+     * {@inheritDoc}
+     *
+     * <p>A user property already present on the message is left alone: it was written by the
+     * {@link SolaceMessageConverter}, which owns it. That is what stops a header copied from an inbound
+     * message &mdash; a schema id, typically, when a listener replies with
+     * {@code MessageBuilder.fromMessage(request)} &mdash; from overwriting the value the converter
+     * wrote for the outbound payload.</p>
+     */
     @Override
     public void fromHeaders(Map<String, Object> headers, XMLMessage message) {
         if (headers == null || headers.isEmpty()) {
             return;
         }
+        Set<String> converterOwned = existingUserPropertyNames(message);
         SDTMap userProperties = null;
         for (Map.Entry<String, Object> entry : headers.entrySet()) {
             String name = entry.getKey();
@@ -59,6 +69,11 @@ public class DefaultSolaceHeaderMapper implements SolaceHeaderMapper {
                 case SolaceHeaders.PRIORITY -> message.setPriority(asInt(value));
                 case SolaceHeaders.REPLY_TO -> message.setReplyTo(toDestination(value));
                 default -> {
+                    if (converterOwned.contains(name)) {
+                        log.debug("Header '{}' not applied: the converter already wrote that user "
+                                + "property, and the converter's value wins", name);
+                        continue;
+                    }
                     if (userProperties == null) {
                         userProperties = message.getProperties() != null
                                 ? message.getProperties()
@@ -153,6 +168,20 @@ public class DefaultSolaceHeaderMapper implements SolaceHeaderMapper {
             return JCSMPFactory.onlyInstance().createQueue(name.substring(QUEUE_PREFIX.length()));
         }
         return JCSMPFactory.onlyInstance().createTopic(name);
+    }
+
+    private static Set<String> existingUserPropertyNames(XMLMessage message) {
+        SDTMap properties = message.getProperties();
+        if (properties == null) {
+            return Set.of();
+        }
+        try {
+            return new HashSet<>(properties.keySet());
+        }
+        catch (Exception ex) {
+            log.debug("Unable to read the user properties already on the message", ex);
+            return Set.of();
+        }
     }
 
     private boolean isIgnored(String name) {

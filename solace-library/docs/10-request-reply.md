@@ -177,6 +177,12 @@ Four conditions justify a separate one:
 | **Blast radius** | A stuck or flooded reply flow then affects one service instead of all of them. |
 | **Observability** | Per-service reply depth and rate become separate broker-side metrics. |
 
+A fifth applies with a schema registry: a shared reply destination carries several reply types, and no
+single topic-to-artifact mapping fits them all (Avro's `RECORD` strategy is the exception). See
+[19.5](19-schema-registry.md#195-where-the-schema-comes-from-artifact-resolution). Whatever the reason,
+map a reply destination in `solace.schema-registry.topic-profile` by its **prefix with `>`**, never by
+the resolved per-instance topic.
+
 ### How
 
 ```java

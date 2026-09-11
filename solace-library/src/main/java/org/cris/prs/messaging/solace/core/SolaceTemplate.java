@@ -106,7 +106,7 @@ public class SolaceTemplate<T> implements SolaceOperations<T> {
     /** {@inheritDoc} */
     @Override
     public void send(String destination, T payload, Map<String, Object> headers) {
-        XMLMessage message = createMessage(payload, headers);
+        XMLMessage message = createMessage(destination, payload, headers);
         send(DefaultSolaceHeaderMapper.toDestination(destination), message);
     }
 
@@ -118,7 +118,7 @@ public class SolaceTemplate<T> implements SolaceOperations<T> {
         String destination = target != null ? target.toString() : this.defaultDestination;
         Assert.state(StringUtils.hasText(destination), "No '" + SolaceHeaders.TARGET_DESTINATION
                 + "' header and no 'defaultDestination' configured");
-        XMLMessage solaceMessage = createMessage(message.getPayload(), headers);
+        XMLMessage solaceMessage = createMessage(destination, message.getPayload(), headers);
         send(DefaultSolaceHeaderMapper.toDestination(destination), solaceMessage);
     }
 
@@ -222,7 +222,27 @@ public class SolaceTemplate<T> implements SolaceOperations<T> {
      * @return a message with delivery mode, DMQ eligibility, expiry and priority applied
      */
     public XMLMessage createMessage(Object payload, Map<String, Object> headers) {
-        XMLMessage message = this.messageConverter.toMessage(payload);
+        return createMessage(null, payload, headers);
+    }
+
+    /**
+     * Build a Solace message for the given payload and destination, applying the template defaults.
+     *
+     * <p>The destination is passed to
+     * {@link SolaceMessageConverter#toMessage(Object, String)}, so a converter whose wire format
+     * depends on where the message goes &mdash; one resolving a schema from the topic &mdash; can
+     * see it. The message is <em>not</em> addressed to it; publish it with
+     * {@link #send(Destination, XMLMessage)}.</p>
+     *
+     * @param destination the destination the message is intended for, as given to {@code send};
+     *                    may be {@code null}
+     * @param payload     the payload to serialise; may be {@code null}, producing an empty body
+     * @param headers     headers to apply; may be {@code null} or empty. A header never overwrites a
+     *                    user property the converter wrote
+     * @return a message with delivery mode, DMQ eligibility, expiry and priority applied
+     */
+    public XMLMessage createMessage(String destination, Object payload, Map<String, Object> headers) {
+        XMLMessage message = this.messageConverter.toMessage(payload, destination);
         message.setDeliveryMode(this.deliveryMode);
         message.setDMQEligible(this.dmqEligible);
         if (this.timeToLive > 0) {

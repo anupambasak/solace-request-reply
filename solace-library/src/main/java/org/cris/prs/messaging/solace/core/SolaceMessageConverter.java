@@ -14,6 +14,10 @@ import com.solacesystems.jcsmp.XMLMessage;
  * <p>Implementations must be thread safe: one converter serves every template and listener
  * container in the application.</p>
  *
+ * <p>A converter may also write SDT user properties &mdash; a schema id, say. Those belong to the
+ * converter: {@link DefaultSolaceHeaderMapper} never overwrites a user property the converter has
+ * already set, so a stale header copied from an inbound message cannot corrupt it.</p>
+ *
  * @see JacksonSolaceMessageConverter
  */
 public interface SolaceMessageConverter {
@@ -29,6 +33,26 @@ public interface SolaceMessageConverter {
      * @throws SolaceMessagingException if the payload cannot be serialised
      */
     XMLMessage toMessage(Object payload);
+
+    /**
+     * Create a Solace message carrying the given payload, for publication to a known destination.
+     *
+     * <p>This is the method {@link SolaceTemplate} calls. A converter whose wire format depends on
+     * where the message is going &mdash; a schema registry resolving the schema from the topic, for
+     * instance &mdash; overrides it; every other converter inherits this default, which ignores the
+     * destination, so an existing implementation keeps compiling and behaving exactly as before.</p>
+     *
+     * @param payload     the payload to serialise; may be {@code null}, which should produce an empty body
+     * @param destination the destination exactly as it was given to {@code send}, so a queue carries
+     *                    its {@value DefaultSolaceHeaderMapper#QUEUE_PREFIX} prefix &mdash; resolve it
+     *                    with {@link DefaultSolaceHeaderMapper#toDestination(Object)}. {@code null}
+     *                    when the message is built without a destination
+     * @return a new message carrying the serialised payload
+     * @throws SolaceMessagingException if the payload cannot be serialised
+     */
+    default XMLMessage toMessage(Object payload, String destination) {
+        return toMessage(payload);
+    }
 
     /**
      * Convert the body of a received message into the requested type.

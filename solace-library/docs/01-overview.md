@@ -124,7 +124,9 @@ The library does not hide these, so it is worth being precise about them.
 - **XA / distributed transactions.** JCSMP does not offer them.
 - **Batch listeners.** One message per invocation. (See [18. Feature backlog](18-feature-backlog.md).)
 - **Queue depth as a number.** Browsing counts by walking; a real depth is a SEMP question.
-- **Schema registry, Avro, Protobuf.** The converter SPI is the extension point.
+- **Schema registries other than Apicurio.** Avro, Protobuf and JSON Schema are supported through
+  Apicurio Registry ([19](19-schema-registry.md)); another registry plugs in behind the `SchemaCodec`
+  seam, or the converter SPI.
 - **Broker administration.** It provisions the endpoints it needs and nothing else; use SEMP or the
   admin UI for the rest.
 - **Its own retry policy with back-off.** Redelivery is the broker's, governed by settlement

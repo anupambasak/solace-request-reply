@@ -108,11 +108,28 @@ public class JacksonSolaceMessageConverter implements SolaceMessageConverter {
      * attachment is read first, with the XML content kept as a fallback for senders that use it.</p>
      */
     private byte[] extractBody(BytesXMLMessage message) {
+        return bodyOf(message);
+    }
+
+    /**
+     * Read a received message's body, from wherever the sender put it: the text of a
+     * {@code TextMessage}, else the binary attachment, else the XML content part.
+     *
+     * <p>Reads a duplicate of the attachment buffer, so the message can be read again &mdash; by a
+     * fallback converter after another has inspected the body, for instance.</p>
+     *
+     * @param message the received message
+     * @return the body; empty, never {@code null}, when there is none
+     */
+    public static byte[] bodyOf(BytesXMLMessage message) {
         if (message instanceof TextMessage textMessage) {
             String text = textMessage.getText();
             return text == null ? new byte[0] : text.getBytes(StandardCharsets.UTF_8);
         }
         ByteBuffer attachment = message.getAttachmentByteBuffer();
+        if (attachment != null) {
+            attachment = attachment.duplicate();
+        }
         if (attachment != null && attachment.hasRemaining()) {
             byte[] bytes = new byte[attachment.remaining()];
             attachment.get(bytes);

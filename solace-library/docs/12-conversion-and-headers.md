@@ -10,12 +10,19 @@ payload format and header representation goes through them, and both are replace
 ```java
 public interface SolaceMessageConverter {
     XMLMessage toMessage(Object payload);
+    default XMLMessage toMessage(Object payload, String destination) { return toMessage(payload); }
     Object fromMessage(BytesXMLMessage message, Class<?> targetType);
 }
 ```
 
 The counterpart of Spring for Kafka's `RecordMessageConverter`. Deliberately minimal: body in, body
-out, no header involvement (that is the header mapper's job) and no destination involvement.
+out, no header involvement (that is the header mapper's job).
+
+`SolaceTemplate` calls the two-argument `toMessage`, passing the destination exactly as given to
+`send` (a queue keeps its `queue:` prefix; resolve it with `DefaultSolaceHeaderMapper.toDestination`).
+A converter whose wire format depends on where the message goes — a schema registry resolving the
+schema from the topic — overrides it. Every other converter inherits the `default`, which ignores the
+destination, so existing implementations compile and behave as before.
 
 ### `JacksonSolaceMessageConverter` — the default
 
@@ -127,6 +134,10 @@ responder, including one not written with this library.
    are either inbound-only metadata or routing instructions.
 4. `solace_replyTo` resolves through `DefaultSolaceHeaderMapper.toDestination`: a value prefixed
    `queue:` becomes a queue, anything else a topic.
+5. **A header never overwrites a user property the converter wrote.** The converter owns what it
+   wrote. Without this rule a listener replying with `MessageBuilder…copyHeaders(request.getHeaders())`
+   would stamp the *request's* `schemaFormat` onto a reply that may be in a different format. See
+   [19.4](19-schema-registry.md#194-on-the-wire).
 
 ### Inbound rules
 
@@ -190,6 +201,17 @@ the policy depends on *how many times* — see [9.7](09-consuming-messages.md#97
 
 The payload type is derived from the first non-framework parameter, so a listener taking only headers
 and the raw message performs no body conversion at all.
+
+---
+
+## 12.5 Schema Registry
+
+`SchemaRegistrySolaceMessageConverter` validates and serialises payloads against schemas held in Apicurio
+Registry — Apache Avro, Google Protocol Buffers and JSON Schema — and falls back to this chapter's Jackson
+converter for everything the registry does not govern. Its bodies carry Apicurio's standard framing
+(magic byte, schema id, payload), and it reads bodies through `JacksonSolaceMessageConverter.bodyOf`, the
+same attachment-first logic described above. It is enabled by `solace.schema-registry.url`; see
+[19. Schema Registry](19-schema-registry.md).
 
 ---
 
