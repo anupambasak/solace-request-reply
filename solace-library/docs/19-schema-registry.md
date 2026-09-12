@@ -251,6 +251,7 @@ interchangeable:
 | :--- | :--- | :--- | :--- |
 | `auto-register: true` | the schema Apicurio derived from the payload | the first serialisation | development, Avro and Protobuf only |
 | `registration.schemas` | a schema file you wrote, from a Spring resource location | startup or the first message, see below | any format, any environment |
+| `registration.include-topic-profile` | the Avro or Protobuf schema derived from a `topic-profile` mapping's `payload-class` | startup or the first message, as `mode` says | Avro and Protobuf, when you would rather register at initialization than on the first message |
 | outside the application | whatever CI or the registry UI publishes | before deployment | production |
 
 **`auto-register` cannot do JSON Schema.** Apicurio derives an Avro schema from the class and reads a
@@ -303,6 +304,40 @@ read. A failed attempt registers nothing, so the next one tries again.
 start under `STARTUP`, and the send or receive fails under `FIRST_MESSAGE`. Turn it on when a deployment
 should not go live with a schema the registry would not take; leave it off when an instance must start
 whatever the registry is doing.
+
+**Registering `topic-profile` schemas.** `registration.schemas` needs a file per artifact. For Avro and
+Protobuf that file is redundant &mdash; the schema is already derivable, from the class (Avro) or the
+generated descriptor (Protobuf), which is exactly what `auto-register` does lazily on the first message.
+`registration.include-topic-profile: true` registers those at initialization instead: give each
+`topic-profile` mapping a `payload-class`, and the library derives and publishes its schema alongside the
+declared ones, under the same `mode`, `fail-fast` and `if-exists`.
+
+```yaml
+solace:
+  schema-registry:
+    registration:
+      mode: STARTUP
+      include-topic-profile: true
+    topic-profile:
+      - topic-expression: "request-reply/quote-avro/request"
+        artifact-id: quote-avro-request
+        format: AVRO                                 # POJO written as Avro; needs a reflect datum provider
+        payload-class: cris.prs.messaging.Person
+      - topic-expression: "request-reply/quote-protobuf/request"
+        artifact-id: quote-protobuf-request          # no format: a generated message is Protobuf
+        payload-class: cris.prs.messaging.proto.QuoteRequest
+```
+
+The format is resolved from the mapping and the class: `format: AVRO` derives an Avro schema by reflection
+(so `avro.datum-provider` must be `REFLECT` or `REFLECT_ALLOW_NULL`, or the class a generated
+`SpecificRecord`); a generated `com.google.protobuf.Message` derives a Protobuf schema from its descriptor.
+A mapping that resolves to **JSON Schema** &mdash; a POJO with no `format` &mdash; is **skipped**, because
+that format cannot be inferred; declare those under `registration.schemas`. A mapping with no
+`payload-class` is skipped too. When an artifact is both declared and derivable, the declared file wins.
+
+Deriving a schema contacts neither a message nor the registry, so an instance still starts while the
+registry is down; only the publish step needs it, exactly as for declared schemas.
+
 
 ---
 
@@ -406,11 +441,13 @@ An unset property keeps the Apicurio default; only the two defaults in 19.6 diff
 | `topic-profile[].topic-expression`, `.artifact-id` | none | Required per entry. |
 | `topic-profile[].group-id`, `.version` | none | Optional. |
 | `topic-profile[].format` | `JSON_SCHEMA` | The format POJOs sent to the mapping's topics use: `JSON_SCHEMA` or `AVRO` (19.2). |
+| `topic-profile[].payload-class` | none | Fully qualified class whose Avro or Protobuf schema is registered for the mapping's artifact when `registration.include-topic-profile` is on (19.5). |
 | `find-latest` | Apicurio: `false` | Resolve the latest artifact version. |
 | `explicit-artifact.group-id`, `.artifact-id`, `.version` | none | Pin every serialisation to one artifact. |
 | `auto-register` | Apicurio: `false` | Register unknown schemas on first use. **Development only.** |
 | `auto-register-if-exists` | Apicurio: `FIND_OR_CREATE_VERSION` | `FAIL`, `CREATE_VERSION`, `FIND_OR_CREATE_VERSION`. |
 | `registration.mode` | `FIRST_MESSAGE` | When declared schemas are published: `FIRST_MESSAGE` or `STARTUP` (19.5). |
+| `registration.include-topic-profile` | `false` | Also register Avro/Protobuf schemas derived from `topic-profile` mappings that name a `payload-class`, under the same `mode`/`fail-fast`/`if-exists` (19.5). |
 | `registration.fail-fast` | `false` | Let a failed publish fail startup or the conversion, instead of warning and retrying. |
 | `registration.if-exists` | `FIND_OR_CREATE_VERSION` | `FAIL`, `CREATE_VERSION`, `FIND_OR_CREATE_VERSION`. |
 | `registration.schemas[].artifact-id`, `.format`, `.location` | none | Required per entry. `location` is any Spring resource location. |
@@ -452,14 +489,14 @@ child commented out fails startup.
 | Type | Purpose |
 | :--- | :--- |
 | `SchemaRegistrySolaceMessageConverter` | The converter: the routing in 19.3 and 19.4, over `SchemaCodecs`, with a fallback converter (Jackson by default). `setDestinations`, `setRequireSchemaId`, `setPojoFormats`, `pojoFormatFor(name)`, `isGoverned(name)`, `getCodecs()`. |
-| `SchemaCodec` | One format's serde, in bytes: `getFormat`, `isSchemaPayload`, `acceptsPojos`, `producesType`, `serialize`, `deserialize`, `close`. The converter works only against this interface, which keeps Apicurio optional and the routing testable without a registry. |
+| `SchemaCodec` | One format's serde, in bytes: `getFormat`, `isSchemaPayload`, `acceptsPojos`, `producesType`, `serialize`, `deserialize`, `close`, and `canDeriveSchema`/`deriveSchema(Class)` for registering a schema at initialization. The converter works only against this interface, which keeps Apicurio optional and the routing testable without a registry. |
 | `SchemaCodecs` | The enabled codecs, one per format. `create(settings, objectMapper, classLoader)`, `of(codec...)`, `get(format)`, `forPayload`, `forTargetType`, `close`. |
 | `ApicurioSchemaCodec` | Base for the Apicurio codecs: lazy serde creation, closes everything it created. |
 | `AvroSchemaCodec`, `ProtobufSchemaCodec`, `JsonSchemaCodec` | The three formats. With the base class and `SolaceTopicProfileStrategy`, the only classes that import `io.apicurio`, Avro or Protobuf. |
 | `SolaceTopicProfileStrategy` | Apicurio `ArtifactReferenceResolverStrategy` over Solace topic expressions. |
 | `SchemaFormat` | `AVRO`, `PROTOBUF`, `JSON_SCHEMA`, each with its Apicurio artifact type and module. |
 | `SchemaRegistryHeaders` | `SCHEMA_FORMAT` (`schemaFormat`), `MAGIC_BYTE`, `isFramed(byte[])`. |
-| `SchemaArtifactRegistrar` | Publishes the declared schemas, at startup or on first use: `hasSchemas()`, `isRegistered()`, `registerOnce()`, `register()`. |
+| `SchemaArtifactRegistrar` | Publishes declared schemas and, with `registration.include-topic-profile`, schemas derived from `topic-profile` mappings, at startup or on first use: `hasSchemas()`, `hasDerivedSchemas()`, `hasWork()`, `isRegistered()`, `registerOnce()`, `register()`. |
 | `SchemaRegistrySettings` | The bound settings, free of Apicurio types. `validate()`. |
 | `SchemaRegistryConversionException` | `getReason()`; static `classify(message, cause)`. |
 | `SchemaRegistryErrorHandler` | Rejects non-retryable schema failures and defers the rest to a delegate. |

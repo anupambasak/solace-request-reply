@@ -96,6 +96,7 @@ set, and imported **first** so that its converter is registered before the core
 | Bean name | Type | Condition | Notes |
 | :--- | :--- | :--- | :--- |
 | `solaceSchemaCodecs` | `SchemaCodecs` | missing bean | One Apicurio codec per enabled format (Avro, Protobuf, JSON Schema). Fails startup, naming the fix, when a format's Apicurio module is missing. Never contacts the registry |
+| `solaceSchemaArtifactRegistrar` | `SchemaArtifactRegistrar` | missing bean | Publishes declared and (with `registration.include-topic-profile`) derived schemas; contacts the registry only under `mode: STARTUP`, or on the first message |
 | `solaceMessageConverter` | `SchemaRegistrySolaceMessageConverter` | missing `SolaceMessageConverter` | Replaces the Jackson converter, which it keeps as its fallback |
 | `solaceSchemaRegistryErrorHandler` | `SchemaRegistryErrorHandler` | missing `SolaceListenerErrorHandler` | Rejects non-retryable schema failures |
 

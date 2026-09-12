@@ -355,6 +355,16 @@ public class SchemaRegistrySettings {
          * format, whatever this says.
          */
         private SchemaFormat format;
+
+        /**
+         * Fully qualified name of the payload class whose schema is published to this mapping's artifact at
+         * application initialization, when {@code registration.include-topic-profile} is on. Only Avro and
+         * Protobuf schemas can be derived from a class: an Avro record class, or any class with a reflect
+         * datum provider ({@code format: AVRO} here), and a generated Protobuf message. A mapping that resolves
+         * to JSON Schema is skipped &mdash; that format's schema cannot be inferred, so declare it under
+         * {@code registration.schemas} instead. Unused when {@code include-topic-profile} is off.
+         */
+        private String payloadClass;
     }
 
     /** An artifact every serialisation is pinned to. */
@@ -542,6 +552,19 @@ public class SchemaRegistrySettings {
 
         /** What publishing does when the artifact already exists. Default: {@code FIND_OR_CREATE_VERSION}. */
         private IfArtifactExists ifExists = IfArtifactExists.FIND_OR_CREATE_VERSION;
+
+        /**
+         * Also publish schemas derived from {@code topic-profile} mappings that carry a {@code payload-class},
+         * alongside the {@code schemas} declared below and under the same {@code mode}, {@code fail-fast} and
+         * {@code if-exists}. Off by default.
+         *
+         * <p>An opt-in because it derives and publishes an Avro or Protobuf schema for every such mapping;
+         * {@code auto-register} does the same lazily, on the first message, for those two formats. Turning
+         * this on registers them at initialization instead, so a schema the registry rejects shows up under
+         * {@code mode: STARTUP} at boot rather than on the first request. Mappings that resolve to JSON Schema,
+         * or that name no {@code payload-class}, are ignored.</p>
+         */
+        private boolean includeTopicProfile;
 
         /** The schemas to publish, in order. Empty &mdash; the default &mdash; publishes nothing. */
         private List<DeclaredSchema> schemas = new ArrayList<>();

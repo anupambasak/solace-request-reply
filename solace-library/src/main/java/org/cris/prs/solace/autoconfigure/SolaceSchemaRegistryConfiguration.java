@@ -80,19 +80,28 @@ public class SolaceSchemaRegistryConfiguration {
      *
      * @param properties     supplies {@code solace.schema-registry.registration.*}
      * @param resourceLoader resolves each declared schema's {@code location}
+     * @param codecs         derives Avro and Protobuf schemas from a {@code topic-profile}
+     *                       {@code payload-class} when {@code registration.include-topic-profile} is on
      * @return the registrar
      */
     @Bean
     @ConditionalOnMissingBean
     public SchemaArtifactRegistrar solaceSchemaArtifactRegistrar(SolaceProperties properties,
-            ResourceLoader resourceLoader) {
+            ResourceLoader resourceLoader, SchemaCodecs codecs) {
         SchemaRegistrySettings settings = properties.getSchemaRegistry();
-        SchemaArtifactRegistrar registrar = new SchemaArtifactRegistrar(settings, resourceLoader);
-        if (registrar.hasSchemas()) {
-            log.info("Apicurio Registry: {} declared schema(s), published {}",
+        SchemaArtifactRegistrar registrar = new SchemaArtifactRegistrar(settings, resourceLoader, codecs,
+                getClass().getClassLoader());
+        if (registrar.hasWork()) {
+            String when = settings.getRegistration().getMode() == SchemaRegistrySettings.RegistrationMode.STARTUP
+                    ? "at startup" : "on the first message";
+            log.info("Apicurio Registry: {} declared and {} derived schema(s), published {}",
                     settings.getRegistration().getSchemas().size(),
-                    settings.getRegistration().getMode() == SchemaRegistrySettings.RegistrationMode.STARTUP
-                            ? "at startup" : "on the first message");
+                    registrar.hasDerivedSchemas()
+                            ? settings.getTopicProfile().stream()
+                                    .filter(m -> org.springframework.util.StringUtils.hasText(m.getPayloadClass()))
+                                    .count()
+                            : 0L,
+                    when);
         }
         return registrar;
     }

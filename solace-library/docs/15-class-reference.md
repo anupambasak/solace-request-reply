@@ -121,16 +121,17 @@ The only package that imports `io.apicurio`, Apache Avro or Protocol Buffers, an
 | Type | Kind | Purpose |
 | :--- | :--- | :--- |
 | `SchemaRegistrySolaceMessageConverter` | class | Registry-aware converter with a fallback; `setDestinations`, `setRequireSchemaId`, `setPojoFormats`, `pojoFormatFor`, `isGoverned`, `getCodecs`. |
-| `SchemaCodec` | interface | One format's serde in bytes: `getFormat`, `isSchemaPayload`, `acceptsPojos`, `producesType`, `serialize`, `deserialize`, `close`. |
+| `SchemaCodec` | interface | One format's serde in bytes: `getFormat`, `isSchemaPayload`, `acceptsPojos`, `producesType`, `serialize`, `deserialize`, `close`, and `canDeriveSchema`/`deriveSchema(Class)` (Avro/Protobuf schema from a class, for startup registration). |
 | `SchemaCodecs` | final class | The enabled codecs: `create(settings, objectMapper, classLoader)`, `of(...)`, `get`, `all`, `forPayload`, `forTargetType`, `close`. |
 | `ApicurioSchemaCodec` | abstract class | Lazy Apicurio serde creation; closes what it created. Nested `Lazy<T>`. |
-| `AvroSchemaCodec` | class | Avro records; generic or specific by the listener's type; plain POJOs by reflection with `avro.datum-provider: REFLECT`. |
-| `ProtobufSchemaCodec` | class | Protobuf messages; `DynamicMessage` re-parsed into the listener's generated type. |
+| `AvroSchemaCodec` | class | Avro records; generic or specific by the listener's type; plain POJOs by reflection with `avro.datum-provider: REFLECT`. Derives a schema from a `SpecificRecord` or a reflect POJO. |
+| `ProtobufSchemaCodec` | class | Protobuf messages; `DynamicMessage` re-parsed into the listener's generated type. Derives a `.proto` schema from a generated message's descriptor. |
 | `JsonSchemaCodec` | class | JSON Schema with the application's `ObjectMapper`; decodes to `JsonNode`. |
 | `SolaceTopicProfileStrategy<S>` | class | Apicurio `ArtifactReferenceResolverStrategy` over Solace topic expressions; `match(topic)`. |
 | `SchemaFormat` | enum | `AVRO`, `PROTOBUF`, `JSON_SCHEMA`; `getArtifactType()`, `getSerializerClassName()`, `getArtifact()`, `fromArtifactType(String)`. |
 | `SchemaRegistryHeaders` | final class | `SCHEMA_FORMAT`, `MAGIC_BYTE`, `isFramed(byte[])`. |
-| `SchemaRegistrySettings` | class | Bound settings, Apicurio-free; `validate()`. Nested `OAuth`, `Tls`, `TopicMapping`, `ExplicitArtifact`, `Cache`, `Retry`, `Avro`, `Protobuf`, `JsonSchema`; enums `HttpAdapter`, `IfArtifactExists`, `IdOption`, `AvroEncoding`, `AvroDatumProvider`. |
+| `SchemaRegistrySettings` | class | Bound settings, Apicurio-free; `validate()`. Nested `OAuth`, `Tls`, `TopicMapping` (carries `payloadClass`), `ExplicitArtifact`, `Cache`, `Retry`, `Avro`, `Protobuf`, `JsonSchema`, `Registration` (carries `includeTopicProfile`), `DeclaredSchema`; enums `HttpAdapter`, `IfArtifactExists`, `IdOption`, `AvroEncoding`, `AvroDatumProvider`, `RegistrationMode`. |
+| `SchemaArtifactRegistrar` | class | Publishes declared and (with `registration.include-topic-profile`) derived schemas, at startup or first use: `hasSchemas`, `hasDerivedSchemas`, `hasWork`, `isRegistered`, `registerOnce`, `register`. |
 | `SchemaRegistryConversionException` | class | `getReason()`; `classify(message, cause)`. Nested enum `Reason` with `isRetryable()`. |
 | `SchemaRegistryErrorHandler` | class | `REJECTED` for non-retryable schema failures, delegate otherwise; static `find(Throwable)`. |
 
@@ -184,6 +185,7 @@ The only package that imports `io.apicurio`, Apache Avro or Protocol Buffers, an
 | `solaceInstanceIdProvider` | `InstanceIdProvider` | missing bean |
 | `solaceMessageConverter` | `SolaceMessageConverter` | missing bean (the registry converter when `solace.schema-registry.url` is set) |
 | `solaceSchemaCodecs` | `SchemaCodecs` | missing bean + `solace.schema-registry.url` |
+| `solaceSchemaArtifactRegistrar` | `SchemaArtifactRegistrar` | missing bean + `solace.schema-registry.url` |
 | `solaceSchemaRegistryErrorHandler` | `SchemaRegistryErrorHandler` | missing `SolaceListenerErrorHandler` + `solace.schema-registry.url` |
 | *(yours)* | `SolaceListenerErrorHandler` | optional — a single bean is given to every container of the default factory |
 | `solaceHeaderMapper` | `SolaceHeaderMapper` | missing bean |

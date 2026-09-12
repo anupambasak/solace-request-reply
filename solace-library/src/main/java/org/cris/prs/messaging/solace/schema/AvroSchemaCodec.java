@@ -3,7 +3,10 @@ package org.cris.prs.messaging.solace.schema;
 import io.apicurio.registry.serde.avro.AvroDeserializer;
 import io.apicurio.registry.serde.avro.AvroSerdeConfig;
 import io.apicurio.registry.serde.avro.AvroSerializer;
+import org.apache.avro.Schema;
 import org.apache.avro.generic.GenericContainer;
+import org.apache.avro.reflect.ReflectData;
+import org.apache.avro.specific.SpecificData;
 import org.apache.avro.specific.SpecificRecord;
 
 import java.util.HashMap;
@@ -69,6 +72,44 @@ public class AvroSchemaCodec extends ApicurioSchemaCodec {
     @Override
     public boolean acceptsPojos() {
         return this.settings.getAvro().isReflect();
+    }
+
+    /**
+     * {@inheritDoc}
+     *
+     * <p>Always {@code true}: Avro derives a schema from a generated {@code SpecificRecord}, and from any
+     * class when a reflect datum provider is set.</p>
+     */
+    @Override
+    public boolean canDeriveSchema() {
+        return true;
+    }
+
+    /**
+     * {@inheritDoc}
+     *
+     * <p>With a reflect datum provider the schema is derived from the class's fields, the same way the
+     * serializer writes it &mdash; {@code REFLECT_ALLOW_NULL} making every field nullable. Otherwise the
+     * class must be a generated {@code SpecificRecord}, whose schema is read from the class. A bare
+     * {@code GenericRecord} has no schema of its own, so it cannot be derived from the class alone.</p>
+     */
+    @Override
+    public String deriveSchema(Class<?> payloadClass) {
+        if (this.settings.getAvro().isReflect()) {
+            AvroClassTrust.trust(payloadClass);
+            boolean allowNull = this.settings.getAvro()
+                    .getDatumProvider() == SchemaRegistrySettings.AvroDatumProvider.REFLECT_ALLOW_NULL;
+            ReflectData reflectData = allowNull ? ReflectData.AllowNull.get() : ReflectData.get();
+            Schema schema = reflectData.getSchema(payloadClass);
+            return schema.toString();
+        }
+        if (SpecificRecord.class.isAssignableFrom(payloadClass)) {
+            return SpecificData.get().getSchema(payloadClass).toString();
+        }
+        throw new IllegalStateException("Cannot derive an Avro schema from " + payloadClass.getName()
+                + ": it is not a generated SpecificRecord, and solace.schema-registry.avro.datum-provider is "
+                + "not REFLECT or REFLECT_ALLOW_NULL. Set a reflect datum provider, send a generated record, "
+                + "or declare the schema under solace.schema-registry.registration.schemas");
     }
 
     /** {@inheritDoc} */

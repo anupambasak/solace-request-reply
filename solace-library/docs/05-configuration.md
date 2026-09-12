@@ -309,7 +309,8 @@ defaults differ from Apicurio's, is in
 | `schema-registry.destinations` | empty = all | Topic expressions where POJO payloads are governed (JSON Schema) |
 | `schema-registry.require-schema-id` | `false` | Reject a governed message whose body is not registry-framed |
 | `schema-registry.artifact-resolver-strategy` | `TOPIC_PROFILE` | How a topic resolves to a schema artifact |
-| `schema-registry.topic-profile[]` | — | `topic-expression` → `artifact-id` / `group-id` / `version`, and optionally the POJO `format` (`AVRO`, `JSON_SCHEMA`) |
+| `schema-registry.topic-profile[]` | — | `topic-expression` → `artifact-id` / `group-id` / `version`, and optionally the POJO `format` (`AVRO`, `JSON_SCHEMA`) and a `payload-class` to register at initialization |
+| `schema-registry.registration.include-topic-profile` | `false` | Register Avro/Protobuf schemas derived from `topic-profile` `payload-class` entries, under `registration.mode`/`fail-fast`/`if-exists` |
 | `schema-registry.avro.datum-provider` | Apicurio default | `REFLECT` / `REFLECT_ALLOW_NULL` let plain POJOs travel as Avro |
 | `schema-registry.cache.fault-tolerant-refresh` | **`true`** | Keep serving cached schemas through a registry outage (Apicurio's own default is `false`) |
 | `schema-registry.http-adapter` | **`JDK`** | Apicurio's HTTP client; `JDK` avoids a Vert.x event loop per serde (Apicurio's default is `AUTO`) |

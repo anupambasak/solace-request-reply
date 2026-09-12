@@ -77,6 +77,38 @@ public interface SchemaCodec extends AutoCloseable {
      */
     Object deserialize(String destinationName, byte[] body, Class<?> targetType);
 
+    /**
+     * Whether this codec can derive a schema from a payload class, without a message or a registry call
+     * &mdash; so its schema can be published at application initialization.
+     *
+     * <p>Avro derives from a class (a generated {@code SpecificRecord}, or any class with a reflect datum
+     * provider); Protobuf reads the schema out of a generated message's descriptor. JSON Schema cannot be
+     * inferred from a class, so it keeps the default {@code false}: those schemas are declared as files
+     * under {@code registration.schemas}.</p>
+     *
+     * @return {@code true} if {@link #deriveSchema(Class)} is supported; the default is {@code false}
+     */
+    default boolean canDeriveSchema() {
+        return false;
+    }
+
+    /**
+     * Derive this format's schema text from a payload class, for publishing to the registry at
+     * application initialization. Touches neither a message nor the registry.
+     *
+     * @param payloadClass the class whose schema to derive; never {@code null}
+     * @return the schema content, in this format's language (an Avro {@code .avsc} JSON document, a
+     *         Protobuf {@code .proto} source file)
+     * @throws UnsupportedOperationException if this format cannot derive a schema from a class
+     *         ({@link #canDeriveSchema()} is {@code false})
+     * @throws IllegalStateException if the class is not one this format can derive a schema from
+     */
+    default String deriveSchema(Class<?> payloadClass) {
+        throw new UnsupportedOperationException(
+                getFormat() + " cannot derive a schema from a class; declare it under "
+                        + "solace.schema-registry.registration.schemas instead");
+    }
+
     /** Release the registry client. Idempotent; the default does nothing. */
     @Override
     default void close() {

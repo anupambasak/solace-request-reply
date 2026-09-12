@@ -1,11 +1,14 @@
 package org.cris.prs.messaging.solace.schema;
 
 import com.google.protobuf.ByteString;
+import com.google.protobuf.Descriptors;
 import com.google.protobuf.Message;
+import com.squareup.wire.schema.internal.parser.ProtoFileElement;
 import io.apicurio.registry.serde.protobuf.ProtobufDeserializer;
 import io.apicurio.registry.serde.protobuf.ProtobufDeserializerConfig;
 import io.apicurio.registry.serde.protobuf.ProtobufSerializer;
 import io.apicurio.registry.serde.config.SerdeConfig;
+import io.apicurio.registry.utils.protobuf.schema.FileDescriptorUtils;
 
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
@@ -55,6 +58,52 @@ public class ProtobufSchemaCodec extends ApicurioSchemaCodec {
     @Override
     public boolean isSchemaPayload(Object payload) {
         return payload instanceof Message;
+    }
+
+    /**
+     * {@inheritDoc}
+     *
+     * <p>Always {@code true}: a generated Protobuf message carries its schema in its descriptor.</p>
+     */
+    @Override
+    public boolean canDeriveSchema() {
+        return true;
+    }
+
+    /**
+     * {@inheritDoc}
+     *
+     * <p>Reads the {@code .proto} source out of the generated message's file descriptor, so the whole file
+     * &mdash; every message type it declares &mdash; is published as one artifact, exactly as Apicurio
+     * registers it from the data. {@code payloadClass} must be a generated {@code com.google.protobuf.Message}
+     * (or its file class), the only kind with a descriptor.</p>
+     */
+    @Override
+    public String deriveSchema(Class<?> payloadClass) {
+        Descriptors.FileDescriptor file = fileDescriptorOf(payloadClass);
+        ProtoFileElement element = FileDescriptorUtils.fileDescriptorToProtoFile(file.toProto());
+        return element.toSchema();
+    }
+
+    private Descriptors.FileDescriptor fileDescriptorOf(Class<?> payloadClass) {
+        Object descriptor;
+        try {
+            Method getDescriptor = payloadClass.getMethod("getDescriptor");
+            descriptor = getDescriptor.invoke(null);
+        }
+        catch (ReflectiveOperationException ex) {
+            throw new IllegalStateException(payloadClass.getName() + " is not a generated Protobuf message class: "
+                    + "it has no static getDescriptor()", ex);
+        }
+        if (descriptor instanceof Descriptors.Descriptor messageType) {
+            return messageType.getFile();
+        }
+        if (descriptor instanceof Descriptors.FileDescriptor fileDescriptor) {
+            return fileDescriptor;
+        }
+        throw new IllegalStateException(payloadClass.getName() + ".getDescriptor() returned "
+                + (descriptor == null ? "null" : descriptor.getClass().getName())
+                + ", which is neither a Protobuf message nor a file descriptor");
     }
 
     /** {@inheritDoc} */
