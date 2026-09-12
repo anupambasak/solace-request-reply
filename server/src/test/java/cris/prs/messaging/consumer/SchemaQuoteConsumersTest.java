@@ -10,8 +10,8 @@ import org.junit.jupiter.api.Test;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * The Avro and Protobuf quote services answer exactly as the JSON one does; only the wire format differs,
- * and that is the converter's business, not the listener's.
+ * The Avro, Protobuf and JSON Schema quote services answer exactly as the plain JSON one does; only the
+ * wire format differs, and that is the converter's business, not the listener's.
  */
 class SchemaQuoteConsumersTest {
 
@@ -27,6 +27,21 @@ class SchemaQuoteConsumersTest {
         assertThat(quote.getPersonName()).isEqualTo("Ada Lovelace");
         assertThat(quote.getAmount()).isEqualTo(QuotePricing.premiumFor(person));
         assertThat(quote.getCurrency()).isEqualTo("INR");
+    }
+
+    @Test
+    @DisplayName("the JSON Schema service quotes on the shared DTOs")
+    void jsonSchema() {
+        Person person = new Person();
+        person.setName("Alan Turing");
+        person.setAge(41);
+
+        Quote quote = new QuoteJsonSchemaConsumer().quote(person, "corr-3");
+
+        assertThat(quote.getPersonName()).isEqualTo("Alan Turing");
+        assertThat(quote.getAmount()).isEqualTo(QuotePricing.premiumFor(person));
+        assertThat(quote.getCurrency()).isEqualTo("INR");
+        assertThat(quote.getId()).isNotBlank();
     }
 
     @Test

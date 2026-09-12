@@ -233,6 +233,22 @@ a hand-built one are described by the same object.
 | `concurrency` | `1` | Only meaningful with `DURABLE_QUEUE`; clamped to 1 otherwise |
 | `replyTimeout` | `30s` | Default wait before the future fails |
 | `deliveryMode` | `PERSISTENT` | Delivery mode for **requests** sent through this template |
+| `timeToLive` | inherits `solace.template.time-to-live` | Expiry in ms for **requests**; `0` never expires |
+| `priority` | inherits `solace.template.priority` | Priority for requests |
+| `dmqEligible` | inherits `solace.template.dmq-eligible` | Move expired or undeliverable requests to the DMQ |
+
+The last three are unset by default and fall back to `solace.template.*`, so a reply template an
+application declares publishes the same way the auto-configured `solaceTemplate` does. Stating one on
+the spec wins over the fallback — including `timeToLive: 0`, which switches expiry off where the
+template defaults set one.
+
+**Give requests an expiry.** A request is persistent and its endpoint is durable, which is the point —
+but it means the request outlives the responder. Restart the server mid-flight and the request waits on
+the queue, is handled whenever the server comes back, and the reply arrives to a requester that gave up
+minutes ago (10.7). Setting `timeToLive` to the reply timeout makes the two agree: the broker stops
+delivering a request at the moment its requester stops waiting. It only takes effect on an endpoint
+provisioned with `respects-ttl` ([9](09-consuming-messages.md)); with `dmqEligible` on, the expired
+request lands on the dead message queue where it can be inspected rather than vanishing.
 
 ---
 
@@ -254,6 +270,12 @@ The scheduled task is cancelled as soon as the future completes, so it costs not
 path. A reply arriving *after* its timeout finds no pending entry and is logged as
 `Received a reply with no outstanding request` — the normal signature of a late responder, and the
 first thing to look for when that warning appears in volume.
+
+When that warning follows a `SolaceReplyTimeoutException` for the *same* correlation id, the usual
+cause is not a slow responder but an absent one: the request sat on its durable queue with nothing
+bound to it, and was delivered the moment a listener started. Compare the responder's start-up log with
+the request's timestamp. The fix is an expiry on requests (`timeToLive` in 10.6), so the broker stops
+delivering a request once its requester has stopped waiting.
 
 On `stop()`, every outstanding future is failed with `SolaceReplyTimeoutException`. Leaving callers
 blocked on replies that can no longer arrive would turn shutdown into a hang.

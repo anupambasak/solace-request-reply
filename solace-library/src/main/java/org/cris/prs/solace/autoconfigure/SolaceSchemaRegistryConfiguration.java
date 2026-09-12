@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.extern.slf4j.Slf4j;
 import org.cris.prs.messaging.solace.core.SolaceMessageConverter;
 import org.cris.prs.messaging.solace.listener.SolaceListenerErrorHandler;
+import org.cris.prs.messaging.solace.schema.SchemaArtifactRegistrar;
 import org.cris.prs.messaging.solace.schema.SchemaCodecs;
 import org.cris.prs.messaging.solace.schema.SchemaFormat;
 import org.cris.prs.messaging.solace.schema.SchemaRegistryErrorHandler;
@@ -14,6 +15,7 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.core.io.ResourceLoader;
 
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -69,18 +71,47 @@ public class SolaceSchemaRegistryConfiguration {
     }
 
     /**
+     * Publishes the schemas declared under {@code solace.schema-registry.registration.schemas}.
+     *
+     * <p>The bean exists whether or not anything is declared, so the converter can always ask it; with no
+     * schemas every call is a no-op. When {@code registration.mode} is {@code STARTUP} it publishes them
+     * as it is initialised &mdash; the one place in this configuration that contacts the registry at
+     * startup, and only because the application asked for it.</p>
+     *
+     * @param properties     supplies {@code solace.schema-registry.registration.*}
+     * @param resourceLoader resolves each declared schema's {@code location}
+     * @return the registrar
+     */
+    @Bean
+    @ConditionalOnMissingBean
+    public SchemaArtifactRegistrar solaceSchemaArtifactRegistrar(SolaceProperties properties,
+            ResourceLoader resourceLoader) {
+        SchemaRegistrySettings settings = properties.getSchemaRegistry();
+        SchemaArtifactRegistrar registrar = new SchemaArtifactRegistrar(settings, resourceLoader);
+        if (registrar.hasSchemas()) {
+            log.info("Apicurio Registry: {} declared schema(s), published {}",
+                    settings.getRegistration().getSchemas().size(),
+                    settings.getRegistration().getMode() == SchemaRegistrySettings.RegistrationMode.STARTUP
+                            ? "at startup" : "on the first message");
+        }
+        return registrar;
+    }
+
+    /**
      * The registry-aware converter, falling back to JSON over the application's {@code ObjectMapper} for
      * payloads the registry does not govern.
      *
      * @param codecs       the enabled formats' codecs
      * @param objectMapper the application's mapper when one exists
      * @param properties   supplies the governed destinations, strictness and per-topic POJO formats
+     * @param registrar    publishes the declared schemas before the registry is first used
      * @return the converter every template, listener and request-reply template uses
      */
     @Bean
     @ConditionalOnMissingBean
     public SolaceMessageConverter solaceMessageConverter(SchemaCodecs codecs,
-            ObjectProvider<ObjectMapper> objectMapper, SolaceProperties properties) {
+            ObjectProvider<ObjectMapper> objectMapper, SolaceProperties properties,
+            SchemaArtifactRegistrar registrar) {
         SchemaRegistrySettings settings = properties.getSchemaRegistry();
         SchemaRegistrySolaceMessageConverter converter = new SchemaRegistrySolaceMessageConverter(codecs,
                 objectMapper.getIfAvailable(ObjectMapper::new));
@@ -93,6 +124,7 @@ public class SolaceSchemaRegistryConfiguration {
             }
         }
         converter.setPojoFormats(pojoFormats);
+        converter.setSchemaArtifactRegistrar(registrar);
         return converter;
     }
 

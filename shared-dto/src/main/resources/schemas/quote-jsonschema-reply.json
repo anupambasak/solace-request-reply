@@ -1,0 +1,32 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "QuoteReply",
+  "description": "The quote produced for a person. Matches the shared cris.prs.messaging.Quote DTO as Jackson writes it.",
+  "type": "object",
+  "properties": {
+    "id": {
+      "type": "string",
+      "description": "Identifies this quote."
+    },
+    "personName": {
+      "type": "string",
+      "description": "Who the quote was produced for."
+    },
+    "amount": {
+      "type": "number",
+      "description": "The premium.",
+      "minimum": 0
+    },
+    "currency": {
+      "type": "string",
+      "description": "ISO 4217 code of the amount.",
+      "pattern": "^[A-Z]{3}$"
+    },
+    "quotedAt": {
+      "type": "integer",
+      "description": "Millisecond epoch at which the quote was produced.",
+      "minimum": 0
+    }
+  },
+  "required": ["id", "personName", "amount", "currency", "quotedAt"]
+}

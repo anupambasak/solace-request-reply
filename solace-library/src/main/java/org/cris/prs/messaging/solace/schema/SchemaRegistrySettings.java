@@ -120,6 +120,16 @@ public class SchemaRegistrySettings {
     private IfArtifactExists autoRegisterIfExists;
 
     /**
+     * Schemas this application publishes to the registry itself, and when.
+     *
+     * <p>The alternative to {@code auto-register}, and the only way to get a JSON Schema into the registry
+     * without one artifact's schema having to serve every payload: Apicurio derives an Avro schema from the
+     * class and reads a Protobuf schema from the generated descriptor, but it cannot infer a JSON Schema
+     * from a POJO, so {@code auto-register} has nothing to register for that format.</p>
+     */
+    private final Registration registration = new Registration();
+
+    /**
      * Which registry id the body carries: {@code CONTENT_ID} (Apicurio default) or {@code GLOBAL_ID}.
      * Producers and consumers must agree.
      */
@@ -191,6 +201,14 @@ public class SchemaRegistrySettings {
                     || !StringUtils.hasText(mapping.getArtifactId())) {
                 throw new IllegalStateException("Every solace.schema-registry.topic-profile entry needs a "
                         + "topic-expression and an artifact-id");
+            }
+        }
+        for (DeclaredSchema schema : this.registration.getSchemas()) {
+            if (!StringUtils.hasText(schema.getArtifactId()) || !StringUtils.hasText(schema.getLocation())
+                    || schema.getFormat() == null) {
+                throw new IllegalStateException("Every solace.schema-registry.registration.schemas entry needs an "
+                        + "artifact-id, a format and a location, for example artifact-id: order, format: "
+                        + "JSON_SCHEMA, location: \"classpath:schemas/order.json\"");
             }
         }
     }
@@ -484,5 +502,75 @@ public class SchemaRegistrySettings {
 
         /** Raw Apicurio keys for the JSON Schema serde only, applied last. */
         private Map<String, String> properties = new LinkedHashMap<>();
+    }
+
+    /** When declared schemas are published to the registry. */
+    public enum RegistrationMode {
+
+        /**
+         * On the first message that actually uses the registry &mdash; the default, and the same moment the
+         * serdes themselves are created. An instance starts while the registry is down, and the attempt is
+         * repeated on the next message until one succeeds.
+         */
+        FIRST_MESSAGE,
+
+        /**
+         * During application initialization, before anything is sent or received. The registry has to be
+         * reachable at startup; with {@code fail-fast} off, a failed attempt is logged and retried on the
+         * first message, so this is an <em>earlier</em> attempt rather than the only one.
+         */
+        STARTUP
+    }
+
+    /** Schemas this application publishes to the registry, and when. */
+    @Data
+    public static class Registration {
+
+        /** Create registration settings with no schemas, publishing on the first message. */
+        public Registration() {
+        }
+
+        /** When the schemas below are published. Default: {@code FIRST_MESSAGE}. */
+        private RegistrationMode mode = RegistrationMode.FIRST_MESSAGE;
+
+        /**
+         * Let a failed registration propagate &mdash; failing startup under {@code STARTUP}, or the send or
+         * receive under {@code FIRST_MESSAGE} &mdash; instead of logging a warning and trying again on the
+         * next message. Off by default, so an unreachable registry does not stop an instance starting.
+         */
+        private boolean failFast;
+
+        /** What publishing does when the artifact already exists. Default: {@code FIND_OR_CREATE_VERSION}. */
+        private IfArtifactExists ifExists = IfArtifactExists.FIND_OR_CREATE_VERSION;
+
+        /** The schemas to publish, in order. Empty &mdash; the default &mdash; publishes nothing. */
+        private List<DeclaredSchema> schemas = new ArrayList<>();
+    }
+
+    /** One schema this application publishes to the registry. */
+    @Data
+    public static class DeclaredSchema {
+
+        /** Create an empty declaration. */
+        public DeclaredSchema() {
+        }
+
+        /** Artifact id, the same one a {@code topic-profile} mapping names. */
+        private String artifactId;
+
+        /** Artifact group; the registry's default group when unset. */
+        private String groupId;
+
+        /** Artifact version; the registry assigns one when unset. */
+        private String version;
+
+        /** The schema's language, which is also its Apicurio artifact type. */
+        private SchemaFormat format;
+
+        /**
+         * Where the schema content is read from, as a Spring resource location:
+         * {@code classpath:schemas/order.json}, {@code file:/etc/schemas/order.avsc}.
+         */
+        private String location;
     }
 }

@@ -77,6 +77,21 @@ class SchemaRegistrySolaceMessageConverterTest {
         public String name = "p";
     }
 
+    /** Counts how often the converter asks for the declared schemas to be published. */
+    static class CountingRegistrar extends SchemaArtifactRegistrar {
+
+        int calls;
+
+        CountingRegistrar() {
+            super(SchemaRegistrySettingsTest.valid());
+        }
+
+        @Override
+        public void registerOnce() {
+            this.calls++;
+        }
+    }
+
     private final ObjectMapper mapper = new ObjectMapper();
 
     private FakeSchemaCodec json;
@@ -344,6 +359,46 @@ class SchemaRegistrySolaceMessageConverterTest {
                     () -> converter.fromMessage(FakeSchemaCodec.received("orders/place", wrong, "JSON"), Order.class));
 
             assertEquals(SchemaRegistryConversionException.Reason.TYPE_MISMATCH, failure.getReason());
+        }
+    }
+
+    @Nested
+    @DisplayName("declared schemas")
+    class DeclaredSchemas {
+
+        private CountingRegistrar registrar;
+
+        @BeforeEach
+        void attach() {
+            this.registrar = new CountingRegistrar();
+            converter.setSchemaArtifactRegistrar(this.registrar);
+        }
+
+        @Test
+        @DisplayName("publishing is attempted before the first serialisation that uses the registry")
+        void beforeFirstSerialisation() {
+            converter.toMessage(new Order("o-1", 3), "orders/place");
+
+            assertEquals(1, registrar.calls);
+        }
+
+        @Test
+        @DisplayName("publishing is attempted before the first deserialisation that uses the registry")
+        void beforeFirstDeserialisation() {
+            byte[] framed = FakeSchemaCodec.frame("{\"id\":\"o-1\",\"quantity\":3}".getBytes(StandardCharsets.UTF_8));
+
+            converter.fromMessage(FakeSchemaCodec.received("orders/place", framed, "JSON"), Order.class);
+
+            assertEquals(1, registrar.calls);
+        }
+
+        @Test
+        @DisplayName("a conversion that does not use the registry does not ask")
+        void notForFallbackConversions() {
+            converter.toMessage("text", "orders/place");
+            converter.toMessage(new Order("o-1", 3), "other/place");
+
+            assertEquals(0, registrar.calls);
         }
     }
 }

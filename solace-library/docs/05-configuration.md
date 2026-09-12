@@ -85,6 +85,9 @@ solace:
     concurrency: 1
     reply-timeout: 30s
     delivery-mode: PERSISTENT
+    time-to-live:                    # ms; unset inherits solace.template.time-to-live
+    priority:                        # unset inherits solace.template.priority
+    dmq-eligible:                    # unset inherits solace.template.dmq-eligible
 ```
 
 ### A YAML trap worth knowing
@@ -262,6 +265,13 @@ auto-configured bean.
 | `concurrency` | `int` | `1` | Flows consuming replies. Only meaningful with `DURABLE_QUEUE` — clamped to 1 otherwise. |
 | `reply-timeout` | `Duration` | `30s` | Default wait before a future fails with `SolaceReplyTimeoutException`. Zero or negative waits forever. Overridable per call. |
 | `delivery-mode` | `DeliveryMode` | `PERSISTENT` | Delivery mode for **requests** published through this template. |
+| `time-to-live` | `Long` (ms) | inherits `solace.template.time-to-live` | Expiry for **requests**. Set it to `reply-timeout` so the broker stops delivering a request once its requester has given up ([10.6](10-request-reply.md#106-when-to-split-a-reply-destination)). Only honoured by an endpoint whose `respects-ttl` is true. |
+| `priority` | `Integer` | inherits `solace.template.priority` | Priority for requests. |
+| `dmq-eligible` | `Boolean` | inherits `solace.template.dmq-eligible` | Move expired or undeliverable requests to the dead message queue. |
+
+The last three are unset by default and fall back to `solace.template.*`, which is also what a
+hand-built `ReplyEndpointSpec` does — a declared reply template publishes like `solaceTemplate` unless
+its spec says otherwise.
 
 The resulting reply destination is `<reply-topic-prefix>/<sanitised instance id>`, e.g.
 `reply/orders-api-7d9f8c-x2k4l`.

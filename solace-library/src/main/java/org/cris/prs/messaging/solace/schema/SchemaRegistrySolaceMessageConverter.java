@@ -70,6 +70,8 @@ public class SchemaRegistrySolaceMessageConverter implements SolaceMessageConver
 
     private Map<String, SchemaFormat> pojoFormats = Map.of();
 
+    private SchemaArtifactRegistrar registrar;
+
     /**
      * Create a converter falling back to {@link JacksonSolaceMessageConverter} over the same mapper.
      *
@@ -125,6 +127,20 @@ public class SchemaRegistrySolaceMessageConverter implements SolaceMessageConver
      */
     public void setPojoFormats(Map<String, SchemaFormat> pojoFormats) {
         this.pojoFormats = pojoFormats == null ? Map.of() : new LinkedHashMap<>(pojoFormats);
+    }
+
+    /**
+     * The registrar that publishes this application's declared schemas, called immediately before the first
+     * conversion that goes through the registry.
+     *
+     * <p>Optional: without one, schemas are whatever {@code auto-register} or an external process put in
+     * the registry. The registrar is cheap to call once it has succeeded, and a no-op when nothing is
+     * declared.</p>
+     *
+     * @param registrar the registrar, or {@code null} for none
+     */
+    public void setSchemaArtifactRegistrar(SchemaArtifactRegistrar registrar) {
+        this.registrar = registrar;
     }
 
     /**
@@ -188,6 +204,7 @@ public class SchemaRegistrySolaceMessageConverter implements SolaceMessageConver
                                 + "destination from solace.schema-registry.destinations", null);
             }
         }
+        ensureSchemasRegistered();
         byte[] body;
         try {
             body = codec.serialize(name, payload);
@@ -228,6 +245,7 @@ public class SchemaRegistrySolaceMessageConverter implements SolaceMessageConver
             return this.fallback.fromMessage(message, targetType);
         }
         SchemaCodec codec = codecFor(message, targetType, name);
+        ensureSchemasRegistered();
         Object value;
         try {
             value = codec.deserialize(name, body, targetType);
@@ -316,6 +334,18 @@ public class SchemaRegistrySolaceMessageConverter implements SolaceMessageConver
         catch (Exception ex) {
             log.debug("Unable to read the {} user property", SchemaRegistryHeaders.SCHEMA_FORMAT, ex);
             return null;
+        }
+    }
+
+    /**
+     * Publish the declared schemas if they are not in the registry yet, before the registry is first used.
+     *
+     * <p>Under {@code registration.mode: STARTUP} this has already happened, so it is a flag read; under
+     * {@code FIRST_MESSAGE} this is the moment it happens.</p>
+     */
+    private void ensureSchemasRegistered() {
+        if (this.registrar != null) {
+            this.registrar.registerOnce();
         }
     }
 }

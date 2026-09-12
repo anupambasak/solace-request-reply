@@ -54,6 +54,24 @@ public class ReplyingSolaceTemplateFactory {
     private SolaceRequestReplyMetrics requestReplyMetrics = SolaceRequestReplyMetrics.NO_OP;
 
     /**
+     * Expiry applied to requests whose spec leaves {@code timeToLive} unset; {@code 0} means no expiry.
+     *
+     * <p>Auto-configuration sets it from {@code solace.template.time-to-live}, so a reply template an
+     * application declares inherits the same publishing defaults as the plain {@code solaceTemplate}
+     * rather than silently doing without them.</p>
+     */
+    @lombok.Setter
+    private long defaultTimeToLive;
+
+    /** Priority applied to requests whose spec leaves {@code priority} unset; {@code null} for none. */
+    @lombok.Setter
+    private Integer defaultPriority;
+
+    /** DMQ eligibility applied to requests whose spec leaves {@code dmqEligible} unset. */
+    @lombok.Setter
+    private boolean defaultDmqEligible = true;
+
+    /**
      * Create a factory.
      *
      * @param sessionFactory     supplies the connection and keys transactions
@@ -74,6 +92,9 @@ public class ReplyingSolaceTemplateFactory {
     /**
      * Build a request-reply template and its reply container.
      *
+     * <p>Expiry, priority and DMQ eligibility the spec leaves unset are taken from this factory's
+     * defaults, which auto-configuration fills in from {@code solace.template.*}.</p>
+     *
      * @param spec the reply destination to consume and the template defaults to apply
      * @return a template, not yet started; Spring starts it as a {@code SmartLifecycle} bean
      */
@@ -90,6 +111,11 @@ public class ReplyingSolaceTemplateFactory {
         template.setHeaderMapper(this.headerMapper);
         template.setDeliveryMode(spec.getDeliveryMode());
         template.setDefaultReplyTimeout(spec.getReplyTimeout());
+        // Publishing defaults the spec did not state come from solace.template.*, so a declared reply
+        // template publishes like solaceTemplate does unless it says otherwise.
+        template.setTimeToLive(spec.getTimeToLive() != null ? spec.getTimeToLive() : this.defaultTimeToLive);
+        template.setPriority(spec.getPriority() != null ? spec.getPriority() : this.defaultPriority);
+        template.setDmqEligible(spec.getDmqEligible() != null ? spec.getDmqEligible() : this.defaultDmqEligible);
         template.setInstanceId(instanceId);
         return template;
     }

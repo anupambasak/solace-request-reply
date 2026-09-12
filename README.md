@@ -194,6 +194,7 @@ curl "http://localhost:8080/request-reply/inventory/send-batch?count=5"
 
 curl "http://localhost:8080/request-reply/quote-avro/send"              # quote, as Avro via Apicurio Registry
 curl "http://localhost:8080/request-reply/quote-protobuf/send"          # quote, as Protobuf via Apicurio Registry
+curl "http://localhost:8080/request-reply/quote-jsonschema/send"        # quote, as schema-validated JSON via Apicurio Registry
 ```
 
 Scale the server to prove the distinction:
@@ -437,7 +438,7 @@ transactional durable listener.
 ```
 solace-request-reply/
  ├── gradle/libs.versions.toml     # version catalog
- ├── shared-dto/                   # Person, Notification, Task, Quote, InventoryCheck/Status, ReplyResult — the client/server contract
+ ├── shared-dto/                   # Person, Notification, Task, Quote, InventoryCheck/Status, ReplyResult — the client/server contract (resources/schemas/ — their JSON Schemas)
  ├── shared-proto/                 # quote.proto (QuoteRequest, QuoteReply) + QuoteProtoMapper — the Protobuf demo's contract
  ├── solace-library/               # the Spring-for-Solace library (auto-configured starter)
  ├── client/                       # WebFlux REST service, requester
@@ -495,6 +496,7 @@ services answer on the client's shared reply destination and a third brings its 
 | `GET /request-reply/reply-destination` | — | both reply topics this pod listens on: `shared` and `inventory` |
 | `GET /request-reply/quote-avro/send` (`/send-multiple`, `/send-batch`) | quote, **Avro** | `Quote` |
 | `GET /request-reply/quote-protobuf/send` (`/send-multiple`, `/send-batch`) | quote, **Protobuf** | `Quote` (mapped from `QuoteReply`) |
+| `GET /request-reply/quote-jsonschema/send` (`/send-multiple`, `/send-batch`) | quote, **JSON Schema** | `Quote` |
 | `GET /request-reply/schema-registry/reply-destination` | — | the two schema-registry demos' own reply topics |
 
 **Operator endpoints** — browsing reads a queue **without consuming it**, so nothing is taken away
@@ -515,6 +517,7 @@ from the consumer that should process it.
 | three — inventory | `request-reply/request-3` | `request-reply-queue-3.request-reply-group-3` |
 | quote, Avro | `request-reply/quote-avro/request` | `request-reply-queue-4.request-reply-group-4` |
 | quote, Protobuf | `request-reply/quote-protobuf/request` | `request-reply-queue-5.request-reply-group-5` |
+| quote, JSON Schema | `request-reply/quote-jsonschema/request` | `request-reply-queue-6.request-reply-group-6` |
 
 A second service needs **its own request topic as well as its own queue**. Two queues subscribed to
 the same topic each receive a copy of every request, so both services would answer and the requester
@@ -531,29 +534,54 @@ sit in different trust domains, you want the blast radius of a stuck reply flow 
 per-service reply metrics. Otherwise share — one endpoint per pod beats pods x services. Nothing
 changes on the responder either way: the requester, not the listener, chooses where the reply goes.
 
-### Schema registry demos: the quote service in Avro and in Protobuf
+### Schema registry demos: the quote service in Avro, Protobuf and JSON Schema
 
-The quote service runs twice more with its payloads governed by
+The quote service runs three times more with its payloads governed by
 [Apicurio Registry](http://api-apicurio-apps-dev.ocptnd1.prs/apis/registry/v3) (override with
 `APICURIO_REGISTRY_URL`). Same question, same answer, same shared `Quote` DTO returned by the REST
 endpoint &mdash; only the wire format differs, and all of it is the library's converter plus
 configuration under `solace.schema-registry` in both `application.yaml`s:
 
-| | Avro | Protobuf |
-| :--- | :--- | :--- |
-| What travels | the shared DTOs `Person` → `Quote`, **unchanged**, by Avro reflection (`avro.datum-provider: REFLECT_ALLOW_NULL`) | generated `QuoteRequest` → `QuoteReply` from `shared-proto/src/main/proto/quote.proto`, mapped to and from the DTOs by `QuoteProtoMapper` |
-| Why it is Avro / Protobuf | the `topic-profile` mappings for its topics say `format: AVRO` | a generated `Message` is recognised by type; no setting needed |
-| Server listener | `QuoteAvroConsumer.quote(Person) → Quote` | `QuoteProtobufConsumer.quote(QuoteRequest) → QuoteReply` |
-| Registry artifacts (group `solace-request-reply`) | `quote-avro-request`, `quote-avro-reply` | `quote-protobuf-request`, `quote-protobuf-reply` |
-| Reply destination | its own: `request-reply/quote-avro/reply/<pod>` | its own: `request-reply/quote-protobuf/reply/<pod>` |
+| | Avro | Protobuf | JSON Schema |
+| :--- | :--- | :--- | :--- |
+| What travels | the shared DTOs `Person` → `Quote`, **unchanged**, by Avro reflection (`avro.datum-provider: REFLECT_ALLOW_NULL`) | generated `QuoteRequest` → `QuoteReply` from `shared-proto/src/main/proto/quote.proto`, mapped to and from the DTOs by `QuoteProtoMapper` | the shared DTOs again, as the **same JSON** an ungoverned exchange sends, written by the application's own `ObjectMapper` and checked against the schema (`validation: true`) |
+| Why it is that format | the `topic-profile` mappings for its topics say `format: AVRO` | a generated `Message` is recognised by type; no setting needed | its mappings name no format, and a governed topic whose mapping is silent is JSON Schema |
+| Server listener | `QuoteAvroConsumer.quote(Person) → Quote` | `QuoteProtobufConsumer.quote(QuoteRequest) → QuoteReply` | `QuoteJsonSchemaConsumer.quote(Person) → Quote` |
+| Registry artifacts (group `solace-request-reply`) | `quote-avro-request`, `quote-avro-reply` | `quote-protobuf-request`, `quote-protobuf-reply` | `quote-jsonschema-request`, `quote-jsonschema-reply` |
+| Where the schema comes from | derived from the class, registered on first use | read from the generated descriptor, registered on first use | **written by hand** in `shared-dto/src/main/resources/schemas/`, declared under `registration.schemas` and published by the library at startup |
+| Reply destination | its own: `request-reply/quote-avro/reply/<pod>` | its own: `request-reply/quote-protobuf/reply/<pod>` | its own: `request-reply/quote-jsonschema/reply/<pod>` |
 
 Every body carries Apicurio's framing (magic byte, schema id) and a `schemaFormat` user property, so
 the same bytes are readable by any Apicurio consumer. The registry is a dev one with
-`auto-register: true`: the first request of each kind registers its schema. Each demo gets its **own
-reply destination** because a reply topic is also a registry mapping (`…/reply/>` → one artifact for
-every client pod), and the shared destination carries JSON `Person` and `Quote` replies that no single
-mapping could describe. Every other exchange is unaffected: POJOs are governed only on
-`request-reply/quote-avro/>` (`solace.schema-registry.destinations`), so they keep sending plain JSON.
+`auto-register: true`: the first Avro or Protobuf request registers its schema.
+
+**JSON Schema is the exception.** It is the one format Apicurio cannot infer from the data, so there is
+nothing for `auto-register` to register and the artifacts must exist first. The two schemas are written by
+hand in `shared-dto/src/main/resources/schemas/`, beside the DTOs they describe, and both applications
+declare them:
+
+```yaml
+solace:
+  schema-registry:
+    registration:
+      mode: STARTUP           # or FIRST_MESSAGE (the default)
+      schemas:
+        - artifact-id: quote-jsonschema-request
+          group-id: solace-request-reply
+          format: JSON_SCHEMA
+          location: "classpath:schemas/quote-jsonschema-request.json"
+```
+
+The library publishes them — `STARTUP` as the application initialises, `FIRST_MESSAGE` just before the
+first message that uses the registry — and `json-schema.properties[apicurio.registry.find-latest]` makes
+both serdes resolve the artifacts by their coordinates. `fail-fast` is left off, so an unreachable
+registry is a warning in the log rather than a failed boot, and the first request tries again.
+
+Each demo gets its **own reply destination** because a reply topic is also a registry mapping
+(`…/reply/>` → one artifact for every client pod), and the shared destination carries JSON `Person` and
+`Quote` replies that no single mapping could describe. Every other exchange is unaffected: POJOs are
+governed only on `request-reply/quote-avro/>` and `request-reply/quote-jsonschema/>`
+(`solace.schema-registry.destinations`), so they keep sending plain, unvalidated JSON.
 See [`solace-library/docs/19-schema-registry.md`](solace-library/docs/19-schema-registry.md).
 
 Across all three patterns the three verbs mean the same thing:
@@ -590,7 +618,9 @@ gradle :solace-library:test :client:test :server:test
 | `server` &middot; `TaskWorkerTest` | each task handed to this instance is processed once, and a redelivered one reports which attempt it is |
 | `server` &middot; `QuoteConsumerTest` | the second service replies with a type derived from the request |
 | `server` &middot; `InventoryConsumerTest` | the third service maps its request type to a different reply type |
-| `server` &middot; `SchemaQuoteConsumersTest` | the Avro and Protobuf quote services answer as the JSON one does, on the DTOs and on the generated messages |
+| `server` &middot; `SchemaQuoteConsumersTest` | the Avro, Protobuf and JSON Schema quote services answer as the plain JSON one does, on the DTOs and on the generated messages |
+| `client` &middot; `JsonSchemaResourcesTest` | the bundled JSON Schemas are draft-07 and still describe `Person` and `Quote` field for field, so the DTOs cannot drift away from the registered contract |
+| `solace-library` &middot; `SchemaArtifactRegistrarTest` | declared schemas are published at startup or on the first message, a failure is retried unless `fail-fast` is set, and an incomplete declaration fails validation |
 | `shared-proto` &middot; `QuoteProtoMapperTest` | `Quote` and `Person` survive the round trip through the Protobuf messages and their bytes |
 | `solace-library` &middot; `SolaceTopicMatcherTest` | Solace wildcard semantics exactly — `*` is one level, `>` is one or more, and neither matches zero |
 | `solace-library` &middot; `TopicDispatchingSolaceListenerTest` | routing by matched subscription, declaration order breaking ties, and an unclaimed message being acknowledged rather than redelivered forever |
@@ -598,6 +628,7 @@ gradle :solace-library:test :client:test :server:test
 | `solace-library` &middot; `SolaceSessionStateTest` | a reconnecting session is not healthy, a never-connected one is not a fault, and the `SolaceSessionFactory` defaults keep a custom factory compiling |
 | `solace-library` &middot; `FlowTuningTest` | an untouched flow-tuning block is a no-op, active flow indication is derived from the access type, and a standby flow is not degraded |
 | `solace-library` &middot; `SettlementOutcomeTest` | which outcomes need bind-time negotiation, and that a lambda error handler still defers to the container |
+| `solace-library` &middot; `ReplyTemplatePublishingDefaultsTest` | a declared reply template inherits expiry, priority and DMQ eligibility from `solace.template.*`, and a spec that states them wins |
 | `solace-library` &middot; `SolaceObservabilityTest` | what the Micrometer collaborators publish, and what makes the health indicator report DOWN |
 | `server` &middot; `ExchangePatternConfigurationTest` | the wiring each `pattern` implies — endpoint naming, durability and access type |
 
@@ -617,7 +648,7 @@ template mocked. End-to-end behaviour is verified by scaling the deployment as s
 | Language | Java | 24 |
 | Framework | Spring Boot / WebFlux | 3.5.4 |
 | Messaging | Solace JCSMP / `solace-spring-boot-bom` | 10.27.2 / 2.5.0 |
-| Schema registry | Apicurio Registry serdes (Avro, Protobuf) / protobuf-java | 3.3.3 / 4.36.1 |
+| Schema registry | Apicurio Registry serdes (Avro, Protobuf, JSON Schema) / protobuf-java | 3.3.3 / 4.36.1 |
 | Data generation | DataFaker | 2.4.2 |
 | Containerization | Google Jib | 3.4.5 |
 | Orchestration | Skaffold / Kubernetes | v4beta14 |

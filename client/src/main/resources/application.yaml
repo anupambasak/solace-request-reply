@@ -16,7 +16,7 @@ app:
     # one flow. Raising this needs a durable reply queue first.
     reply-concurrency: 1
     reply-timeout: 30s
-  # Schema registry demos: the quote service with Avro and with Protobuf payloads. Each has its own
+  # Schema registry demos: the quote service with Avro, Protobuf and JSON Schema payloads. Each has its own
   # reply destination, because a shared one carries replies of several types and no single topic-to-schema
   # mapping fits them all. The formats and artifacts are under solace.schema-registry.
   quote-avro:
@@ -27,6 +27,11 @@ app:
   quote-protobuf:
     topic: request-reply/quote-protobuf/request
     reply-topic-prefix: request-reply/quote-protobuf/reply
+    reply-concurrency: 1
+    reply-timeout: 30s
+  quote-jsonschema:
+    topic: request-reply/quote-jsonschema/request
+    reply-topic-prefix: request-reply/quote-jsonschema/reply
     reply-concurrency: 1
     reply-timeout: 30s
   notification:
@@ -65,16 +70,26 @@ solace:
     concurrency: 1
     reply-timeout: 30s
     delivery-mode: PERSISTENT
+    # Expire a request when its requester stops waiting for the answer. Without this, a request published
+    # while the server is restarting waits on the durable queue, is handled whenever the server returns,
+    # and the reply arrives long after the future timed out ("Received a reply with no outstanding
+    # request"). The request endpoints are provisioned respects-ttl with a dead message queue, so an
+    # expired request is parked there instead of being answered far too late. Keep it equal to
+    # reply-timeout. The other reply templates set the same thing on their ReplyEndpointSpec; anything a
+    # spec leaves unset falls back to solace.template.* (priority, dmq-eligible).
+    time-to-live: 30000
 
   # Schema registry: Apicurio Registry, used by the Avro and Protobuf quote demos only.
   # Nothing contacts the registry at startup; each serde is created on the first message that needs it.
   schema-registry:
     url: ${APICURIO_REGISTRY_URL:http://api-apicurio-apps-dev.ocptnd1.prs/apis/registry/v3}
-    formats: [AVRO, PROTOBUF]
-    # POJOs are governed only on the Avro demo's topics; every other exchange keeps sending plain JSON.
-    # (Protobuf messages are generated classes, recognised wherever they are sent.)
+    formats: [AVRO, PROTOBUF, JSON_SCHEMA]
+    # POJOs are governed only on the Avro and JSON Schema demos' topics; every other exchange keeps
+    # sending plain, unvalidated JSON. (Protobuf messages are generated classes, recognised wherever
+    # they are sent.)
     destinations:
       - "request-reply/quote-avro/>"
+      - "request-reply/quote-jsonschema/>"
     # A dev registry: register a schema the first time it is used. In production, register from CI.
     auto-register: true
     # Map topics to registry artifacts. Reply topics end in the requester's instance id, so they are
@@ -94,6 +109,13 @@ solace:
       - topic-expression: "request-reply/quote-protobuf/reply/>"
         group-id: solace-request-reply
         artifact-id: quote-protobuf-reply
+      # No format: a governed topic whose mapping does not name one is JSON Schema.
+      - topic-expression: "request-reply/quote-jsonschema/request"
+        group-id: solace-request-reply
+        artifact-id: quote-jsonschema-request
+      - topic-expression: "request-reply/quote-jsonschema/reply/>"
+        group-id: solace-request-reply
+        artifact-id: quote-jsonschema-reply
     avro:
       # Lets the shared DTOs (Person, Quote) travel as Avro unchanged, with a schema derived from their
       # fields; ALLOW_NULL makes every field nullable, so a missing name does not fail serialisation.
@@ -101,6 +123,34 @@ solace:
       # Avro only instantiates classes it trusts. Payload and listener types are trusted automatically;
       # this covers anything nested inside them.
       trusted-packages: [cris.prs.messaging]
+    # Publishing the demo's JSON Schemas. JSON Schema is the one format Apicurio cannot derive from the
+    # data, so auto-register has nothing to register and the artifacts have to exist before the first
+    # message. The library publishes them from shared-dto's classpath:schemas/*.json.
+    registration:
+      # STARTUP publishes them as the application initialises, so a bad or unreachable schema shows up at
+      # boot. FIRST_MESSAGE -- the default -- waits until the first message that actually uses the
+      # registry, so an instance still starts while the registry is down.
+      mode: STARTUP
+      # With fail-fast off (the default), a failed attempt is a warning and the first message tries again.
+      fail-fast: false
+      schemas:
+        - artifact-id: quote-jsonschema-request
+          group-id: solace-request-reply
+          format: JSON_SCHEMA
+          location: "classpath:schemas/quote-jsonschema-request.json"
+        - artifact-id: quote-jsonschema-reply
+          group-id: solace-request-reply
+          format: JSON_SCHEMA
+          location: "classpath:schemas/quote-jsonschema-reply.json"
+    json-schema:
+      # Check every payload against its schema on the way out and on the way in. This is the whole point
+      # of the format: the bytes are the same JSON as an ungoverned exchange, the contract is what is new.
+      validation: true
+      properties:
+        # find-latest makes the serde resolve the registered artifacts by their coordinates -- group,
+        # artifact id, newest version -- rather than by looking up a schema it cannot produce from the
+        # data. Set here, on the JSON Schema serde alone, so Avro and Protobuf keep resolving by content.
+        "[apicurio.registry.find-latest]": "true"
 
 management:
   server:

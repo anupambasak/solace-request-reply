@@ -81,4 +81,29 @@ public class ReplyEndpointSpec {
 
     /** Delivery mode used for requests published through the resulting template. */
     private DeliveryMode deliveryMode = DeliveryMode.PERSISTENT;
+
+    /**
+     * Expiry in milliseconds for requests published through the resulting template; {@code 0} means no
+     * expiry. Unset &mdash; the default &mdash; inherits {@code solace.template.time-to-live}.
+     *
+     * <p>Worth setting on a request-reply template: a request nobody is waiting for any more is still a
+     * request the responder will answer. With an expiry at or just under {@code replyTimeout}, and
+     * {@code respects-ttl} on the request endpoint, the broker stops delivering a request once its
+     * requester has given up, and moves it to the dead message queue if it is
+     * {@linkplain #dmqEligible DMQ eligible} &mdash; instead of a listener processing it minutes later
+     * and publishing a reply that arrives to no outstanding request.</p>
+     */
+    private Long timeToLive;
+
+    /**
+     * Priority of requests published through the resulting template. Unset inherits
+     * {@code solace.template.priority}.
+     */
+    private Integer priority;
+
+    /**
+     * Move expired or undeliverable requests to the dead message queue. Unset inherits
+     * {@code solace.template.dmq-eligible}.
+     */
+    private Boolean dmqEligible;
 }

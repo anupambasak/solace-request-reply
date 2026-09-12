@@ -54,14 +54,8 @@ public class AppConfig {
             @Value("${app.inventory.reply-topic-prefix:request-reply/reply-3}") String replyTopicPrefix,
             @Value("${app.inventory.reply-concurrency:1}") int concurrency,
             @Value("${app.inventory.reply-timeout:30s}") Duration replyTimeout) {
-        ReplyEndpointSpec spec = new ReplyEndpointSpec();
-        spec.setId("inventoryReplyContainer");
-        spec.setReplyTopicPrefix(replyTopicPrefix);
-        spec.setAppendInstanceId(true);
-        spec.setEndpointMode(EndpointMode.NON_DURABLE_QUEUE);
-        spec.setConcurrency(concurrency);
-        spec.setReplyTimeout(replyTimeout);
-        return factory.create(spec);
+        return factory.create(replyEndpoint("inventoryReplyContainer", replyTopicPrefix, concurrency,
+                replyTimeout));
     }
 
     /**
@@ -108,6 +102,41 @@ public class AppConfig {
                 replyTimeout));
     }
 
+    /**
+     * The reply destination of the JSON Schema quote demo,
+     * {@code request-reply/quote-jsonschema/reply/<pod>}; its own for the same reason as
+     * {@link #quoteAvroReplyingSolaceTemplate}'s.
+     *
+     * @param factory          builds the template and the container consuming its reply destination
+     * @param replyTopicPrefix base reply topic; the instance id is appended to it
+     * @param concurrency      flows consuming the replies; clamped to 1 on a non-durable endpoint
+     * @param replyTimeout     how long a request waits for its reply
+     * @return the JSON Schema quote request-reply template
+     */
+    @Bean
+    public ReplyingSolaceTemplate quoteJsonSchemaReplyingSolaceTemplate(
+            ReplyingSolaceTemplateFactory factory,
+            @Value("${app.quote-jsonschema.reply-topic-prefix:request-reply/quote-jsonschema/reply}")
+            String replyTopicPrefix,
+            @Value("${app.quote-jsonschema.reply-concurrency:1}") int concurrency,
+            @Value("${app.quote-jsonschema.reply-timeout:30s}") Duration replyTimeout) {
+        return factory.create(replyEndpoint("quoteJsonSchemaReplyContainer", replyTopicPrefix, concurrency,
+                replyTimeout));
+    }
+
+    /**
+     * One reply destination, with requests expiring when their requester stops waiting.
+     *
+     * <p>{@code timeToLive} is the part worth copying. A request is persistent and its endpoint is
+     * durable, so it outlives the responder: restart the server mid-flight and the request waits on the
+     * queue, gets handled whenever the server comes back, and the reply arrives to a requester that gave
+     * up minutes ago &mdash; {@code Received a reply with no outstanding request}. Expiring the request at
+     * the reply timeout makes the broker stop delivering it at the moment the requester stops caring, and
+     * (the endpoints are provisioned {@code respects-ttl} and DMQ-eligible) park it on the dead message
+     * queue where it can be inspected, rather than answering it far too late.</p>
+     *
+     * <p>Unset values &mdash; priority, DMQ eligibility &mdash; come from {@code solace.template.*}.</p>
+     */
     private static ReplyEndpointSpec replyEndpoint(String id, String replyTopicPrefix, int concurrency,
             Duration replyTimeout) {
         ReplyEndpointSpec spec = new ReplyEndpointSpec();
@@ -117,6 +146,7 @@ public class AppConfig {
         spec.setEndpointMode(EndpointMode.NON_DURABLE_QUEUE);
         spec.setConcurrency(concurrency);
         spec.setReplyTimeout(replyTimeout);
+        spec.setTimeToLive(replyTimeout.toMillis());
         return spec;
     }
 }

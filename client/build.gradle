@@ -74,6 +74,7 @@ dependencies {
     implementation project(":shared-proto")
     implementation libs.apicurioSerdeAvro
     implementation libs.apicurioSerdeProtobuf
+    implementation libs.apicurioSerdeJsonSchema
     implementation libs.javaFaker
     developmentOnly("org.springframework.boot:spring-boot-devtools")
 

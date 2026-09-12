@@ -261,6 +261,8 @@ public class SolaceAutoConfiguration {
      * @param messageConverter   converts requests and replies
      * @param headerMapper       applies headers
      * @param instanceIdProvider supplies the id that makes each instance's reply destination unique
+     * @param properties         supplies the publishing defaults ({@code solace.template.*}) applied to
+     *                           every template this factory creates whose spec leaves them unset
      * @param metrics            optional instrumentation; every template falls back to the no-op
      *                           collaborator when Micrometer is absent or metrics are disabled
      * @return the factory
@@ -269,11 +271,17 @@ public class SolaceAutoConfiguration {
     @ConditionalOnMissingBean
     public ReplyingSolaceTemplateFactory replyingSolaceTemplateFactory(SolaceSessionFactory sessionFactory,
             SolaceMessageConverter messageConverter, SolaceHeaderMapper headerMapper,
-            InstanceIdProvider instanceIdProvider,
+            InstanceIdProvider instanceIdProvider, SolaceProperties properties,
             ObjectProvider<SolaceRequestReplyMetrics> metrics) {
         ReplyingSolaceTemplateFactory factory = new ReplyingSolaceTemplateFactory(sessionFactory,
                 messageConverter, headerMapper, instanceIdProvider);
         factory.setRequestReplyMetrics(metrics.getIfAvailable(() -> SolaceRequestReplyMetrics.NO_OP));
+        // Publishing defaults, so a reply template an application declares publishes like solaceTemplate
+        // unless its spec says otherwise. A spec that states one of these wins over the default.
+        SolaceProperties.Template templateProperties = properties.getTemplate();
+        factory.setDefaultTimeToLive(templateProperties.getTimeToLive());
+        factory.setDefaultPriority(templateProperties.getPriority());
+        factory.setDefaultDmqEligible(templateProperties.isDmqEligible());
         return factory;
     }
 
