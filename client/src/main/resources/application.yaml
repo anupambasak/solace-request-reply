@@ -98,17 +98,21 @@ solace:
       - topic-expression: "request-reply/quote-avro/request"
         group-id: solace-request-reply
         artifact-id: quote-avro-request
+        payload-class: cris.prs.messaging.Person
         format: AVRO
       - topic-expression: "request-reply/quote-avro/reply/>"
         group-id: solace-request-reply
         artifact-id: quote-avro-reply
+        payload-class: cris.prs.messaging.Quote
         format: AVRO
       - topic-expression: "request-reply/quote-protobuf/request"
         group-id: solace-request-reply
         artifact-id: quote-protobuf-request
+        payload-class: cris.prs.messaging.proto.QuoteRequest
       - topic-expression: "request-reply/quote-protobuf/reply/>"
         group-id: solace-request-reply
         artifact-id: quote-protobuf-reply
+        payload-class: cris.prs.messaging.proto.QuoteReply
       # No format: a governed topic whose mapping does not name one is JSON Schema.
       - topic-expression: "request-reply/quote-jsonschema/request"
         group-id: solace-request-reply
@@ -133,6 +137,9 @@ solace:
       mode: STARTUP
       # With fail-fast off (the default), a failed attempt is a warning and the first message tries again.
       fail-fast: false
+      # Register the Avro and Protobuf schemas too, derived from the topic-profile mappings that carry a
+      # payload-class -- at startup here, rather than lazily via auto-register on the first message.
+      include-topic-profile: true
       schemas:
         - artifact-id: quote-jsonschema-request
           group-id: solace-request-reply
