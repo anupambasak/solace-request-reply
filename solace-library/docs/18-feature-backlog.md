@@ -51,8 +51,7 @@ table above because the design choices are worth recording.
 
 *Was Tier 3, "Solace Schema Registry SERDES". Implemented on **Apicurio Registry** instead, with its
 generic, Kafka-free serde modules `io.apicurio:apicurio-registry-serde-common-{avro,protobuf,jsonschema}`
-3.3.x. Planned in [plans/schema-registry-serdes.md](plans/schema-registry-serdes.md); documented in
-[19. Schema Registry](19-schema-registry.md).*
+3.3.x. Documented in [19. Schema Registry](19-schema-registry.md).*
 
 The backlog called it "another `SolaceMessageConverter`". The converter is the visible part, but reading
 the code against a registry-serde model found things the feature would have hit on day one, and those
