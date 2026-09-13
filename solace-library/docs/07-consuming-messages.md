@@ -1,11 +1,11 @@
-# 9. Consuming messages
+# 7. Consuming messages
 
 The `listener` package: how an annotated method becomes a running consumer, and everything that
 happens to a message between the broker and that method.
 
 ---
 
-## 9.1 The pieces
+## 7.1 The pieces
 
 | Type | Role |
 | :--- | :--- |
@@ -31,7 +31,7 @@ happens to a message between the broker and that method.
 
 ---
 
-## 9.2 Endpoint naming
+## 7.2 Endpoint naming
 
 `resolveQueueName(instanceId)` builds:
 
@@ -55,7 +55,7 @@ competing consumers. Appending it to **topics** is a different thing: addressing
 
 ---
 
-## 9.3 Startup
+## 7.3 Startup
 
 ```
 1.  Guards
@@ -97,7 +97,7 @@ second start onwards — not a failure.
 
 ---
 
-## 9.4 Concurrency
+## 7.4 Concurrency
 
 `concurrency` is the number of **flows** bound to the endpoint. Each flow delivers independently, so
 it is the container's parallelism.
@@ -119,7 +119,7 @@ exclusive endpoint when strict ordering matters.
 
 ---
 
-## 9.5 Dispatch modes
+## 7.5 Dispatch modes
 
 ### `INLINE` (default)
 
@@ -158,7 +158,7 @@ silent correctness hole.
 
 ---
 
-## 9.6 Acknowledgement, settlement and errors
+## 7.6 Acknowledgement, settlement and errors
 
 Solace calls deciding a message's fate **settling** it. A consumer has four answers, and choosing
 between them is a judgement about the *failure*, not about the message:
@@ -310,7 +310,7 @@ extra one under a different name and pointing individual listeners at it with
 
 ---
 
-## 9.7 Delivery count
+## 7.7 Delivery count
 
 `SolaceRecord.getDeliveryCount()` is how many times the broker has delivered this message: `1` on the
 first attempt, so anything above 1 is a retry.
@@ -370,7 +370,7 @@ was no way to reject a message early.
 
 ---
 
-## 9.8 Flow events
+## 7.8 Flow events
 
 A flow is a consumer's binding to an endpoint, and its lifecycle is otherwise invisible: a flow can
 go down and come back without a single message being lost or a single log line appearing. Flow events
@@ -385,6 +385,33 @@ are where a reconnect, a lost bind, or a change of active consumer becomes obser
 | `ACTIVE` | This flow is *the* consumer on an exclusive endpoint |
 | `INACTIVE` | This flow is standing by; another instance holds the endpoint |
 | `UNKNOWN` | A JCSMP event this library does not model — reported rather than swallowed |
+
+```mermaid
+stateDiagram-v2
+    [*] --> UP: bind succeeds
+    UP --> RECONNECTING: connection lost
+    RECONNECTING --> RECONNECTED: retry succeeds
+    RECONNECTED --> UP
+    RECONNECTING --> DOWN: gives up / unrecoverable
+    UP --> DOWN: endpoint deleted / bind rejected
+    DOWN --> [*]: needs container restart
+
+    state "exclusive endpoint" as excl {
+      ACTIVE: ACTIVE — this flow is the consumer
+      INACTIVE: INACTIVE — standing by (healthy)
+      ACTIVE --> INACTIVE: another instance takes over
+      INACTIVE --> ACTIVE: this instance wins
+    }
+
+    note right of RECONNECTING
+      isDegraded() = true
+      (running, but not consuming)
+    end note
+    note right of INACTIVE
+      NOT degraded —
+      standby is healthy
+    end note
+```
 
 ### Logging comes free
 
@@ -447,14 +474,14 @@ SolaceFlowListener leadershipListener(Scheduler scheduler) {
 ```
 
 Active flow indication is requested automatically when the access type is `EXCLUSIVE`, and not
-otherwise — see [9.9](#99-flow-tuning). Without it the broker never sends these events and a standby
+otherwise — see [7.9](#79-flow-tuning). Without it the broker never sends these events and a standby
 instance has no way to learn it has taken over.
 
 ### Container state
 
 Two accessors on `DefaultSolaceMessageListenerContainer` derive from flow events:
 
-| | |
+| Accessor | Meaning |
 | :--- | :--- |
 | `isDegraded()` | Any flow down or reconnecting. **This is the difference between "running" and "actually consuming"** — a container stays running throughout a reconnect |
 | `isActive()` | This container is the active consumer. On a non-exclusive endpoint, or with indication off, it simply mirrors "running and not degraded" |
@@ -466,15 +493,15 @@ is not the leader.
 
 The Actuator health indicator uses `isDegraded()`, which is what lets it distinguish a container that
 is running from one that is running but not consuming — see
-[16.3](16-operations.md#163-actuator-health).
+[20.3](20-operations.md#203-actuator-health).
 
 **Flow events are not the whole story.** A flow rides on a session, and JCSMP reconnects a *session*
 transparently: a network blip can stop all traffic for seconds while every flow survives and raises
-nothing. Session events cover that layer — see [13.7](13-multi-instance.md#137-session-events).
+nothing. Session events cover that layer — see [11.7](11-multi-instance.md#117-session-events).
 
 ---
 
-## 9.9 Flow tuning
+## 7.9 Flow tuning
 
 `solace.listener.flow.*` applies to every flow the container binds. **Every value is unset by
 default**, and a property reaches `ConsumerFlowProperties` only once given a value — so an empty block
@@ -567,7 +594,7 @@ Leave all of it alone until you have a measured problem. Then:
 
 ---
 
-## 9.10 Topic dispatch — several methods, one endpoint
+## 7.10 Topic dispatch — several methods, one endpoint
 
 Every `@SolaceListener` normally gets its own endpoint and its own flows. A service subscribing to
 twenty related topics therefore pays for twenty queues, twenty provisioning rounds and twenty binds.
@@ -652,11 +679,11 @@ character.
 Sharing an endpoint means sharing its **concurrency, its transaction setting and its backlog**. A slow
 handler on one topic delays every other topic on that queue. Give a topic its own endpoint when it
 needs its own throughput or its own failure isolation — the same trade as
-[splitting a reply destination](10-request-reply.md#106-when-to-split-a-reply-destination).
+[splitting a reply destination](08-request-reply.md#86-when-to-split-a-reply-destination).
 
 ---
 
-## 9.11 Message replay
+## 7.11 Message replay
 
 Replay asks the broker to re-deliver messages it has already spooled. It turns the broker into a
 short-term event store: rebuild a projection after a bug, or bring a new service online with history
@@ -702,7 +729,7 @@ want — a rebuild-on-boot projection — and usually not.
    `isRedelivered()` does **not** distinguish a replayed message from a first delivery.
 3. **A replay the broker cannot satisfy fails the flow.** Replay must be enabled for the Message VPN
    and the replay log must still cover the period asked for. The failure arrives as a `DOWN`
-   [flow event](#98-flow-events) — an error in the log and a DOWN health status — not as an exception
+   [flow event](#78-flow-events) — an error in the log and a DOWN health status — not as an exception
    from the call that requested it.
 
 That third point is why flow events were the prerequisite for this feature: without them a failed
@@ -724,7 +751,7 @@ Registered but idle; start it with a replay when the rebuild is wanted.
 
 ---
 
-## 9.12 Redelivery and the dead message queue
+## 7.12 Redelivery and the dead message queue
 
 ```yaml
 solace:
@@ -755,7 +782,7 @@ queue you will see the property-mismatch warning and must change it on the broke
 
 ---
 
-## 9.13 Lifecycle and manual control
+## 7.13 Lifecycle and manual control
 
 Containers are lifecycled as a group by `SolaceListenerEndpointRegistry`, itself a `SmartLifecycle`
 bean. To control one by hand:
@@ -779,7 +806,7 @@ instance id.
 
 ---
 
-## 9.14 Programmatic registration
+## 7.14 Programmatic registration
 
 `@SolaceListener` is a convenience over an API you can use directly — useful when endpoints are
 discovered at runtime:
@@ -808,7 +835,7 @@ listeners, nothing does it here.
 
 ---
 
-## 9.15 The keep-alive thread
+## 7.15 The keep-alive thread
 
 Every JCSMP thread is a daemon thread. A listener-only application with no web server would start,
 register everything, and exit immediately — the JVM has no non-daemon thread to keep it alive.
@@ -823,4 +850,4 @@ WebFlux or MVC service does — so shutdown is governed by the web server alone.
 
 ---
 
-**Next:** [10. Request-reply](10-request-reply.md)
+**Previous:** [6. Producing messages](06-producing-messages.md)  ·  [Index](00-index.md)  ·  **Next:** [8. Request-reply](08-request-reply.md)

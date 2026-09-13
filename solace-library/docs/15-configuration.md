@@ -1,4 +1,4 @@
-# 5. Configuration reference
+# 15. Configuration reference
 
 Every property the library binds, its type, its default, and what it actually changes.
 
@@ -7,7 +7,7 @@ application.
 
 ---
 
-## 5.1 Complete example
+## 15.1 Complete example
 
 ```yaml
 solace:
@@ -119,9 +119,9 @@ solace:
 
 ---
 
-## 5.2 `solace.instance-id`
+## 15.2 `solace.instance-id`
 
-| | |
+| Field | Value |
 | :--- | :--- |
 | Type | `String` |
 | Default | `$HOSTNAME`, then `$POD_NAME`, then the local host name, then `unknown-<8 hex>` |
@@ -138,7 +138,7 @@ Set it explicitly only to make destination names predictable in a test.
 
 ---
 
-## 5.3 `solace.template.*`
+## 15.3 `solace.template.*`
 
 Defaults applied to the auto-configured `solaceTemplate`. They are per-template, not per-message —
 `SolaceTemplate` exposes setters for all of them, so an extra template bean can differ.
@@ -153,23 +153,23 @@ Defaults applied to the auto-configured `solaceTemplate`. They are per-template,
 
 ---
 
-## 5.4 `solace.listener.*`
+## 15.4 `solace.listener.*`
 
 Defaults for **every** `@SolaceListener` container. Anything set on the annotation, and anything a
-pattern implies, overrides these — see [5.8 Precedence](#58-precedence).
+pattern implies, overrides these — see [5.8 Precedence](#158-precedence).
 
 `SolaceProperties.Listener extends ContainerProperties`, so this table is also the reference for a
 hand-built `ContainerProperties`.
 
 | Property | Type | Default | Effect |
 | :--- | :--- | :--- | :--- |
-| `endpoint-mode` | `EndpointMode` | `DURABLE_QUEUE` | See [5.5](#55-endpointmode-in-detail). |
+| `endpoint-mode` | `EndpointMode` | `DURABLE_QUEUE` | See [15.5](#155-endpointmode-in-detail). |
 | `concurrency` | `int` | `1` | Number of **flows** bound to the endpoint. Each flow delivers independently, so this is the container's parallelism. Clamped to 1 for `NON_DURABLE_QUEUE`. |
 | `transactional` | `boolean` | `false` | Bind each flow to its own `TransactedSession`, so the acknowledgement and anything published in the listener commit together. Forces `INLINE` dispatch. |
 | `auto-startup` | `boolean` | `true` | Whether the container starts with the context, or waits to be started through the registry. |
 | `provision-endpoint` | `boolean` | `true` | Create the durable queue (and the DMQ) if missing. Set `false` when endpoints are managed by an operations team and the client lacks provision rights. |
 | `ack-on-error` | `boolean` | `true` | **Deprecated** — superseded by `error-outcome`, and honoured only when that is unset. `true` maps to `ACCEPTED`, `false` to `NONE`. |
-| `error-outcome` | `SettlementOutcome` | unset | What to do with a message whose listener threw: `ACCEPTED` (acknowledge and drop), `FAILED` (redeliver, counting the attempt), `REJECTED` (straight to the DMQ, without consuming redelivery attempts), `NONE` (settle nothing). Unset falls back to `ack-on-error`. Ignored on a transacted flow, where the rollback governs redelivery. See [9.6](09-consuming-messages.md#96-acknowledgement-settlement-and-errors). |
+| `error-outcome` | `SettlementOutcome` | unset | What to do with a message whose listener threw: `ACCEPTED` (acknowledge and drop), `FAILED` (redeliver, counting the attempt), `REJECTED` (straight to the DMQ, without consuming redelivery attempts), `NONE` (settle nothing). Unset falls back to `ack-on-error`. Ignored on a transacted flow, where the rollback governs redelivery. See [7.6](07-consuming-messages.md#76-acknowledgement-settlement-and-errors). |
 | `negative-acknowledgement` | `Boolean` | unset | Negotiate `FAILED` and `REJECTED` on every flow at bind time — a flow may only send an outcome it asked for. Unset derives it from `error-outcome`. Set `true` explicitly when an error handler decides the outcome per message; set `false` against a broker or client too old to support settlement outcomes, where requesting them fails the bind. |
 | `dispatch` | `DispatchMode` | `INLINE` | `INLINE` runs the listener on the JCSMP delivery thread. `EXECUTOR` hands it to `solaceListenerTaskExecutor`. |
 | `dispatch-queue-capacity` | `int` | `256` | Per-flow hand-off queue for `EXECUTOR`. Bounded on purpose: `put` blocks, so a slow listener pushes back on the broker rather than filling the heap. |
@@ -197,7 +197,7 @@ provisioned — so a change takes effect on the next restart with no need to tou
 | `active-flow-indication` | `Boolean` | derived | Ask the broker to say when this flow becomes the active consumer on an exclusive endpoint. Unset enables it for `EXCLUSIVE` and not otherwise — it is the basis of leader election over an exclusive endpoint. |
 | `no-local` | `Boolean` | JCSMP's (`false`) | Suppress delivery to this flow of messages published on the **same client connection**. Solace matches on the connection, not the application, so a service that both publishes to a topic and subscribes to it receives its own messages unless this is on. Two caveats: a **transactional** container gets its own connection, so its publishes are already elsewhere and this has no effect; and it is a **per-flow filter**, so on a shared queue the message is simply delivered to a different instance rather than discarded. |
 
-See [9.9](09-consuming-messages.md#99-flow-tuning) for when to change any of it.
+See [7.9](07-consuming-messages.md#79-flow-tuning) for when to change any of it.
 
 ### `solace.listener.endpoint.*`
 
@@ -228,7 +228,7 @@ expired must not immediately expire again in the queue meant to preserve it for 
 
 ---
 
-## 5.5 `EndpointMode` in detail
+## 15.5 `EndpointMode` in detail
 
 | Mode | Broker object | Lifetime | Flows | Delivery | Typical use |
 | :--- | :--- | :--- | :--- | :--- | :--- |
@@ -246,7 +246,7 @@ Two consequences that cause most first-time confusion:
 
 ---
 
-## 5.6 `solace.request-reply.*`
+## 15.6 `solace.request-reply.*`
 
 `SolaceProperties.RequestReply extends ReplyEndpointSpec`, so this table is also the reference for a
 hand-built spec passed to `ReplyingSolaceTemplateFactory`. Only `enabled` is specific to the
@@ -265,7 +265,7 @@ auto-configured bean.
 | `concurrency` | `int` | `1` | Flows consuming replies. Only meaningful with `DURABLE_QUEUE` — clamped to 1 otherwise. |
 | `reply-timeout` | `Duration` | `30s` | Default wait before a future fails with `SolaceReplyTimeoutException`. Zero or negative waits forever. Overridable per call. |
 | `delivery-mode` | `DeliveryMode` | `PERSISTENT` | Delivery mode for **requests** published through this template. |
-| `time-to-live` | `Long` (ms) | inherits `solace.template.time-to-live` | Expiry for **requests**. Set it to `reply-timeout` so the broker stops delivering a request once its requester has given up ([10.6](10-request-reply.md#106-when-to-split-a-reply-destination)). Only honoured by an endpoint whose `respects-ttl` is true. |
+| `time-to-live` | `Long` (ms) | inherits `solace.template.time-to-live` | Expiry for **requests**. Set it to `reply-timeout` so the broker stops delivering a request once its requester has given up ([8.6](08-request-reply.md#86-when-to-split-a-reply-destination)). Only honoured by an endpoint whose `respects-ttl` is true. |
 | `priority` | `Integer` | inherits `solace.template.priority` | Priority for requests. |
 | `dmq-eligible` | `Boolean` | inherits `solace.template.dmq-eligible` | Move expired or undeliverable requests to the dead message queue. |
 
@@ -278,7 +278,7 @@ The resulting reply destination is `<reply-topic-prefix>/<sanitised instance id>
 
 ---
 
-## 5.7 `solace.metrics.*` and `solace.health.*`
+## 15.7 `solace.metrics.*` and `solace.health.*`
 
 Both are optional integrations, and both disappear cleanly when their dependency is absent —
 Micrometer for metrics, Spring Boot Actuator for health.
@@ -286,21 +286,21 @@ Micrometer for metrics, Spring Boot Actuator for health.
 | Property | Type | Default | Effect |
 | :--- | :--- | :--- | :--- |
 | `metrics.enabled` | `boolean` | `true` | Publish Solace meters when a `MeterRegistry` bean exists. `false` leaves containers and templates on their no-op collaborators, so there is **no measurement overhead at all** — not merely meters nobody scrapes. |
-| `metrics.session-statistics` | `List<String>` | a curated set | JCSMP `StatType` names published as broker-side session statistics. Setting this **replaces** the list; an unrecognised name is logged and skipped rather than failing startup; an empty list turns session statistics off while leaving the rest of the metrics on. See [16.2](16-operations.md#162-micrometer-metrics). |
+| `metrics.session-statistics` | `List<String>` | a curated set | JCSMP `StatType` names published as broker-side session statistics. Setting this **replaces** the list; an unrecognised name is logged and skipped rather than failing startup; an empty list turns session statistics off while leaving the rest of the metrics on. See [20.2](20-operations.md#202-micrometer-metrics). |
 | `health.enabled` | `boolean` | `true` | Contribute a `solace` health indicator when Actuator is present. |
 | `health.require-all-containers-running` | `boolean` | `true` | Report DOWN when a registered listener container is not running. Set `false` for an application that starts containers by hand or declares listeners with `autoStartup = "false"` — a deliberately idle container is not a fault, and reporting it as one keeps the instance out of the load balancer. |
 
-See [16.2](16-operations.md#162-micrometer-metrics) for the meters and
-[16.3](16-operations.md#163-actuator-health) for the health details.
+See [20.2](20-operations.md#202-micrometer-metrics) for the meters and
+[20.3](20-operations.md#203-actuator-health) for the health details.
 
 ---
 
-## 5.7a `solace.schema-registry.*`
+## 15.7a `solace.schema-registry.*`
 
 Optional. Setting `solace.schema-registry.url` turns on [Apicurio Registry](https://www.apicur.io/registry/)
 conversion for Avro, Protobuf and JSON Schema; everything else refines it. The full table, and which
 defaults differ from Apicurio's, is in
-[19.8](19-schema-registry.md#198-configuration-reference-solaceschema-registry).
+[12.8](12-schema-registry.md#128-configuration-reference-solaceschema-registry).
 
 | Property | Default | Effect |
 | :--- | :--- | :--- |
@@ -320,7 +320,7 @@ restart.
 
 ---
 
-## 5.8 Precedence
+## 15.8 Precedence
 
 For a `@SolaceListener` container, from lowest to highest:
 
@@ -358,7 +358,7 @@ as the broker allows, and the discrepancy is reported rather than hidden.
 
 ---
 
-## 5.9 Environment-specific patterns
+## 15.9 Environment-specific patterns
 
 **Local development** — no persistence, no provisioning rights needed:
 
@@ -405,4 +405,4 @@ solace:
 
 ---
 
-**Next:** [6. Annotations](06-annotations.md)
+**Previous:** [14. Annotations](14-annotations.md)  ·  [Index](00-index.md)  ·  **Next:** [16. Extension points](16-extension-points.md)

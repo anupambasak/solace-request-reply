@@ -1,4 +1,4 @@
-# 1. Overview
+# 1. Introduction
 
 `solace-library` is a Spring integration library for **Solace PubSub+**, built directly on the
 **JCSMP** API. It gives a Spring Boot application the same programming model that Spring for Apache
@@ -60,7 +60,7 @@ Where the two diverge, it is because Solace differs from Kafka, not because of a
   produces a single shared non-exclusive endpoint. There is no rebalance, no generation, no
   coordinator. What Kafka gets from partition assignment, Solace gets from an *exclusive* endpoint:
   the broker names one active consumer and tells it so, which is leader election without a
-  coordinator — see [9.8](09-consuming-messages.md#98-flow-events).
+  coordinator — see [7.8](07-consuming-messages.md#78-flow-events).
 - **Topics are not endpoints.** In Solace a topic is a routing key on a published message. A consumer
   binds to an *endpoint* (a queue) and attaches topic subscriptions to it. Almost every Solace-specific
   concept in this library follows from that one fact.
@@ -122,10 +122,10 @@ The library does not hide these, so it is worth being precise about them.
 ## 1.5 What it deliberately does not do
 
 - **XA / distributed transactions.** JCSMP does not offer them.
-- **Batch listeners.** One message per invocation. (See [18. Feature backlog](18-feature-backlog.md).)
+- **Batch listeners.** One message per invocation. (See [19. Feature backlog](19-feature-backlog.md).)
 - **Queue depth as a number.** Browsing counts by walking; a real depth is a SEMP question.
 - **Schema registries other than Apicurio.** Avro, Protobuf and JSON Schema are supported through
-  Apicurio Registry ([19](19-schema-registry.md)); another registry plugs in behind the `SchemaCodec`
+  Apicurio Registry ([19](12-schema-registry.md)); another registry plugs in behind the `SchemaCodec`
   seam, or the converter SPI.
 - **Broker administration.** It provisions the endpoints it needs and nothing else; use SEMP or the
   admin UI for the rest.
@@ -137,7 +137,7 @@ The library does not hide these, so it is worth being precise about them.
 
 ## 1.6 Requirements
 
-| | |
+| Requirement | Version |
 | :--- | :--- |
 | Java | 21+ (the reference application builds on 24) |
 | Spring Boot | 3.5.x |
@@ -146,4 +146,4 @@ The library does not hide these, so it is worth being precise about them.
 
 ---
 
-**Next:** [2. Getting started](02-getting-started.md)
+[Index](00-index.md)  ·  **Next:** [2. Quickstart](02-quickstart.md)

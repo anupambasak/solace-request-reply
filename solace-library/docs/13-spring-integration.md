@@ -1,4 +1,4 @@
-# 4. Spring integration
+# 13. Spring integration
 
 This page is the complete account of how the library plugs into Spring and Spring Boot: which
 framework contracts it implements, in what order they fire, what each one is responsible for, and
@@ -6,7 +6,7 @@ what happens when you override any of it.
 
 ---
 
-## 4.1 The Spring contracts this library implements
+## 13.1 The Spring contracts this library implements
 
 | Contract | Implemented by | Purpose |
 | :--- | :--- | :--- |
@@ -31,7 +31,7 @@ what happens when you override any of it.
 
 ---
 
-## 4.2 Auto-configuration
+## 13.2 Auto-configuration
 
 ### Registration
 
@@ -101,7 +101,7 @@ set, and imported **first** so that its converter is registered before the core
 | `solaceSchemaRegistryErrorHandler` | `SchemaRegistryErrorHandler` | missing `SolaceListenerErrorHandler` | Rejects non-retryable schema failures |
 
 It has no `@ConditionalOnClass` on the Apicurio jars, on purpose: a configured registry URL with a missing
-jar should fail, not silently fall back to plain JSON. See [19](19-schema-registry.md).
+jar should fail, not silently fall back to plain JSON. See [19](12-schema-registry.md).
 
 Plus, from the imported `SolaceObservabilityConfiguration`:
 
@@ -156,7 +156,7 @@ one `ReplyingSolaceTemplate` qualify explicitly.
 
 ---
 
-## 4.3 Configuration property binding
+## 13.3 Configuration property binding
 
 `SolaceProperties` is a plain `@ConfigurationProperties(prefix = "solace")` class bound by Spring
 Boot's relaxed binder, so `maxRedeliveryCount`, `max-redelivery-count` and `MAX_REDELIVERY_COUNT`
@@ -184,7 +184,7 @@ IDE completion and javadoc-sourced descriptions in `spring-configuration-metadat
 
 ---
 
-## 4.4 `@SolaceListener` discovery: the BeanPostProcessor
+## 13.4 `@SolaceListener` discovery: the BeanPostProcessor
 
 `SolaceListenerAnnotationBeanPostProcessor` implements `BeanPostProcessor`,
 `SmartInitializingSingleton`, `BeanFactoryAware` and `Ordered`. It is the exact analogue of
@@ -270,7 +270,7 @@ explanation rather than a `NoSuchBeanDefinitionException`.
 
 ---
 
-## 4.5 Listener method signatures
+## 13.5 Listener method signatures
 
 `MethodSolaceListenerAdapter` invokes through Spring's `InvocableHandlerMethod`, created by a
 `DefaultMessageHandlerMethodFactory`. Every argument resolver that factory registers is therefore
@@ -314,7 +314,7 @@ post-processor — or, more simply, take a `SolaceRecord<T>` and read what you n
 
 ---
 
-## 4.6 `@EnableSolace` and the bootstrap registrar
+## 13.6 `@EnableSolace` and the bootstrap registrar
 
 ```java
 @Target(TYPE) @Retention(RUNTIME) @Documented
@@ -343,7 +343,7 @@ context from `@Configuration` classes rather than through auto-configuration.
 
 ---
 
-## 4.7 Lifecycle and phases
+## 13.7 Lifecycle and phases
 
 Three bean types implement `SmartLifecycle`:
 
@@ -352,6 +352,19 @@ Three bean types implement `SmartLifecycle`:
 | `SolaceListenerEndpointRegistry` | `Integer.MAX_VALUE - 100` | starts every registered container | stops every container |
 | `DefaultSolaceMessageListenerContainer` | `containerProperties.phase`, default `MAX - 100` | provisions, binds flows, subscribes | closes flows and sessions |
 | `ReplyingSolaceTemplate` | `MAX - 90` | starts its reply container, starts the timeout scheduler | stops the container, fails outstanding futures |
+
+```mermaid
+flowchart LR
+    subgraph START["Start — ascending phase"]
+      direction LR
+      S1["app beans<br/>(datasource, web, caches)"] --> S2["containers start<br/>phase MAX−100<br/><i>consuming</i>"] --> S3["ReplyingSolaceTemplate<br/>phase MAX−90<br/><i>may now send</i>"]
+    end
+    subgraph STOP["Stop — descending phase"]
+      direction LR
+      T1["ReplyingSolaceTemplate stops<br/>fails outstanding futures"] --> T2["containers stop<br/>close flows & sessions"] --> T3["app beans"]
+    end
+    START -.-> STOP
+```
 
 Spring starts ascending and stops descending, so:
 
@@ -376,7 +389,7 @@ close, which covers the case of a context that is destroyed without a lifecycle 
 
 ---
 
-## 4.8 Transaction integration
+## 13.8 Transaction integration
 
 `SolaceTransactionManager` extends `AbstractPlatformTransactionManager` and implements
 `ResourceTransactionManager`, which is all Spring needs to drive it from `@Transactional`,
@@ -405,11 +418,11 @@ Because `SolaceTemplate.send` consults `TransactionSynchronizationManager` throu
 `getResourceFactory()` returning the session factory also means Solace resources are keyed
 independently of any `DataSource`, so a `@Transactional` method may sit inside a JDBC transaction
 without interference — though the two commit separately, and are not atomic together. See
-[11. Transactions](11-transactions.md).
+[9. Transactions](09-transactions.md).
 
 ---
 
-## 4.9 Why the auto-configuration package is separate
+## 13.9 Why the auto-configuration package is separate
 
 `org.cris.prs.solace.autoconfigure` sits deliberately outside `cris.prs.messaging`.
 
@@ -428,7 +441,7 @@ package an application is likely to scan, and do not add a class-level `@Conditi
 
 ---
 
-## 4.10 Overriding anything
+## 13.10 Overriding anything
 
 Every bean is conditional, so declaring your own wins. Some examples:
 
@@ -484,7 +497,7 @@ public void onAudit(AuditEvent event) { … }
 
 ---
 
-## 4.11 Observability wiring
+## 13.11 Observability wiring
 
 `SolaceObservabilityConfiguration` is imported by the auto-configuration and split into two nested
 `@Configuration` classes, each guarding its own dependency — an application may have Micrometer
@@ -517,22 +530,22 @@ only and never contacts the broker.
 `SolaceSessionFactory` gained `default boolean isHealthy()` for this — a *default* method, so a
 custom session factory keeps compiling and is simply reported as healthy.
 
-See [16.2](16-operations.md#162-micrometer-metrics) and [16.3](16-operations.md#163-actuator-health).
+See [20.2](20-operations.md#202-micrometer-metrics) and [20.3](20-operations.md#203-actuator-health).
 
 ---
 
-## 4.12 Other Spring ecosystem integrations
+## 13.12 Other Spring ecosystem integrations
 
 | Concern | How it behaves |
 | :--- | :--- |
-| **Spring Boot Actuator** | `SolaceHealthIndicator` contributes `/actuator/health/solace`, conditional on Actuator being present. See [16.3](16-operations.md#163-actuator-health). |
+| **Spring Boot Actuator** | `SolaceHealthIndicator` contributes `/actuator/health/solace`, conditional on Actuator being present. See [20.3](20-operations.md#203-actuator-health). |
 | **Spring Boot DevTools** | The restart classloader recreates the whole context; containers stop and flows close cleanly first. Temporary reply queues are dropped and recreated on each restart, which is what you want. |
 | **`spring-boot-configuration-processor`** | Generates metadata for `solace.*`, so YAML completion and documentation work in IDEs. |
 | **Spring WebFlux / Reactor** | `RequestReplyFuture` extends `CompletableFuture`, so `Mono.fromFuture(future)` is the whole bridge. The library imposes no blocking on the reactive path. |
 | **Spring AOP** | Listener beans are scanned via `AopUtils.getTargetClass`, so proxied beans work. Note `@Transactional` on a listener *method* is redundant when the flow is already transacted, and can nest a second transaction. |
-| **Spring test** | Nothing in the library requires a broker at bean-definition time, so a context that never starts the lifecycle (or sets `auto-startup: false`) can be built without one. Endpoint wiring is assertable — see [15. Class reference](15-class-reference.md) and the reference application's `ExchangePatternConfigurationTest`. |
-| **Micrometer** | Ten meters covering listener throughput, listener latency, container state, and request-reply traffic — registered automatically when a `MeterRegistry` bean exists. See [16.2](16-operations.md#162-micrometer-metrics). |
+| **Spring test** | Nothing in the library requires a broker at bean-definition time, so a context that never starts the lifecycle (or sets `auto-startup: false`) can be built without one. Endpoint wiring is assertable — see [17. Class reference](17-class-reference.md) and the reference application's `ExchangePatternConfigurationTest`. |
+| **Micrometer** | Ten meters covering listener throughput, listener latency, container state, and request-reply traffic — registered automatically when a `MeterRegistry` bean exists. See [20.2](20-operations.md#202-micrometer-metrics). |
 
 ---
 
-**Next:** [5. Configuration reference](05-configuration.md)
+**Previous:** [12. Schema Registry](12-schema-registry.md)  ·  [Index](00-index.md)  ·  **Next:** [14. Annotations](14-annotations.md)

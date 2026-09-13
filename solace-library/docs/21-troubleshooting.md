@@ -1,15 +1,15 @@
-# 17. Troubleshooting
+# 21. Troubleshooting
 
 Symptom first, then the cause, then the fix. Every entry here is something that has actually
 happened.
 
-**Jump to:** [startup](#171-startup-failures) · [binding](#172-binding-and-provisioning) ·
-[messages](#173-message-handling) · [request-reply](#174-request-reply) ·
-[transactions](#175-transactions)
+**Jump to:** [startup](#211-startup-failures) · [binding](#212-binding-and-provisioning) ·
+[messages](#213-message-handling) · [request-reply](#214-request-reply) ·
+[transactions](#215-transactions)
 
 ---
 
-## 17.1 Startup failures
+## 21.1 Startup failures
 
 ### `No bean named 'solaceListenerContainerFactory' available`
 
@@ -115,7 +115,7 @@ Apicurio 3.3 is built against Protobuf 4.36 and Jackson 2.21; Spring Boot 3.5 ma
 does not manage Protobuf at all. Align `protobuf-java` with your generated classes and Apicurio's, and check
 `gradle :<app>:dependencyInsight --dependency protobuf-java` (and `jackson-databind`).
 
-## 17.2 Binding and provisioning
+## 21.2 Binding and provisioning
 
 ### `400 Subscription Already Exists`
 
@@ -130,7 +130,7 @@ properties, which really is a misconfiguration.
 
 Tolerated the same way (`ENDPOINT_ALREADY_EXISTS`, logged at debug). What you should look for
 instead is the **property-mismatch warning**, which means the endpoint exists with settings other
-than the ones you configured — and the broker keeps its own. See [16.4](16-operations.md#166-endpoint-settings-and-the-broker).
+than the ones you configured — and the broker keeps its own. See [20.4](20-operations.md#206-endpoint-settings-and-the-broker).
 
 ### `503 Unknown Queue` on a `#P2P/QTMP/…` name
 
@@ -224,7 +224,7 @@ Work through, in order:
 
 ---
 
-## 17.3 Message handling
+## 21.3 Message handling
 
 ### `MismatchedInputException: No content to map due to end-of-input`
 
@@ -272,7 +272,7 @@ silently looks like a permanent first delivery.
 
 Three settings interact:
 
-| | |
+| Setting | Effect |
 | :--- | :--- |
 | `ack-on-error: false` | the message is not acknowledged after a failure |
 | `max-redelivery-count: 0` | **redeliver forever**, not "never redeliver" |
@@ -337,7 +337,7 @@ does.
 
 `artifact-resolver-strategy: DESTINATION` (or `TOPIC`) with request-reply: every instance's reply topic
 carries its instance id, so each is a different artifact. Use `TOPIC_PROFILE` and map the reply **prefix**
-with `>`. See [19.5](19-schema-registry.md#195-where-the-schema-comes-from-artifact-resolution).
+with `>`. See [12.5](12-schema-registry.md#125-where-the-schema-comes-from-artifact-resolution).
 
 ### `[MISSING_SCHEMA_ID]`, `[VALIDATION_FAILED]`, `[SCHEMA_NOT_FOUND]`, `[UNSUPPORTED_FORMAT]`, `[TYPE_MISMATCH]`
 
@@ -353,7 +353,7 @@ The registry is unreachable (or refused the credentials: 401/403 are classified 
 was cached. With `cache.fault-tolerant-refresh: true` (the library default) schemas already resolved keep
 working; this appears for schemas first needed during the outage.
 
-## 17.4 Request-reply
+## 21.4 Request-reply
 
 ### Replies never arrive
 
@@ -393,7 +393,7 @@ are disabled (`reply-timeout: 0`) and nothing ever fails the futures.
 
 ---
 
-## 17.5 Transactions
+## 21.5 Transactions
 
 ### `Creating new transaction with name [null]`
 
@@ -403,7 +403,7 @@ fully-qualified name; a container driving a `TransactionTemplate` directly does 
 ### A published message survives a rolled-back database transaction
 
 Expected. JCSMP has no XA, so a Solace transaction and a JDBC transaction commit separately. See
-[11.5](11-transactions.md#115-interaction-with-a-database) for the three standard remedies —
+[9.5](09-transactions.md#95-interaction-with-a-database) for the three standard remedies —
 transactional outbox, publish-after-commit, or idempotent consumers.
 
 ### A transactional listener consumes twice the transacted sessions expected
@@ -413,7 +413,7 @@ Look for `@Transactional` on the listener method. The flow's transaction is alre
 
 ---
 
-## 17.6 Getting more detail
+## 21.6 Getting more detail
 
 ```yaml
 logging:
@@ -432,4 +432,4 @@ broker" questions in one look.
 
 ---
 
-**Next:** [18. Feature backlog](18-feature-backlog.md)
+**Previous:** [20. Operations](20-operations.md)  ·  [Index](00-index.md)

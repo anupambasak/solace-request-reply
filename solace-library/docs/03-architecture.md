@@ -7,36 +7,31 @@
 The library is five packages, layered strictly downwards — nothing in a lower layer knows about a
 higher one, and nothing anywhere knows about an application's domain types.
 
+```mermaid
+flowchart TB
+    AC["<b>org.cris.prs.solace.autoconfigure</b><br/>Spring Boot wiring: SolaceProperties, conditions, bean definitions<br/><i>the ONLY package that knows Spring Boot</i>"]
+    API["<b>annotation/</b> · @EnableSolace, @SolaceListener<br/><b>requestreply/</b> · ReplyingSolaceTemplate, ReplyEndpointSpec, factory<br/><b>listener/</b> · containers, factory, registry, adapters, annotation BPP"]
+    MID["<b>transaction/</b> · SolaceTransactionManager, resource holder, utils<br/><b>support/</b> · InstanceIdProvider, ReplyDestinationResolver<br/><b>observability/</b> · Micrometer meters, health indicator <i>(optional)</i>"]
+    CORE["<b>core/</b> · sessions, template, converters, headers, records, enums, exception"]
+    JCSMP["<b>com.solacesystems.jcsmp</b> · JCSMPSession, FlowReceiver, XMLMessage, …"]
+
+    AC -->|builds| API
+    API -->|uses| MID
+    MID -->|uses| CORE
+    CORE -->|wraps| JCSMP
+
+    classDef spring fill:#e8f0fe,stroke:#4a76d4,color:#1a2a4a;
+    classDef opt fill:#fef6e8,stroke:#d4a24a,color:#4a3a1a;
+    classDef core fill:#eaf6ea,stroke:#4aa24a,color:#1a3a1a;
+    classDef ext fill:#f0f0f0,stroke:#999,color:#333;
+    class AC spring;
+    class API,MID core;
+    class CORE core;
+    class JCSMP ext;
 ```
-┌──────────────────────────────────────────────────────────────────────────┐
-│  org.cris.prs.solace.autoconfigure                                           │
-│  Spring Boot wiring: SolaceProperties, conditions, bean definitions.     │
-│  The ONLY package that knows about Spring Boot.                          │
-└───────────────────────────────┬──────────────────────────────────────────┘
-                                │ builds
-┌───────────────────────────────▼──────────────────────────────────────────┐
-│  annotation/        @EnableSolace, @SolaceListener                       │
-│  requestreply/      ReplyingSolaceTemplate, ReplyEndpointSpec, factory   │
-│  listener/          containers, container factory, registry, adapters,   │
-│                     the annotation BeanPostProcessor                     │
-└───────────────────────────────┬──────────────────────────────────────────┘
-                                │ uses
-┌───────────────────────────────▼──────────────────────────────────────────┐
-│  transaction/       SolaceTransactionManager, resource holder, utils     │
-│  support/           InstanceIdProvider, ReplyDestinationResolver         │
-│  observability/     Micrometer meters, the Actuator health indicator     │
-│                     — optional; the only package touching either         │
-└───────────────────────────────┬──────────────────────────────────────────┘
-                                │ uses
-┌───────────────────────────────▼──────────────────────────────────────────┐
-│  core/              sessions, template, converters, headers, records,    │
-│                     enums, the exception type                            │
-└───────────────────────────────┬──────────────────────────────────────────┘
-                                │ wraps
-┌───────────────────────────────▼──────────────────────────────────────────┐
-│  com.solacesystems.jcsmp  — JCSMPSession, FlowReceiver, XMLMessage, …    │
-└──────────────────────────────────────────────────────────────────────────┘
-```
+
+*Layers are strictly downward: nothing lower knows about anything higher, and nothing anywhere knows
+about an application's domain types.*
 
 Two structural rules are load-bearing:
 
@@ -44,7 +39,7 @@ Two structural rules are load-bearing:
    component-scans `cris.prs.messaging` must not pick the auto-configuration class up as an ordinary
    `@Configuration`; if it does, its conditions are evaluated before the Solace starter has
    contributed `SpringJCSMPFactory`, and every bean silently disappears. The package boundary is the
-   guard. See [4.9](04-spring-integration.md#49-why-the-auto-configuration-package-is-separate).
+   guard. See [13.9](13-spring-integration.md#139-why-the-auto-configuration-package-is-separate).
 2. **Only two packages touch anything outside core Spring.** The auto-configuration knows Spring
    Boot; `observability` knows Micrometer and Boot Actuator. Every bean in both is conditional, so an
    application without those dependencies is unaffected. Instrumentation reaches the message path
@@ -57,35 +52,28 @@ Two structural rules are load-bearing:
 
 ## 3.2 The object graph at runtime
 
-```
-SpringJCSMPFactory  (from the Solace starter)
-        │
-        ▼
-DefaultSolaceSessionFactory ───────────────────────────────────────┐
-  · sharedSession        : JCSMPSession (lazy, one per app)        │
-  · producers            : Map<JCSMPSession, XMLMessageProducer>   │
-  · ownedSessions        : every session it created                │
-        │                                                          │
-        ├──────────────┬───────────────────┬──────────────────┐    │
-        ▼              ▼                   ▼                  ▼    │
-  SolaceTemplate  SolaceTransaction   DefaultSolaceListener  Replying
-   <Object>          Manager           ContainerFactory      SolaceTemplateFactory
-        │                                   │                       │
-        │                                   │ creates per endpoint  │ creates
-        │                                   ▼                       ▼
-        │              DefaultSolaceMessageListenerContainer   ReplyingSolaceTemplate
-        │                  · flows            : List<FlowReceiver>      │
-        │                  · transactedSessions                         │
-        │                  · invokers         : List<FlowInvoker>       │
-        │                  · messageListener  : SolaceMessageListener   │
-        │                                   ▲                           │
-        │                                   │ registered in             │ owns its own
-        │                     SolaceListenerEndpointRegistry            │ reply container
-        │                                   ▲                           │
-        │                                   │ registers                 │
-        │                  SolaceListenerAnnotationBeanPostProcessor    │
-        │                                                               │
-        └──────────────── used as the reply publisher ──────────────────┘
+```mermaid
+flowchart TD
+    SF["SpringJCSMPFactory<br/><i>(from the Solace starter)</i>"]
+    DSF["DefaultSolaceSessionFactory<br/>· sharedSession : JCSMPSession (lazy, one per app)<br/>· producers : Map&lt;JCSMPSession, XMLMessageProducer&gt;<br/>· ownedSessions : every session it created"]
+    SF --> DSF
+
+    DSF --> TMPL["SolaceTemplate&lt;Object&gt;"]
+    DSF --> TXM["SolaceTransactionManager"]
+    DSF --> CF["DefaultSolaceListenerContainerFactory"]
+    DSF --> RTF["ReplyingSolaceTemplateFactory"]
+
+    CF -->|creates per endpoint| CONT["DefaultSolaceMessageListenerContainer<br/>· flows : List&lt;FlowReceiver&gt;<br/>· transactedSessions<br/>· invokers : List&lt;FlowInvoker&gt;<br/>· messageListener : SolaceMessageListener"]
+    RTF -->|creates| RST["ReplyingSolaceTemplate<br/><i>owns its own reply container</i>"]
+
+    BPP["SolaceListenerAnnotationBeanPostProcessor"] -->|registers| REG["SolaceListenerEndpointRegistry"]
+    REG -->|holds & lifecycles| CONT
+    TMPL -. reply publisher .-> CONT
+
+    classDef starter fill:#f0f0f0,stroke:#999,color:#333;
+    classDef bean fill:#e8f0fe,stroke:#4a76d4,color:#1a2a4a;
+    class SF starter;
+    class DSF,TMPL,TXM,CF,RTF,CONT,RST,BPP,REG bean;
 ```
 
 `SolaceTemplate` and the containers share the session factory but not much else; the coupling
@@ -159,22 +147,17 @@ container never leaks flows or sessions for the life of the JVM.
 
 ## 3.4 The send path
 
-```
-send(destination, payload, headers)
-   │
-   ├─ createMessage(payload, headers)
-   │      ├─ messageConverter.toMessage(payload)   → BytesMessage with the body in the ATTACHMENT
-   │      ├─ deliveryMode / timeToLive / priority / dmqEligible from the template defaults
-   │      └─ headerMapper.fromHeaders(headers, message)
-   │             · solace_correlationId → setCorrelationId
-   │             · solace_replyTo       → setReplyTo (queue: prefix ⇒ queue, else topic)
-   │             · everything else      → SDT user properties
-   │
-   ├─ producer()
-   │      ├─ in a transaction? → the bound SolaceResourceHolder's producer
-   │      └─ otherwise         → the session factory's shared producer
-   │
-   └─ producer.send(message, destination)
+```mermaid
+flowchart TD
+    S["send(destination, payload, headers)"] --> CM["createMessage(payload, headers)"]
+    CM --> C1["messageConverter.toMessage(payload)<br/>→ BytesMessage, body in the ATTACHMENT"]
+    CM --> C2["apply deliveryMode / timeToLive / priority / dmqEligible<br/>from the template defaults"]
+    CM --> C3["headerMapper.fromHeaders(headers, message)<br/>solace_correlationId → setCorrelationId<br/>solace_replyTo → setReplyTo (queue: ⇒ queue, else topic)<br/>everything else → SDT user properties"]
+    CM --> P{"isTransactionActive()?"}
+    P -->|yes| PT["bound SolaceResourceHolder's producer"]
+    P -->|no| PS["session factory's shared producer"]
+    PT --> SEND["producer.send(message, destination)"]
+    PS --> SEND
 ```
 
 `isTransactionActive()` is what decides between the two producers, and it consults
@@ -183,24 +166,20 @@ send(destination, payload, headers)
 
 ## 3.5 The receive path
 
-```
-broker → FlowReceiver → ContainerMessageListener.onReceive(BytesXMLMessage)
-   │
-   ├─ EXECUTOR dispatch?  → FlowInvoker.submit()  → bounded queue → worker thread
-   ├─ transacted flow?    → bind resource holder → TransactionTemplate → listener → commit
-   └─ otherwise           → invokeListener() inline on the JCSMP delivery thread
-                                │
-                                ├─ messageListener.onMessage(message)
-                                │     └─ MethodSolaceListenerAdapter
-                                │           ├─ convertPayload → the derived payload type
-                                │           ├─ headerMapper.toHeaders
-                                │           ├─ build SolaceRecord + Spring Message
-                                │           ├─ InvocableHandlerMethod.invoke(...)
-                                │           └─ handleResult(returnValue, request)
-                                │                 └─ non-null ⇒ publish the reply
-                                ├─ success → message.ackMessage()
-                                └─ failure → errorHandler.handleError(...)
-                                              └─ ack-on-error? → ackMessage()
+```mermaid
+flowchart TD
+    B["broker → FlowReceiver → onReceive(BytesXMLMessage)"] --> D{"dispatch / flow type?"}
+    D -->|EXECUTOR| EX["FlowInvoker.submit()<br/>→ bounded queue → worker thread"]
+    D -->|transacted| TX["bind resource holder<br/>→ TransactionTemplate → listener → commit"]
+    D -->|INLINE| IN["invokeListener() inline on<br/>the JCSMP delivery thread"]
+    EX --> INV
+    TX --> INV
+    IN --> INV["messageListener.onMessage(message)<br/><i>MethodSolaceListenerAdapter</i>"]
+    INV --> STEPS["convertPayload → derived payload type<br/>headerMapper.toHeaders<br/>build SolaceRecord + Spring Message<br/>InvocableHandlerMethod.invoke(...)<br/>handleResult(returnValue, request)"]
+    STEPS --> R{"listener outcome?"}
+    R -->|returned non-null| REPLY["publish the reply to<br/>the resolved reply destination"]
+    R -->|success| ACK["message.ackMessage()"]
+    R -->|threw| ERR["errorHandler.handleError(...)<br/>then settle per error-outcome"]
 ```
 
 ### Reply destination resolution, in `handleResult`
@@ -276,7 +255,7 @@ and is the only way to observe a reconnect. JCSMP repairs a dropped connection t
 flows that survive it raise no flow event, so without this a network blip that stops all traffic for
 seconds leaves no trace anywhere. The factory tracks a `SolaceSessionState` from those events, which
 is what the health indicator reports and what `solace.session.state` gauges. See
-[13.7](13-multi-instance.md) and [16.3](16-operations.md#163-actuator-health).
+[11.7](11-multi-instance.md) and [20.3](20-operations.md#203-actuator-health).
 
 ---
 
@@ -298,4 +277,4 @@ longer arrive turns a clean shutdown into a hang.
 
 ---
 
-**Next:** [4. Spring integration](04-spring-integration.md)
+**Previous:** [2. Quickstart](02-quickstart.md)  ·  [Index](00-index.md)  ·  **Next:** [4. Modules & reference app](04-modules.md)

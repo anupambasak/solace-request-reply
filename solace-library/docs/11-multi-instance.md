@@ -1,4 +1,4 @@
-# 13. Multi-instance and destination naming
+# 11. Multi-instance and destination naming
 
 Running more than one copy of an application is the normal case, and it is where messaging
 abstractions usually leak. This page covers the two `support/` classes that keep destination names
@@ -6,7 +6,7 @@ correct across instances, and the rules that follow from them.
 
 ---
 
-## 13.1 `InstanceIdProvider`
+## 11.1 `InstanceIdProvider`
 
 ```java
 public interface InstanceIdProvider {
@@ -17,7 +17,7 @@ public interface InstanceIdProvider {
 One method, one value, resolved once at startup. Everything per-instance in the library derives from
 it.
 
-## 13.2 `HostnameInstanceIdProvider`
+## 11.2 `HostnameInstanceIdProvider`
 
 The default. Resolution order:
 
@@ -64,7 +64,7 @@ which is which.
 
 ---
 
-## 13.3 `ReplyDestinationResolver`
+## 11.3 `ReplyDestinationResolver`
 
 A static helper with two rules, used by `ReplyingSolaceTemplateFactory` and available to anything
 building the same names.
@@ -98,7 +98,7 @@ keeps a reply endpoint recognisably paired with its topic without configuring bo
 
 ---
 
-## 13.4 The two places an instance id is appended
+## 11.4 The two places an instance id is appended
 
 They do different things and are controlled separately.
 
@@ -135,7 +135,28 @@ solace.send("control/drain/" + targetPod, new DrainCommand());
 
 ---
 
-## 13.5 Which destinations are per-instance
+## 11.5 Which destinations are per-instance
+
+```mermaid
+flowchart LR
+    subgraph podA["Requester pod-a"]
+      FA["future map"]
+    end
+    subgraph podB["Requester pod-b"]
+      FB["future map"]
+    end
+    RA["publish request<br/>replyTo=reply/pod-a"]
+    RB["publish request<br/>replyTo=reply/pod-b"]
+    FA --> RA --> BR{{"Solace broker"}}
+    FB --> RB --> BR
+    BR --> SVC["responder(s)<br/>shared request queue"]
+    SVC -->|"echo replyTo, same correlationId"| BR
+    BR -->|"reply/pod-a"| FA
+    BR -->|"reply/pod-b"| FB
+```
+
+*Each pod consumes only `reply/<its-own-id>`, so a reply always returns to the pod holding the
+waiting future. The request endpoint is shared; the reply destination is per-instance.*
 
 | Destination | Per instance? | Why |
 | :--- | :--- | :--- |
@@ -147,7 +168,7 @@ solace.send("control/drain/" + targetPod, new DrainCommand());
 
 ---
 
-## 13.6 Kubernetes
+## 11.6 Kubernetes
 
 Nothing is required — `HOSTNAME` is the pod name in every container image. Being explicit is still
 worth it for readability:
@@ -181,7 +202,7 @@ solace:
 Temporary queues (pub/sub endpoints, reply destinations) are deleted when the pod disconnects, so a
 rolling restart leaves nothing behind. That also means a message published to a pub/sub topic while a
 pod is between restarts is **not** held for it. If a restarting instance must catch up, use a durable
-per-group queue instead — see [7.4](07-exchange-patterns.md#74-point_to_point--exactly-one-consumer).
+per-group queue instead — see [5.4](05-exchange-patterns.md#54-point_to_point--exactly-one-consumer).
 
 In-flight requests on a terminating pod are failed by `ReplyingSolaceTemplate.stop()` with
 `SolaceReplyTimeoutException` rather than being left to hang. Give the pod a `terminationGracePeriod`
@@ -203,7 +224,7 @@ are colliding and replies will go to the wrong pod.
 
 ---
 
-## 13.7 Session events
+## 11.7 Session events
 
 The session is the TCP connection to the broker, and everything else rides on it. JCSMP reconnects it
 transparently, which is convenient and also means a network blip that stops **all** traffic for
@@ -266,14 +287,14 @@ The factory tracks a `SolaceSessionState` from these events:
 `default` methods, so a custom session factory keeps compiling and simply reports `CONNECTED`.
 
 The Actuator health indicator reports all four distinctly, and `solace.session.state` gauges them —
-see [16.3](16-operations.md#163-actuator-health).
+see [20.3](20-operations.md#203-actuator-health).
 
 ### Two layers, two questions
 
 | | Answers |
 | :--- | :--- |
-| **Session** events ([13.7](#137-session-events)) | Is the connection to the broker up? |
-| **Flow** events ([9.8](09-consuming-messages.md#98-flow-events)) | Is *this consumer* receiving? |
+| **Session** events ([11.7](#117-session-events)) | Is the connection to the broker up? |
+| **Flow** events ([7.8](07-consuming-messages.md#78-flow-events)) | Is *this consumer* receiving? |
 
 A session can be perfectly healthy while one container's flow is down — its queue was deleted, say.
 A session can be reconnecting while every flow object still looks bound. Health reporting needs both,
@@ -281,4 +302,4 @@ which is why the indicator checks the session state *and* every container's `isD
 
 ---
 
-**Next:** [14. Extension points](14-extension-points.md)
+**Previous:** [10. Conversion and headers](10-conversion-and-headers.md)  ·  [Index](00-index.md)  ·  **Next:** [12. Schema Registry](12-schema-registry.md)

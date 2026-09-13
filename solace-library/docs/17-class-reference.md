@@ -1,13 +1,13 @@
-# 15. Class reference
+# 17. Class reference
 
 Every public type in the library, what it is for, and where it is explained in depth.
 
 Base package `org.cris.prs.messaging.solace`, except the auto-configuration, which is deliberately
-outside it — see [4.9](04-spring-integration.md#49-why-the-auto-configuration-package-is-separate).
+outside it — see [13.9](13-spring-integration.md#139-why-the-auto-configuration-package-is-separate).
 
 ---
 
-## 15.1 `core` — sessions, sending, conversion
+## 17.1 `core` — sessions, sending, conversion
 
 | Type | Kind | Purpose |
 | :--- | :--- | :--- |
@@ -23,7 +23,7 @@ outside it — see [4.9](04-spring-integration.md#49-why-the-auto-configuration-
 | `JacksonSolaceMessageConverter` | class | JSON by default; reuses the application's `ObjectMapper`. Reads the **binary attachment** first, the XML content part as fallback; static `bodyOf(BytesXMLMessage)` exposes that, reading a duplicate buffer so the body can be read twice. |
 | `SolaceHeaderMapper` | interface | `fromHeaders(Map, XMLMessage)` / `toHeaders(BytesXMLMessage)`. |
 | `DefaultSolaceHeaderMapper` | class | Maps the `solace_*` fields, copies everything else to SDT user properties — never overwriting one the converter already wrote. Statics: `toDestination(Object)` (`queue:` prefix ⇒ queue), `sanitize(Map)`, `deliveryCountOf(BytesXMLMessage)` (guarded, `-1` when unsupported), constant `QUEUE_PREFIX`. |
-| `SolaceHeaders` | final class | The well-known header names. See [12.2](12-conversion-and-headers.md#122-solaceheadermapper). |
+| `SolaceHeaders` | final class | The well-known header names. See [10.2](10-conversion-and-headers.md#102-solaceheadermapper). |
 | `SolaceBrowser<T>` | interface | `AutoCloseable` cursor over a queue's spooled messages: `next()`, `take(int)`, `stream()`, `stream(int)`, `remove(record)`. Reads without acknowledging. |
 | `DefaultSolaceBrowser<T>` | class | The implementation, over a JCSMP `Browser`. Lazy stream, and `getNextNoWait()` for a zero timeout because JCSMP reads `getNext(0)` as "wait forever". |
 | `BrowseSpec` | class | `queue`, `selector`, `waitTimeout`, `transportWindowSize`; statics `of(queue)` and `of(queue, selector)`. |
@@ -35,11 +35,11 @@ outside it — see [4.9](04-spring-integration.md#49-why-the-auto-configuration-
 | `ExchangePattern` | enum | `PUBLISH_SUBSCRIBE`, `POINT_TO_POINT`, `REQUEST_REPLY`. |
 | `SolaceMessagingException` | class | `NestedRuntimeException`. Every JCSMP checked exception is translated to this. |
 
-→ [8. Producing messages](08-producing-messages.md), [12. Conversion and headers](12-conversion-and-headers.md)
+→ [6. Producing messages](06-producing-messages.md), [10. Conversion and headers](10-conversion-and-headers.md)
 
 ---
 
-## 15.2 `listener` — consuming
+## 17.2 `listener` — consuming
 
 | Type | Kind | Purpose |
 | :--- | :--- | :--- |
@@ -63,11 +63,11 @@ outside it — see [4.9](04-spring-integration.md#49-why-the-auto-configuration-
 | `SolaceListenerMetrics` | interface | Per-message callbacks: `recordReceived`, `recordSuccess`, `recordFailure`, `recordSettlement`, `recordFlowEvent`. Every method has a no-op default, and `NO_OP` is the container default. Free of any metrics-library types. |
 | `ContainerKeepAlive` | package-private final class | Reference-counted non-daemon thread that keeps a listener-only JVM alive. |
 
-→ [9. Consuming messages](09-consuming-messages.md), [6. Annotations](06-annotations.md)
+→ [7. Consuming messages](07-consuming-messages.md), [14. Annotations](14-annotations.md)
 
 ---
 
-## 15.3 `requestreply`
+## 17.3 `requestreply`
 
 | Type | Kind | Purpose |
 | :--- | :--- | :--- |
@@ -78,11 +78,11 @@ outside it — see [4.9](04-spring-integration.md#49-why-the-auto-configuration-
 | `SolaceReplyTimeoutException` | class | Extends `SolaceMessagingException`. Also used to fail outstanding futures at shutdown. |
 | `SolaceRequestReplyMetrics` | interface | Callbacks: `recordRequest`, `recordReply`, `recordTimeout`, `recordUnmatchedReply`, `recordSendFailure`. No-op defaults, `NO_OP` is the template default. |
 
-→ [10. Request-reply](10-request-reply.md)
+→ [8. Request-reply](08-request-reply.md)
 
 ---
 
-## 15.4 `transaction`
+## 17.4 `transaction`
 
 | Type | Kind | Purpose |
 | :--- | :--- | :--- |
@@ -90,11 +90,11 @@ outside it — see [4.9](04-spring-integration.md#49-why-the-auto-configuration-
 | `SolaceResourceHolder` | class | `ResourceHolderSupport` wrapping one `TransactedSession` and its producer. The `externallyManaged` flag stops the manager closing a session the container owns. |
 | `SolaceTransactionUtils` | final class | `getResourceHolder`, `getActiveResourceHolder`, `bindResourceHolder`, `unbindResourceHolder` over `TransactionSynchronizationManager`. |
 
-→ [11. Transactions](11-transactions.md)
+→ [9. Transactions](09-transactions.md)
 
 ---
 
-## 15.5 `observability` — optional Micrometer and Actuator integration
+## 17.5 `observability` — optional Micrometer and Actuator integration
 
 The one package that touches a metrics library and Spring Boot Actuator. Everything in it is
 conditional: without those dependencies nothing here is registered, and the rest of the library is
@@ -109,11 +109,11 @@ unaffected.
 | `SolaceMetricsBinder` | class | Registers the state gauges and one `FunctionCounter` per sampled session statistic. A `SmartLifecycle` at `Integer.MAX_VALUE`, **not** a Micrometer `MeterBinder` — a binder is bound when the registry bean initialises, which can be before listener containers are registered. |
 | `SolaceHealthIndicator` | class | `/actuator/health/solace`. Reads in-memory state only; never contacts the broker. |
 
-→ [16. Operations](16-operations.md)
+→ [20. Operations](20-operations.md)
 
 ---
 
-## 15.5a `schema` — optional Apicurio Registry integration (Avro, Protobuf, JSON Schema)
+## 17.5a `schema` — optional Apicurio Registry integration (Avro, Protobuf, JSON Schema)
 
 The only package that imports `io.apicurio`, Apache Avro or Protocol Buffers, and only in the codecs and
 `SolaceTopicProfileStrategy`.
@@ -135,11 +135,11 @@ The only package that imports `io.apicurio`, Apache Avro or Protocol Buffers, an
 | `SchemaRegistryConversionException` | class | `getReason()`; `classify(message, cause)`. Nested enum `Reason` with `isRetryable()`. |
 | `SchemaRegistryErrorHandler` | class | `REJECTED` for non-retryable schema failures, delegate otherwise; static `find(Throwable)`. |
 
-→ [19. Schema Registry](19-schema-registry.md)
+→ [12. Schema Registry](12-schema-registry.md)
 
 ---
 
-## 15.6 `support`
+## 17.6 `support`
 
 | Type | Kind | Purpose |
 | :--- | :--- | :--- |
@@ -148,22 +148,22 @@ The only package that imports `io.apicurio`, Apache Avro or Protocol Buffers, an
 | `ReplyDestinationResolver` | final class | `resolveTopic(prefix, appendInstanceId, instanceId)` and `resolveQueueBaseName(configuredQueue, topicPrefix)`. |
 | `SolaceTopicMatcher` | final class | `matches(pattern, topic)` implementing Solace wildcard rules client-side, for topic dispatch. |
 
-→ [13. Multi-instance](13-multi-instance.md)
+→ [11. Multi-instance](11-multi-instance.md)
 
 ---
 
-## 15.7 `annotation`
+## 17.7 `annotation`
 
 | Type | Purpose |
 | :--- | :--- |
 | `@EnableSolace` | Imports `SolaceBootstrapConfiguration`. Not needed in a Boot application. |
 | `@SolaceListener` | Method-level listener declaration. Fourteen attributes, all `String` for placeholder support. |
 
-→ [6. Annotations](06-annotations.md)
+→ [14. Annotations](14-annotations.md)
 
 ---
 
-## 15.8 `org.cris.prs.solace.autoconfigure`
+## 17.8 `org.cris.prs.solace.autoconfigure`
 
 | Type | Purpose |
 | :--- | :--- |
@@ -174,11 +174,11 @@ The only package that imports `io.apicurio`, Apache Avro or Protocol Buffers, an
 | `SolaceSchemaRegistryConfiguration` | Imported **first** by the auto-configuration; active when `solace.schema-registry.url` is set. Apicurio codecs, registry converter, error handler. |
 | `SolaceProperties` | `@ConfigurationProperties("solace")`. Nested `Template`, `Listener extends ContainerProperties`, `RequestReply extends ReplyEndpointSpec`, `Metrics`, `Health`, `SchemaRegistry extends SchemaRegistrySettings`. |
 
-→ [4. Spring integration](04-spring-integration.md), [5. Configuration](05-configuration.md)
+→ [13. Spring integration](13-spring-integration.md), [15. Configuration](15-configuration.md)
 
 ---
 
-## 15.9 Beans in a running context
+## 17.9 Beans in a running context
 
 | Bean name | Type | Condition |
 | :--- | :--- | :--- |
@@ -207,7 +207,7 @@ The only package that imports `io.apicurio`, Apache Avro or Protocol Buffers, an
 
 ---
 
-## 15.10 Javadoc
+## 17.10 Javadoc
 
 ```bash
 gradle :solace-library:javadoc      # build/docs/javadoc/index.html
@@ -220,4 +220,4 @@ Use `{@code …}` for those.
 
 ---
 
-**Next:** [16. Operations](16-operations.md)
+**Previous:** [16. Extension points](16-extension-points.md)  ·  [Index](00-index.md)  ·  **Next:** [18. Feature catalogue](18-features.md)

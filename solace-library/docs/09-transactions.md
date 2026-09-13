@@ -1,11 +1,11 @@
-# 11. Transactions
+# 9. Transactions
 
 Solace **local** transactions, exposed as a Spring `PlatformTransactionManager`, so `@Transactional`
 and `TransactionTemplate` work the way they do everywhere else.
 
 ---
 
-## 11.1 What a Solace local transaction is
+## 9.1 What a Solace local transaction is
 
 A `TransactedSession` is a JCSMP scope in which consumes and publishes accumulate until `commit()` or
 `rollback()`.
@@ -25,11 +25,11 @@ without any deduplication logic in the consumer.
    the same method are two independent transactions that commit separately. If the second commit
    fails, the first has already happened.
 2. **A per-connection budget.** A broker allows a fixed number of transacted sessions per client
-   connection — 10 by default. See [11.6](#116-the-transacted-session-budget).
+   connection — 10 by default. See [9.6](#96-the-transacted-session-budget).
 
 ---
 
-## 11.2 The Spring pieces
+## 9.2 The Spring pieces
 
 | Type | Role |
 | :--- | :--- |
@@ -51,7 +51,7 @@ Solace transactions are independent of any `DataSource` transaction bound to the
 
 ---
 
-## 11.3 Producer-side transactions
+## 9.3 Producer-side transactions
 
 ### `@Transactional`
 
@@ -113,7 +113,7 @@ the caller to remember.
 
 ---
 
-## 11.4 Consumer-side transactions
+## 9.4 Consumer-side transactions
 
 ```java
 @SolaceListener(pattern = "POINT_TO_POINT", queue = "orders", group = "workers",
@@ -121,6 +121,23 @@ the caller to remember.
 public void onOrder(Order order) {
     solace.send("orders/audited", audit(order));    // same transaction as the acknowledgement
 }                                                   // throw here and both roll back
+```
+
+```mermaid
+sequenceDiagram
+    participant B as Broker
+    participant C as Container (transacted flow)
+    participant L as Listener method
+    B->>C: deliver request (on TransactedSession)
+    C->>C: bind SolaceResourceHolder (externallyManaged)
+    C->>L: invoke inside TransactionTemplate
+    L->>C: solace.send(...) enlists on the same session
+    alt normal return
+      C->>B: commit — ack(request) + release(publishes) atomically
+    else throws
+      C->>B: rollback — un-ack (redeliver) + discard publishes
+    end
+    Note over C: session is reused for the next message (not closed)
 ```
 
 Mechanically:
@@ -155,7 +172,7 @@ response.
 
 ---
 
-## 11.5 Interaction with a database
+## 9.5 Interaction with a database
 
 ```java
 @Transactional                                   // JDBC
@@ -189,7 +206,7 @@ public void handle(Order order) {
 
 ---
 
-## 11.6 The transacted session budget
+## 9.6 The transacted session budget
 
 Solace caps transacted sessions **per client connection** — 10 by default, set in the client profile.
 A transactional container needs one per flow, so two containers at concurrency 10 and 5 need 15
@@ -219,7 +236,7 @@ cached per session, so this costs one call per connection.
 
 ---
 
-## 11.7 What not to do
+## 9.7 What not to do
 
 **`EXECUTOR` dispatch with `transactional = true`** — rejected at startup. A transacted session's
 commit acknowledges every message delivered on it so far, not just the one in hand; buffering
@@ -240,7 +257,7 @@ publish. Delivery to the consumer is a separate, later event.
 
 ---
 
-## 11.8 Diagnosing
+## 9.8 Diagnosing
 
 Turn on Spring's transaction logging:
 
@@ -257,4 +274,4 @@ directly does not set one. It is not a misconfiguration.
 
 ---
 
-**Next:** [12. Conversion and headers](12-conversion-and-headers.md)
+**Previous:** [8. Request-reply](08-request-reply.md)  ·  [Index](00-index.md)  ·  **Next:** [10. Conversion and headers](10-conversion-and-headers.md)

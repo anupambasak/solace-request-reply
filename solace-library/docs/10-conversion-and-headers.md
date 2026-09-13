@@ -1,11 +1,11 @@
-# 12. Conversion and headers
+# 10. Conversion and headers
 
 Two small interfaces separate "what a message means" from "what a message is". Everything about
 payload format and header representation goes through them, and both are replaceable.
 
 ---
 
-## 12.1 `SolaceMessageConverter`
+## 10.1 `SolaceMessageConverter`
 
 ```java
 public interface SolaceMessageConverter {
@@ -89,7 +89,7 @@ That single bean replaces conversion for the template, every listener, and reque
 
 ---
 
-## 12.2 `SolaceHeaderMapper`
+## 10.2 `SolaceHeaderMapper`
 
 ```java
 public interface SolaceHeaderMapper {
@@ -137,7 +137,7 @@ responder, including one not written with this library.
 5. **A header never overwrites a user property the converter wrote.** The converter owns what it
    wrote. Without this rule a listener replying with `MessageBuilder…copyHeaders(request.getHeaders())`
    would stamp the *request's* `schemaFormat` onto a reply that may be in a different format. See
-   [19.4](19-schema-registry.md#194-on-the-wire).
+   [12.4](12-schema-registry.md#124-on-the-wire).
 
 ### Inbound rules
 
@@ -153,7 +153,7 @@ onto the reply.
 
 ---
 
-## 12.3 `SolaceRecord<T>`
+## 10.3 `SolaceRecord<T>`
 
 The counterpart of `ConsumerRecord`: the converted payload plus everything about the message that is
 not the payload.
@@ -185,11 +185,11 @@ public void onOrder(SolaceRecord<Order> record) {
 
 `isRedelivered()` is the always-available boolean; the delivery count is the number, and it is a
 broker feature negotiated per message. Use the boolean for "have I seen this before", the count when
-the policy depends on *how many times* — see [9.7](09-consuming-messages.md#97-delivery-count).
+the policy depends on *how many times* — see [7.7](07-consuming-messages.md#77-delivery-count).
 
 ---
 
-## 12.4 Choosing how to receive
+## 10.4 Choosing how to receive
 
 | Signature | Use when |
 | :--- | :--- |
@@ -204,15 +204,15 @@ and the raw message performs no body conversion at all.
 
 ---
 
-## 12.5 Schema Registry
+## 10.5 Schema Registry
 
 `SchemaRegistrySolaceMessageConverter` validates and serialises payloads against schemas held in Apicurio
 Registry — Apache Avro, Google Protocol Buffers and JSON Schema — and falls back to this chapter's Jackson
 converter for everything the registry does not govern. Its bodies carry Apicurio's standard framing
 (magic byte, schema id, payload), and it reads bodies through `JacksonSolaceMessageConverter.bodyOf`, the
 same attachment-first logic described above. It is enabled by `solace.schema-registry.url`; see
-[19. Schema Registry](19-schema-registry.md).
+[12. Schema Registry](12-schema-registry.md).
 
 ---
 
-**Next:** [13. Multi-instance and destinations](13-multi-instance.md)
+**Previous:** [9. Transactions](09-transactions.md)  ·  [Index](00-index.md)  ·  **Next:** [11. Multi-instance](11-multi-instance.md)

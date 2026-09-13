@@ -1,4 +1,4 @@
-# 18. Feature backlog
+# 19. Feature backlog
 
 An assessment of what the [Solace platform](https://docs.solace.com/Get-Started/solace-platform.htm)
 offers against what `solace-library` implements today.
@@ -51,7 +51,7 @@ table above because the design choices are worth recording.
 
 *Was Tier 3, "Solace Schema Registry SERDES". Implemented on **Apicurio Registry** instead, with its
 generic, Kafka-free serde modules `io.apicurio:apicurio-registry-serde-common-{avro,protobuf,jsonschema}`
-3.3.x. Documented in [19. Schema Registry](19-schema-registry.md).*
+3.3.x. Documented in [12. Schema Registry](12-schema-registry.md).*
 
 The backlog called it "another `SolaceMessageConverter`". The converter is the visible part, but reading
 the code against a registry-serde model found things the feature would have hit on day one, and those
@@ -115,7 +115,7 @@ listener containers were registered, which happens in the annotation post-proces
 Meters: `solace.listener.messages.received`, `solace.listener.processing`, `solace.listener.running`,
 `solace.listener.flows`, `solace.requests.sent`, `solace.requests.send.failed`,
 `solace.requests.latency`, `solace.requests.timeouts`, `solace.requests.pending`,
-`solace.replies.unmatched`. See [16. Operations](16-operations.md#162-micrometer-metrics).
+`solace.replies.unmatched`. See [20. Operations](20-operations.md#202-micrometer-metrics).
 
 **Resolved since:** broker-side statistics are now sampled — a curated set of JCSMP `StatType`
 counters published as `solace.session.*`, replaceable through `solace.metrics.session-statistics`.
@@ -504,4 +504,4 @@ Tier 1 is empty. What remains is genuinely larger work, in rough order of value:
 
 ---
 
-**Next:** [19. Schema Registry](19-schema-registry.md)
+**Previous:** [18. Feature catalogue](18-features.md)  ·  [Index](00-index.md)  ·  **Next:** [20. Operations](20-operations.md)

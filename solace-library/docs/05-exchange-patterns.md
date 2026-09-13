@@ -1,4 +1,4 @@
-# 7. Exchange patterns
+# 5. Exchange patterns
 
 `ExchangePattern` is the one attribute that turns a handful of low-level endpoint decisions into a
 single word. Setting `pattern` fills in `endpointMode`, `appendInstanceIdToQueue`, `accessType` and
@@ -6,36 +6,41 @@ sometimes `concurrency` — and nothing else. Everything it sets can be overridd
 
 ---
 
-## 7.1 The one idea behind all three
+## 5.1 The one idea behind all three
 
 In Solace, a topic is a *routing key on a published message*, not a place. Consumers bind to an
 **endpoint** (a queue) and attach topic subscriptions to it. So a publisher does exactly the same
 thing in all three patterns — publishes to a topic — and the entire difference between broadcast,
 work-sharing and request-reply is **how many endpoints exist and who binds to them**.
 
-```
-                              ┌─────────────────────┐
-     publish "orders/created" │      Solace broker  │
-     ───────────────────────► │                     │
-                              │  matches every      │
-                              │  subscription       │
-                              └──────────┬──────────┘
-                                         │
-        ┌────────────────────────────────┼────────────────────────────────┐
-        │ PUBLISH_SUBSCRIBE              │ POINT_TO_POINT                 │
-        │ one endpoint PER INSTANCE      │ ONE endpoint, shared           │
-        ▼                                ▼                                │
-  audit.pod-a  audit.pod-b  audit.pod-c        tasks.workers              │
-      │            │            │              │    │    │                │
-    pod-a        pod-b        pod-c          pod-a pod-b pod-c            │
-   (a copy)     (a copy)     (a copy)         (one of them gets it)       │
+```mermaid
+flowchart TD
+    PUB["publisher · send(&quot;orders/created&quot;, payload)"] --> BR{{"Solace broker<br/>matches every subscription"}}
+
+    subgraph PS["PUBLISH_SUBSCRIBE — one endpoint PER instance"]
+      direction TB
+      QA["audit.pod-a"] --> PA["pod-a<br/>(a copy)"]
+      QB["audit.pod-b"] --> PB["pod-b<br/>(a copy)"]
+      QC["audit.pod-c"] --> PC["pod-c<br/>(a copy)"]
+    end
+
+    subgraph P2P["POINT_TO_POINT — ONE endpoint, shared"]
+      direction TB
+      TQ["tasks.workers"] --> W["pod-a · pod-b · pod-c<br/>(exactly one gets each message)"]
+    end
+
+    BR --> QA & QB & QC
+    BR --> TQ
+
+    classDef q fill:#e8f0fe,stroke:#4a76d4,color:#1a2a4a;
+    class QA,QB,QC,TQ q;
 ```
 
 That is the whole distinction. `appendInstanceIdToQueue` is the switch.
 
 ---
 
-## 7.2 What each pattern sets
+## 5.2 What each pattern sets
 
 `SolaceListenerEndpoint.applyPatternDefaults()` runs **after** the annotation attributes are read and
 only writes into fields still unset:
@@ -50,7 +55,7 @@ Blank means "left to `solace.listener.*`".
 
 ---
 
-## 7.3 `PUBLISH_SUBSCRIBE` — every instance gets a copy
+## 5.3 `PUBLISH_SUBSCRIBE` — every instance gets a copy
 
 ```java
 @SolaceListener(pattern = "PUBLISH_SUBSCRIBE", queue = "config", topics = "config/changed")
@@ -74,7 +79,7 @@ more instances — which is the point of the pattern.
 are not held for it. Use `POINT_TO_POINT` (or a durable per-instance queue) if a restarting instance
 must catch up.
 
-## 7.4 `POINT_TO_POINT` — exactly one consumer
+## 5.4 `POINT_TO_POINT` — exactly one consumer
 
 ```java
 @SolaceListener(pattern = "POINT_TO_POINT", queue = "tasks", group = "workers",
@@ -100,7 +105,7 @@ of the stream, each sharing internally. That is how you get Kafka-style consumer
 strict ordering: one active consumer, the others hot standby, automatic failover. Then keep
 `concurrency: 1`.
 
-## 7.5 `REQUEST_REPLY` — a response comes back
+## 5.5 `REQUEST_REPLY` — a response comes back
 
 ```java
 @SolaceListener(pattern = "REQUEST_REPLY", queue = "pricing", group = "v1",
@@ -120,11 +125,11 @@ configuration.
 The responder never decides where the reply goes. It echoes the `replyTo` the requester stamped on
 the request. That keeps the reply channel owned by the party that needs it, and it is why
 `replyDestination` should stay empty on almost every listener. See
-[10. Request-reply](10-request-reply.md) for the requester side.
+[8. Request-reply](08-request-reply.md) for the requester side.
 
 ---
 
-## 7.6 Independence rules for multiple services
+## 5.6 Independence rules for multiple services
 
 Adding a second request-reply service is where the topic/endpoint distinction bites hardest.
 
@@ -142,12 +147,12 @@ consumers; only a different topic separates the *messages*.
 Reply destinations are the opposite case: services *should* share one per-instance reply destination
 by default, because the reply channel belongs to the requester and the correlation id keeps
 conversations apart. One endpoint per pod beats pods × services. See
-[10.6](10-request-reply.md#106-when-to-split-a-reply-destination) for the four conditions that
+[8.6](08-request-reply.md#86-when-to-split-a-reply-destination) for the four conditions that
 justify splitting one out.
 
 ---
 
-## 7.7 Choosing
+## 5.7 Choosing
 
 | You want | Pattern | Key detail |
 | :--- | :--- | :--- |
@@ -159,4 +164,4 @@ justify splitting one out.
 
 ---
 
-**Next:** [8. Producing messages](08-producing-messages.md)
+**Previous:** [4. Modules & reference app](04-modules.md)  ·  [Index](00-index.md)  ·  **Next:** [6. Producing messages](06-producing-messages.md)

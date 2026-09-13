@@ -1,10 +1,10 @@
-# 16. Operations
+# 20. Operations
 
 Running the library in production: what it logs, what to watch, and how to size it.
 
 ---
 
-## 16.1 Logging
+## 20.1 Logging
 
 All library logging is SLF4J under `org.cris.prs.messaging.solace`.
 
@@ -55,7 +55,7 @@ transaction — the container uses a `TransactionTemplate`, which sets no name.
 
 ---
 
-## 16.2 Micrometer metrics
+## 20.2 Micrometer metrics
 
 Meters are published automatically when a `MeterRegistry` bean is present — which
 `spring-boot-starter-actuator` provides — and `solace.metrics.enabled` is not `false`. There is
@@ -219,7 +219,7 @@ that throws on every message will fill the log.
 
 ---
 
-## 16.3 Actuator health
+## 20.3 Actuator health
 
 `SolaceHealthIndicator` contributes `/actuator/health/solace` when Actuator is on the classpath and
 `solace.health.enabled` is not `false`. It reads state already held in memory and **never contacts the
@@ -316,7 +316,7 @@ livenessProbe:
 
 JCSMP reconnects transparently, and the library does not yet subscribe to session events, so a session
 in the middle of a reconnect still reports `connected`. Flow event handling would fix this — see
-[18. Feature backlog](18-feature-backlog.md).
+[19. Feature backlog](19-feature-backlog.md).
 
 ### Replacing it
 
@@ -325,7 +325,7 @@ that name replaces it.
 
 ---
 
-## 16.4 What else to watch
+## 20.4 What else to watch
 
 The broker holds the numbers the application cannot see, and they are usually the ones that matter
 first:
@@ -345,7 +345,7 @@ a sustained window; `solace.requests.timeouts` rate above baseline.
 
 ---
 
-## 16.5 Sizing
+## 20.5 Sizing
 
 **`concurrency`** is flows per container per instance. Total consumers on a shared endpoint is
 `concurrency × replicas`. Start at 1 and raise it only when queue depth grows under load; more flows
@@ -373,7 +373,7 @@ against the broker's client limit.
 
 ---
 
-## 16.6 Endpoint settings and the broker
+## 20.6 Endpoint settings and the broker
 
 **The broker never reconfigures an existing endpoint.** `max-redelivery-count`, `quota-mb`,
 `access-type`, `permission` and `respects-ttl` are applied only when a queue is first created.
@@ -404,7 +404,7 @@ it needs is missing.
 
 ---
 
-## 16.7 Deployment
+## 20.7 Deployment
 
 **Startup order.** The library needs a reachable broker at container start. JCSMP retries the initial
 connection, but a container that cannot bind fails the context. Kubernetes readiness probes should
@@ -423,7 +423,7 @@ that already holds a non-daemon thread, such as a WebFlux or MVC service.
 
 ---
 
-## 16.8 A pre-flight checklist
+## 20.8 A pre-flight checklist
 
 - [ ] `solace.java.host`, `msg-vpn` and credentials are set for the environment
 - [ ] `solace.instance-id` resolves to something unique per pod (check the startup log line)
@@ -439,4 +439,4 @@ that already holds a non-daemon thread, such as a WebFlux or MVC service.
 
 ---
 
-**Next:** [17. Troubleshooting](17-troubleshooting.md)
+**Previous:** [19. Feature backlog](19-feature-backlog.md)  ·  [Index](00-index.md)  ·  **Next:** [21. Troubleshooting](21-troubleshooting.md)

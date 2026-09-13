@@ -52,46 +52,15 @@ Boot does for Kafka.
 
 ## Documentation
 
-Read in order for a full picture, or jump to what you need.
+The full guides live in [`docs/`](docs/00-index.md), numbered so reading order is learning order and
+grouped into four parts. The **[documentation index](docs/00-index.md)** is the complete table of
+contents, with a reading map.
 
-### Start here
+**Start here:** [1. Introduction](docs/01-introduction.md)  ·  [2. Quickstart](docs/02-quickstart.md)  ·  [3. Architecture](docs/03-architecture.md)  ·  [4. Modules & reference app](docs/04-modules.md)
 
-| | |
-| :--- | :--- |
-| **[1. Overview](docs/01-overview.md)** | What it is, why it exists, the Spring-for-Kafka mapping, the Solace concepts you need, and what it deliberately does not do |
-| **[2. Getting started](docs/02-getting-started.md)** | Dependency, configuration, and complete working examples of all three patterns plus transactions |
-| **[3. Architecture](docs/03-architecture.md)** | Layers, the runtime object graph, startup and shutdown sequences, the send and receive paths, the threading model, session strategy |
+**Jump to:** [5. Exchange patterns](docs/05-exchange-patterns.md)  ·  [8. Request-reply](docs/08-request-reply.md)  ·  [13. Spring integration](docs/13-spring-integration.md)  ·  [15. Configuration](docs/15-configuration.md)  ·  [21. Troubleshooting](docs/21-troubleshooting.md)  —  or the full [index](docs/00-index.md).
 
-### Spring and configuration
-
-| | |
-| :--- | :--- |
-| **[4. Spring integration](docs/04-spring-integration.md)** | Every framework contract the library implements: auto-configuration and its conditions, property binding, the `BeanPostProcessor`, listener method signatures, lifecycle phases, the transaction manager, and how to override any of it |
-| **[5. Configuration reference](docs/05-configuration.md)** | Every property, type, default and effect — plus precedence rules and environment-specific recipes |
-| **[6. Annotations](docs/06-annotations.md)** | `@EnableSolace` and `@SolaceListener`, attribute by attribute, with worked declarations |
-
-### Using it
-
-| | |
-| :--- | :--- |
-| **[7. Exchange patterns](docs/07-exchange-patterns.md)** | Publish-subscribe, point-to-point and request-reply: what each one wires up, and how to choose |
-| **[8. Producing messages](docs/08-producing-messages.md)** | `SolaceTemplate`, delivery defaults, headers, and the single/multiple/batch distinction |
-| **[9. Consuming messages](docs/09-consuming-messages.md)** | Containers, endpoint naming, provisioning, concurrency, dispatch modes, settlement outcomes, delivery counts, flow events and tuning, redelivery and the DMQ |
-| **[10. Request-reply](docs/10-request-reply.md)** | Correlation, per-instance reply destinations, timeouts, futures, and when to give a service its own reply endpoint |
-| **[11. Transactions](docs/11-transactions.md)** | Solace local transactions through `@Transactional` and `TransactionTemplate`, the transacted-session budget, and the database interaction |
-| **[19. Schema Registry](docs/19-schema-registry.md)** | Avro, Protobuf and JSON Schema payloads governed by Apicurio Registry: the three formats, what is routed through the registry, the wire format, artifact resolution with per-instance reply topics, caching, and failure outcomes |
-
-### Reference
-
-| | |
-| :--- | :--- |
-| **[12. Conversion and headers](docs/12-conversion-and-headers.md)** | The converter and header-mapper SPIs, `SolaceHeaders`, `SolaceRecord`, and where the message body actually lives |
-| **[13. Multi-instance](docs/13-multi-instance.md)** | Instance ids, destination naming, and what changes when you scale |
-| **[14. Extension points](docs/14-extension-points.md)** | Every replaceable collaborator, with examples |
-| **[15. Class reference](docs/15-class-reference.md)** | Every public type, one table per package |
-| **[16. Operations](docs/16-operations.md)** | Logging, the Micrometer meters, the Actuator health indicator, sizing, deployment, and a pre-flight checklist |
-| **[17. Troubleshooting](docs/17-troubleshooting.md)** | Symptom → cause → fix, for everything that has actually gone wrong |
-| **[18. Feature backlog](docs/18-feature-backlog.md)** | Solace platform capabilities assessed against what is implemented |
+**Reference-app module guides:** [`client/README.md`](../client/README.md) (requester)  ·  [`server/README.md`](../server/README.md) (responder).
 
 ---
 
@@ -113,7 +82,7 @@ org.cris.prs.solace.autoconfigure     ← deliberately OUTSIDE org.cris.prs.mess
 
 The auto-configuration package is separate on purpose. A component-scanned `@AutoConfiguration` class
 is evaluated too early — before the Solace starter has contributed `SpringJCSMPFactory` — and every
-bean silently disappears. [4.9](docs/04-spring-integration.md#49-why-the-auto-configuration-package-is-separate)
+bean silently disappears. [13.9](docs/13-spring-integration.md#139-why-the-auto-configuration-package-is-separate)
 explains it in full.
 
 ---
@@ -132,7 +101,7 @@ explains it in full.
 | `ConsumerRecord` | `SolaceRecord` |
 | `spring.kafka.*` | `solace.*` |
 
-Full table, and where the two genuinely differ, in [1.2](docs/01-overview.md#12-the-spring-for-kafka-mapping).
+Full table, and where the two genuinely differ, in [1.2](docs/01-introduction.md#12-the-spring-for-kafka-mapping).
 
 ---
 

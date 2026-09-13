@@ -1,10 +1,10 @@
-# 6. Annotations
+# 14. Annotations
 
 Two annotations. One you almost never write, one you write constantly.
 
 ---
 
-## 6.1 `@EnableSolace`
+## 14.1 `@EnableSolace`
 
 ```java
 @Target(TYPE) @Retention(RUNTIME) @Documented
@@ -29,7 +29,7 @@ definitions first.
 
 ---
 
-## 6.2 `@SolaceListener`
+## 14.2 `@SolaceListener`
 
 ```java
 @Target({METHOD, ANNOTATION_TYPE}) @Retention(RUNTIME) @Documented
@@ -72,22 +72,22 @@ Placeholders are resolved through the `BeanFactory`'s embedded value resolver, s
 
 ---
 
-## 6.3 Attribute reference
+## 14.3 Attribute reference
 
 | Attribute | Default | Meaning |
 | :--- | :--- | :--- |
 | `id` | generated | Container id, used by the registry and in every log line. Generated as `solaceListenerEndpoint#<n>` when unset. Set it if you want to start/stop the container by hand. |
-| `pattern` | none | `PUBLISH_SUBSCRIBE`, `POINT_TO_POINT` or `REQUEST_REPLY`. Fills in the endpoint wiring that realises the pattern — see [7. Exchange patterns](07-exchange-patterns.md). Empty leaves every default to the container factory. |
+| `pattern` | none | `PUBLISH_SUBSCRIBE`, `POINT_TO_POINT` or `REQUEST_REPLY`. Fills in the endpoint wiring that realises the pattern — see [5. Exchange patterns](05-exchange-patterns.md). Empty leaves every default to the container factory. |
 | `topics` | `{}` | Topic subscriptions attached to the endpoint. Solace wildcards apply: `*` one level, `>` one or more trailing levels. |
 | `queue` | `""` | Endpoint name. Falls back to `id` when unset. Ignored for `endpointMode = DIRECT`. |
 | `group` | `""` | Appended as `<queue>.<group>`. The consumer-group convention: same queue + same group = competing consumers. |
 | `endpointMode` | from pattern / YAML | `DURABLE_QUEUE`, `NON_DURABLE_QUEUE` or `DIRECT`. |
 | `concurrency` | from pattern / YAML | Number of flows bound to the endpoint. Clamped to 1 on a non-durable queue. |
 | `selector` | `""` | Broker-side SQL92 predicate over message properties, e.g. `"region = 'EU' AND priority > 5"`. Filtering happens on the broker, so unmatched messages never cross the network. |
-| `transactional` | from YAML (`false`) | Bind each flow to a `TransactedSession`. Forces `INLINE` dispatch; see [11. Transactions](11-transactions.md). |
-| `errorOutcome` | from YAML | `ACCEPTED`, `FAILED`, `REJECTED` or `NONE` — what happens to a message whose listener throws. Ignored when `transactional` is set. See [9.6](09-consuming-messages.md#96-acknowledgement-settlement-and-errors). |
-| `replayFrom` | `""` | `BEGINNING`, or an ISO-8601 instant. Re-delivers spooled messages on **every bind**, so it replays again on each restart — prefer the runtime operation. Affects the whole endpoint. See [9.11](09-consuming-messages.md#911-message-replay). |
-| `topicDispatch` | `""` | `"true"` shares one endpoint with the other listeners declaring the same `queue` and `group`, routing by matched subscription. Every member must declare it. See [9.10](09-consuming-messages.md#910-topic-dispatch--several-methods-one-endpoint). |
+| `transactional` | from YAML (`false`) | Bind each flow to a `TransactedSession`. Forces `INLINE` dispatch; see [9. Transactions](09-transactions.md). |
+| `errorOutcome` | from YAML | `ACCEPTED`, `FAILED`, `REJECTED` or `NONE` — what happens to a message whose listener throws. Ignored when `transactional` is set. See [7.6](07-consuming-messages.md#76-acknowledgement-settlement-and-errors). |
+| `replayFrom` | `""` | `BEGINNING`, or an ISO-8601 instant. Re-delivers spooled messages on **every bind**, so it replays again on each restart — prefer the runtime operation. Affects the whole endpoint. See [7.11](07-consuming-messages.md#711-message-replay). |
+| `topicDispatch` | `""` | `"true"` shares one endpoint with the other listeners declaring the same `queue` and `group`, routing by matched subscription. Every member must declare it. See [7.10](07-consuming-messages.md#710-topic-dispatch--several-methods-one-endpoint). |
 | `dispatch` | from YAML (`INLINE`) | `INLINE` or `EXECUTOR`. `EXECUTOR` with `transactional=true` fails at startup. |
 | `autoStartup` | from YAML (`true`) | Start with the context, or wait for `registry.getListenerContainer(id).start()`. |
 | `appendInstanceIdToQueue` | from pattern | Append the instance id to the endpoint name, making it private to this instance. This one attribute is the difference between fan-out and competing consumers. |
@@ -102,7 +102,7 @@ listener with neither has nothing to bind to and fails fast with the offending m
 
 ---
 
-## 6.4 Method signatures
+## 14.4 Method signatures
 
 The method may take any combination of:
 
@@ -149,7 +149,7 @@ public Message<Quote> quote(PriceRequest request) {
 
 ---
 
-## 6.5 Worked declarations
+## 14.5 Worked declarations
 
 **Broadcast to every instance**
 
@@ -242,4 +242,4 @@ registry.getListenerContainer("backfill").start();
 
 ---
 
-**Next:** [7. Exchange patterns](07-exchange-patterns.md)
+**Previous:** [13. Spring integration](13-spring-integration.md)  ·  [Index](00-index.md)  ·  **Next:** [15. Configuration](15-configuration.md)

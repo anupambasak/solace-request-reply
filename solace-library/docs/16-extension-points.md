@@ -1,15 +1,15 @@
-# 14. Extension points
+# 16. Extension points
 
 Every collaborator is an interface with a default implementation registered
 `@ConditionalOnMissingBean`. Replacing one is a matter of declaring a bean.
 
 ---
 
-## 14.1 The map
+## 16.1 The map
 
 | Interface | Default | Replace it to |
 | :--- | :--- | :--- |
-| `SolaceMessageConverter` | `JacksonSolaceMessageConverter`, or `SchemaRegistrySolaceMessageConverter` when `solace.schema-registry.url` is set | Change the wire format — plain text, a custom binary format. For Avro, Protobuf or JSON Schema with Apicurio Registry, configure it rather than replace it: [19](19-schema-registry.md) |
+| `SolaceMessageConverter` | `JacksonSolaceMessageConverter`, or `SchemaRegistrySolaceMessageConverter` when `solace.schema-registry.url` is set | Change the wire format — plain text, a custom binary format. For Avro, Protobuf or JSON Schema with Apicurio Registry, configure it rather than replace it: [19](12-schema-registry.md) |
 | `SchemaCodecs` (`SchemaCodec`) | `AvroSchemaCodec`, `ProtobufSchemaCodec`, `JsonSchemaCodec` over Apicurio | Change how the registry converter serialises a format — a test fake, or a codec for another registry: `SchemaCodecs.of(myCodec)` |
 | `SolaceHeaderMapper` | `DefaultSolaceHeaderMapper` | Change header naming, add tracing propagation, filter what crosses |
 | `SolaceSessionFactory` | `DefaultSolaceSessionFactory` | Change session strategy — pooling, per-tenant connections |
@@ -27,11 +27,11 @@ Every collaborator is an interface with a default implementation registered
 
 Two are conditioned **by name**, not by type, because applications are expected to declare additional
 beans of the same type: `solaceTemplate` and `replyingSolaceTemplate`. See
-[4.2](04-spring-integration.md#conditionalonmissingbean-by-type-or-by-name).
+[13.2](13-spring-integration.md#conditionalonmissingbean-by-type-or-by-name).
 
 ---
 
-## 14.2 A custom converter
+## 16.2 A custom converter
 
 ```java
 public class TextSolaceMessageConverter implements SolaceMessageConverter {
@@ -61,9 +61,9 @@ SolaceMessageConverter solaceMessageConverter() {
 ```
 
 One bean replaces conversion for the template, every listener, and request-reply. For *per-listener*
-conversion, declare a second container factory instead (see 14.5).
+conversion, declare a second container factory instead (see 16.5).
 
-## 14.3 A header mapper that propagates tracing
+## 16.3 A header mapper that propagates tracing
 
 ```java
 public class TracingSolaceHeaderMapper implements SolaceHeaderMapper {
@@ -90,7 +90,7 @@ public class TracingSolaceHeaderMapper implements SolaceHeaderMapper {
 
 Delegating rather than reimplementing keeps the field mapping and the never-written list correct.
 
-## 14.4 An error handler
+## 16.4 An error handler
 
 Declaring the bean is enough — the auto-configured container factory gives it to every container:
 
@@ -107,7 +107,7 @@ SolaceListenerErrorHandler solaceListenerErrorHandler(DeadLetterService deadLett
 (Before schema registry support was added a declared handler was silently ignored and only a hand-built
 factory could carry one; that was a bug, now fixed.) With Schema Registry enabled, wrap your handler in
 `SchemaRegistryErrorHandler` to keep poison-message rejection — see
-[19.7](19-schema-registry.md#197-failures-and-settlement).
+[12.7](12-schema-registry.md#127-failures-and-settlement).
 
 A hand-built factory still works, and is the way to give *some* listeners a different handler:
 
@@ -169,7 +169,7 @@ written as a lambda keeps working unchanged. Set
 **`solace.listener.negative-acknowledgement: true`** when using it: the container derives bind-time
 negotiation from the configured `error-outcome`, and cannot know what a handler will return.
 
-## 14.5 A second container factory
+## 16.5 A second container factory
 
 Better than replacing the default when only some listeners need different behaviour:
 
@@ -194,7 +194,7 @@ DefaultSolaceListenerContainerFactory batchListenerContainerFactory(
 public void onBulk(BulkEvent event) { … }
 ```
 
-## 14.6 A bounded task executor
+## 16.6 A bounded task executor
 
 `SimpleAsyncTaskExecutor` creates a thread per task and does not pool. It is adequate because one
 invoker per flow is submitted once and runs for the container's lifetime — but a real pool gives you
@@ -218,7 +218,7 @@ Size it for the **total number of flows using EXECUTOR dispatch** across all con
 occupies its thread for the container's whole lifetime, so an undersized pool means some flows never
 start consuming.
 
-## 14.7 An extra reply destination
+## 16.7 An extra reply destination
 
 ```java
 @Bean
@@ -233,9 +233,9 @@ ReplyingSolaceTemplate auditReplyingSolaceTemplate(ReplyingSolaceTemplateFactory
 
 `ReplyingSolaceTemplateFactory.createReplyContainer` is `protected`, so subclassing the factory lets
 you change how the reply container is built while keeping the template wiring. See
-[10.6](10-request-reply.md#106-when-to-split-a-reply-destination) for when this is warranted.
+[8.6](08-request-reply.md#86-when-to-split-a-reply-destination) for when this is warranted.
 
-## 14.8 A flow listener
+## 16.8 A flow listener
 
 Declare one bean and every container reports to it:
 
@@ -255,9 +255,9 @@ SolaceFlowListener solaceFlowListener(AlertService alerts, Scheduler scheduler) 
 
 It runs on a JCSMP notification thread, so it must be quick and must not block; the container guards
 every call. Logging is unconditional — a listener adds to it rather than replacing it. See
-[9.8](09-consuming-messages.md#98-flow-events).
+[7.8](07-consuming-messages.md#78-flow-events).
 
-## 14.9 A session listener
+## 16.9 A session listener
 
 One bean, given to the session factory. The event that most often needs handling is
 `VIRTUAL_ROUTER_NAME_CHANGED` — an HA failover, after which temporary endpoints and unacknowledged
@@ -274,10 +274,10 @@ SolaceSessionListener solaceSessionListener(Cache cache) {
 }
 ```
 
-See [13.7](13-multi-instance.md#137-session-events). It runs on a JCSMP notification thread and is
+See [11.7](11-multi-instance.md#117-session-events). It runs on a JCSMP notification thread and is
 guarded the same way the flow listener is.
 
-## 14.10 Custom instrumentation
+## 16.10 Custom instrumentation
 
 Both metrics SPIs are public, carry no metrics-library types, and give every method a no-op default —
 so implement only what you care about. Declaring either bean replaces the Micrometer implementation
@@ -321,7 +321,7 @@ SolaceListenerMetrics solaceListenerMetrics(MeterRegistry registry, Tracer trace
 }
 ```
 
-## 14.11 A custom health indicator
+## 16.11 A custom health indicator
 
 `solaceHealthIndicator` is `@ConditionalOnMissingBean(name = "solaceHealthIndicator")`, so a bean of
 that name replaces it. Before writing one, check whether
@@ -332,7 +332,7 @@ usual reason to want a different one.
 compiles unchanged and is simply reported as healthy. Override it if your implementation can cheaply
 tell that its connection is gone.
 
-## 14.12 A custom session factory
+## 16.12 A custom session factory
 
 The heaviest extension point, and rarely needed. Implement `SolaceSessionFactory` if you need
 per-tenant connections or pooling. Two rules the default implementation encodes and yours must too:
@@ -349,14 +349,14 @@ per-tenant connections or pooling. Two rules the default implementation encodes 
 
 ---
 
-## 14.13 What is not extensible today
+## 16.13 What is not extensible today
 
 | | Why | Tracked in |
 | :--- | :--- | :--- |
-| Batch listeners | The container delivers one message per invocation | [18. Feature backlog](18-feature-backlog.md) |
-| A retry/back-off policy inside the container | Redelivery is the broker's, via `max-redelivery-count` | [18](18-feature-backlog.md) |
-| Pluggable argument resolvers on listener methods | The `MessageHandlerMethodFactory` is created internally | [18](18-feature-backlog.md) |
-| Per-endpoint spool depth | Only available through SEMP, which is a management API rather than the client one | [18](18-feature-backlog.md) |
+| Batch listeners | The container delivers one message per invocation | [19. Feature backlog](19-feature-backlog.md) |
+| A retry/back-off policy inside the container | Redelivery is the broker's, via `max-redelivery-count` | [18](19-feature-backlog.md) |
+| Pluggable argument resolvers on listener methods | The `MessageHandlerMethodFactory` is created internally | [18](19-feature-backlog.md) |
+| Per-endpoint spool depth | Only available through SEMP, which is a management API rather than the client one | [18](19-feature-backlog.md) |
 | Broker administration beyond provisioning | Out of scope; use SEMP | — |
 
 Take a `SolaceRecord<T>` or a `BytesXMLMessage` parameter as the escape hatch for the third of these:
@@ -364,4 +364,4 @@ anything the argument resolvers do not surface is reachable from the raw message
 
 ---
 
-**Next:** [15. Class reference](15-class-reference.md)
+**Previous:** [15. Configuration](15-configuration.md)  ·  [Index](00-index.md)  ·  **Next:** [17. Class reference](17-class-reference.md)

@@ -1,4 +1,4 @@
-# 19. Schema Registry
+# 12. Schema Registry
 
 Schema-governed payloads in **Apache Avro**, **Google Protocol Buffers** or **JSON Schema**, validated
 against and versioned in [Apicurio Registry](https://www.apicur.io/registry/), through the same
@@ -12,7 +12,7 @@ converter.
 
 ---
 
-## 19.1 Turning it on
+## 12.1 Turning it on
 
 Add the Apicurio serde module for each format you use:
 
@@ -41,7 +41,7 @@ solace:
       - topic-expression: "app/reply/>"     # every instance's reply topic, one artifact
         artifact-id: order-reply
   listener:
-    negative-acknowledgement: true          # lets poison messages be REJECTED; see 19.7
+    negative-acknowledgement: true          # lets poison messages be REJECTED; see 12.7
 ```
 
 That's all. `solaceMessageConverter` becomes a `SchemaRegistrySolaceMessageConverter`. Every template,
@@ -54,7 +54,7 @@ registry expects its messages governed.
 
 ---
 
-## 19.2 The three formats
+## 12.2 The three formats
 
 | Format | Payload you send | Types a listener can ask for | Apicurio module |
 | :--- | :--- | :--- | :--- |
@@ -63,7 +63,7 @@ registry expects its messages governed.
 | `JSON_SCHEMA` | a POJO on a governed destination, or a Jackson `JsonNode` anywhere | any POJO, or `JsonNode` | `apicurio-registry-serde-common-jsonschema` |
 
 All three can be enabled at once. Outbound, the payload's type picks the format. Inbound, the message
-says which format it is (19.4).
+says which format it is (12.4).
 
 **Avro.** Two deserializers are created on demand: one with Apicurio's specific reader, for listeners
 that ask for a generated `SpecificRecord`, and one for everything else, which yields `GenericRecord`.
@@ -72,7 +72,7 @@ that ask for a generated `SpecificRecord`, and one for everything else, which yi
 every field nullable) switches Apicurio to Avro *reflection*: a POJO is written with a schema derived
 from its fields, and a reader instantiates the class the schema names. That is how an existing DTO
 travels as Avro without generated code. Which destinations write POJOs as Avro rather than JSON Schema is
-set per topic, by `format: AVRO` on the `topic-profile` mapping (19.5). The reading side needs the same
+set per topic, by `format: AVRO` on the `topic-profile` mapping (12.5). The reading side needs the same
 class, under the same name, on its classpath.
 
 **Trusted classes.** Since 1.11.4, Avro only loads a class named in a schema if that class is trusted; this
@@ -101,14 +101,34 @@ type, it's used as it is.
 JSON Schema is the one format whose schema **cannot be inferred from the data**, the way an Avro schema is
 derived from a class and a Protobuf schema read from the generated descriptor. `auto-register` therefore
 has nothing to register, and the artifact has to exist before the first message. Declare the schemas with
-`registration.schemas` (19.5) and add `json-schema.properties[apicurio.registry.find-latest]: "true"` so
+`registration.schemas` (12.5) and add `json-schema.properties[apicurio.registry.find-latest]: "true"` so
 the serde resolves them by their coordinates instead of searching for a schema it cannot produce.
 Apicurio's own `json-schema.schema-location` is the narrower alternative: one location per serde, so it
 fits an application with a single JSON Schema payload, not a request and a reply.
 
 ---
 
-## 19.3 What goes through the registry
+## 12.3 What goes through the registry
+
+```mermaid
+flowchart TD
+    P["outbound payload"] --> T{"type?"}
+    T -->|"null / byte[] / String"| PLAIN1["send as-is (no registry)"]
+    T -->|"Avro record / Protobuf message / JsonNode"| FMT["that format's codec"]
+    T -->|"any other object (POJO)"| DEST{"destination matches<br/>solace.schema-registry.destinations?"}
+    DEST -->|no| PLAIN2["plain JSON (fallback converter)"]
+    DEST -->|yes| MAP{"first topic-profile<br/>mapping sets format: AVRO?"}
+    MAP -->|yes| AVRO["Avro (needs a reflect datum provider)"]
+    MAP -->|"no (silent mapping)"| JS["JSON Schema (validated)"]
+    FMT --> WIRE["frame body: [0x00][schema id][payload]<br/>+ schemaFormat user property"]
+    AVRO --> WIRE
+    JS --> WIRE
+
+    classDef plain fill:#f0f0f0,stroke:#999,color:#333;
+    classDef gov fill:#eaf6ea,stroke:#4aa24a,color:#1a3a1a;
+    class PLAIN1,PLAIN2 plain;
+    class FMT,AVRO,JS,WIRE gov;
+```
 
 ### Outbound
 
@@ -124,7 +144,7 @@ fits an application with a single JSON Schema payload, not a request and a reply
 | Listener asks for | Message body | Result |
 | :--- | :--- | :--- |
 | `Object`, `BytesXMLMessage`, `byte[]`, `String` | any | Raw, no registry call |
-| anything else | registry-framed | Registry; see 19.4 for how the format is chosen |
+| anything else | registry-framed | Registry; see 12.4 for how the format is chosen |
 | anything else | not framed | Plain JSON. With `require-schema-id` on and a governed destination, `MISSING_SCHEMA_ID` instead |
 
 A governed consumer can therefore keep working while producers migrate one at a time. Turn on
@@ -138,7 +158,7 @@ Everything that uses the converter inherits this behaviour:
 
 ---
 
-## 19.4 On the wire
+## 12.4 On the wire
 
 The body uses Apicurio's standard framing, the same bytes Apicurio's Kafka serdes write:
 
@@ -173,11 +193,11 @@ A property naming a format that isn't enabled is also `UNSUPPORTED_FORMAT`, neve
 property. A listener that replies with `MessageBuilder…copyHeaders(request.getHeaders())` would carry
 the request's format onto a reply that may be in a different format. `DefaultSolaceHeaderMapper` never
 overwrites a user property the converter has already written, so the reply keeps its own format. See
-[12.2](12-conversion-and-headers.md#122-solaceheadermapper).
+[10.2](10-conversion-and-headers.md#102-solaceheadermapper).
 
 ---
 
-## 19.5 Where the schema comes from: artifact resolution
+## 12.5 Where the schema comes from: artifact resolution
 
 When serialising, Apicurio looks up the artifact the payload is validated against (or registered as)
 through an *artifact resolver strategy*. Deserialising needs no strategy, because the id in the body
@@ -213,7 +233,7 @@ alone:
 
 ### Per-instance reply topics
 
-Replies go to `<reply-topic-prefix>/<instance-id>` ([13](13-multi-instance.md)). Under `DESTINATION` or
+Replies go to `<reply-topic-prefix>/<instance-id>` ([13](11-multi-instance.md)). Under `DESTINATION` or
 `TOPIC`, every pod's reply topic is a different artifact id. With `auto-register` on, that means **one
 artifact per pod, forever**; without it, every reply fails to serialise. The configuration logs a warning
 for this combination.
@@ -229,7 +249,7 @@ for this combination.
 ### A shared reply destination carries several reply types
 
 One reply destination per instance is shared by every service it calls
-([10.5](10-request-reply.md#105-multi-instance-handling)). It can therefore carry replies of several types,
+([8.5](08-request-reply.md#85-multi-instance-handling)). It can therefore carry replies of several types,
 and no single topic mapping fits all of them. Four ways out:
 
 1. **Avro:** `RECORD`. The schema follows the record, so one destination can carry any number of types.
@@ -237,7 +257,7 @@ and no single topic mapping fits all of them. Four ways out:
    outbound mapping is still per topic, so this only helps when each service's replies are in a
    different format.
 3. **Its own reply destination:** give the governed service one with a `ReplyEndpointSpec`
-   ([10.6](10-request-reply.md#106-when-to-split-a-reply-destination)). This is a fifth reason to split
+   ([8.6](08-request-reply.md#86-when-to-split-a-reply-destination)). This is a fifth reason to split
    one out.
 4. **Ungoverned replies:** leave the reply prefix out of `destinations` and send POJO replies, so replies
    travel as plain JSON while requests are governed.
@@ -292,7 +312,7 @@ rather than pile up new ones.
 
 `FIRST_MESSAGE` is the default because it matches what the rest of this feature does: the serdes are built
 lazily too, so an instance starts while the registry is down and a rolling restart is not blocked by it
-(19.6). `STARTUP` moves the attempt earlier, which is what you want when a schema that the registry
+(12.6). `STARTUP` moves the attempt earlier, which is what you want when a schema that the registry
 rejects should stop a deployment rather than surface as a failed request. It is an *earlier* attempt, not
 the only one: the converter still checks before the first conversion, so a startup attempt that failed
 with `fail-fast` off is retried on the first message.
@@ -341,7 +361,7 @@ registry is down; only the publish step needs it, exactly as for declared schema
 
 ---
 
-## 19.6 Registry availability and caching
+## 12.6 Registry availability and caching
 
 Nothing contacts the registry at startup. Apicurio serializers and deserializers are created on the first
 message that needs them, so an instance starts even while the registry is down. A mistake in raw
@@ -373,7 +393,7 @@ The codecs are a Spring bean, closed on shutdown along with every Apicurio clien
 
 ---
 
-## 19.7 Failures and settlement
+## 12.7 Failures and settlement
 
 Every failure is a `SchemaRegistryConversionException` carrying a `Reason`:
 
@@ -412,7 +432,7 @@ SolaceListenerErrorHandler errorHandler() {
 Two caveats:
 
 - Per-message outcomes must be negotiated when a flow binds, so set
-  `solace.listener.negative-acknowledgement: true` ([9](09-consuming-messages.md)). The configuration
+  `solace.listener.negative-acknowledgement: true` ([9](07-consuming-messages.md)). The configuration
   logs a warning when it's not set. Without it, the broker refuses the `REJECTED` settlement and the
   message is redelivered.
 - Transactional containers ignore outcomes: the rollback redelivers until `max-redelivery-count`.
@@ -421,9 +441,9 @@ An outbound failure throws from `send`. Inside a transaction, that rolls the tra
 
 ---
 
-## 19.8 Configuration reference: `solace.schema-registry.*`
+## 12.8 Configuration reference: `solace.schema-registry.*`
 
-An unset property keeps the Apicurio default; only the two defaults in 19.6 differ.
+An unset property keeps the Apicurio default; only the two defaults in 12.6 differ.
 
 | Property | Default | Meaning |
 | :--- | :--- | :--- |
@@ -434,20 +454,20 @@ An unset property keeps the Apicurio default; only the two defaults in 19.6 diff
 | `tls.truststore-location`, `-password`, `-type` | Apicurio: type `JKS` | Trust store for a registry with a private CA. |
 | `tls.keystore-location`, `-password`, `-type` | none | Key store for mutual TLS. |
 | `tls.trust-all`, `tls.verify-host` | Apicurio: `false`, `true` | Development only, and keep on, respectively. |
-| `http-adapter` | **`JDK`** | `JDK`, `VERTX`, `AUTO` (19.6). |
-| `destinations` | empty = all | Topic expressions where POJO payloads are governed (19.3). |
+| `http-adapter` | **`JDK`** | `JDK`, `VERTX`, `AUTO` (12.6). |
+| `destinations` | empty = all | Topic expressions where POJO payloads are governed (12.3). |
 | `require-schema-id` | `false` | Reject a message on a governed destination whose body isn't registry-framed. |
-| `artifact-resolver-strategy` | `TOPIC_PROFILE` | `TOPIC_PROFILE`, `DESTINATION`, `TOPIC`, `RECORD`, or a class name (19.5). |
+| `artifact-resolver-strategy` | `TOPIC_PROFILE` | `TOPIC_PROFILE`, `DESTINATION`, `TOPIC`, `RECORD`, or a class name (12.5). |
 | `topic-profile[].topic-expression`, `.artifact-id` | none | Required per entry. |
 | `topic-profile[].group-id`, `.version` | none | Optional. |
-| `topic-profile[].format` | `JSON_SCHEMA` | The format POJOs sent to the mapping's topics use: `JSON_SCHEMA` or `AVRO` (19.2). |
-| `topic-profile[].payload-class` | none | Fully qualified class whose Avro or Protobuf schema is registered for the mapping's artifact when `registration.include-topic-profile` is on (19.5). |
+| `topic-profile[].format` | `JSON_SCHEMA` | The format POJOs sent to the mapping's topics use: `JSON_SCHEMA` or `AVRO` (12.2). |
+| `topic-profile[].payload-class` | none | Fully qualified class whose Avro or Protobuf schema is registered for the mapping's artifact when `registration.include-topic-profile` is on (12.5). |
 | `find-latest` | Apicurio: `false` | Resolve the latest artifact version. |
 | `explicit-artifact.group-id`, `.artifact-id`, `.version` | none | Pin every serialisation to one artifact. |
 | `auto-register` | Apicurio: `false` | Register unknown schemas on first use. **Development only.** |
 | `auto-register-if-exists` | Apicurio: `FIND_OR_CREATE_VERSION` | `FAIL`, `CREATE_VERSION`, `FIND_OR_CREATE_VERSION`. |
-| `registration.mode` | `FIRST_MESSAGE` | When declared schemas are published: `FIRST_MESSAGE` or `STARTUP` (19.5). |
-| `registration.include-topic-profile` | `false` | Also register Avro/Protobuf schemas derived from `topic-profile` mappings that name a `payload-class`, under the same `mode`/`fail-fast`/`if-exists` (19.5). |
+| `registration.mode` | `FIRST_MESSAGE` | When declared schemas are published: `FIRST_MESSAGE` or `STARTUP` (12.5). |
+| `registration.include-topic-profile` | `false` | Also register Avro/Protobuf schemas derived from `topic-profile` mappings that name a `payload-class`, under the same `mode`/`fail-fast`/`if-exists` (12.5). |
 | `registration.fail-fast` | `false` | Let a failed publish fail startup or the conversion, instead of warning and retrying. |
 | `registration.if-exists` | `FIND_OR_CREATE_VERSION` | `FAIL`, `CREATE_VERSION`, `FIND_OR_CREATE_VERSION`. |
 | `registration.schemas[].artifact-id`, `.format`, `.location` | none | Required per entry. `location` is any Spring resource location. |
@@ -456,7 +476,7 @@ An unset property keeps the Apicurio default; only the two defaults in 19.6 diff
 | `dereference-schema` | Apicurio: `false` | Ask the registry for dereferenced schemas. |
 | `cache.check-period` | Apicurio: `30s` | How long a resolved artifact is cached. |
 | `cache.latest` | Apicurio: `true` | Cache "latest" lookups too. |
-| `cache.fault-tolerant-refresh` | **`true`** | Keep a cached schema when refreshing it fails (19.6). |
+| `cache.fault-tolerant-refresh` | **`true`** | Keep a cached schema when refreshing it fails (12.6). |
 | `cache.background-refresh` | Apicurio: `false` | Serve stale entries while refreshing in the background. |
 | `retry.count`, `retry.backoff` | Apicurio: `3`, `300ms` | Registry request retries. |
 | `avro.encoding` | Apicurio: `BINARY` | `BINARY` or `JSON`. |
@@ -479,16 +499,16 @@ Startup validation rejects:
 - a mapping with `format: PROTOBUF`, or `format: AVRO` without a reflect datum provider.
 - a `registration.schemas` entry without an `artifact-id`, a `format` or a `location`.
 
-Remember [5.1](05-configuration.md#a-yaml-trap-worth-knowing): a `schema-registry:` block with every
+Remember [15.1](15-configuration.md#a-yaml-trap-worth-knowing): a `schema-registry:` block with every
 child commented out fails startup.
 
 ---
 
-## 19.9 Classes
+## 12.9 Classes
 
 | Type | Purpose |
 | :--- | :--- |
-| `SchemaRegistrySolaceMessageConverter` | The converter: the routing in 19.3 and 19.4, over `SchemaCodecs`, with a fallback converter (Jackson by default). `setDestinations`, `setRequireSchemaId`, `setPojoFormats`, `pojoFormatFor(name)`, `isGoverned(name)`, `getCodecs()`. |
+| `SchemaRegistrySolaceMessageConverter` | The converter: the routing in 12.3 and 12.4, over `SchemaCodecs`, with a fallback converter (Jackson by default). `setDestinations`, `setRequireSchemaId`, `setPojoFormats`, `pojoFormatFor(name)`, `isGoverned(name)`, `getCodecs()`. |
 | `SchemaCodec` | One format's serde, in bytes: `getFormat`, `isSchemaPayload`, `acceptsPojos`, `producesType`, `serialize`, `deserialize`, `close`, and `canDeriveSchema`/`deriveSchema(Class)` for registering a schema at initialization. The converter works only against this interface, which keeps Apicurio optional and the routing testable without a registry. |
 | `SchemaCodecs` | The enabled codecs, one per format. `create(settings, objectMapper, classLoader)`, `of(codec...)`, `get(format)`, `forPayload`, `forTargetType`, `close`. |
 | `ApicurioSchemaCodec` | Base for the Apicurio codecs: lazy serde creation, closes everything it created. |
@@ -517,7 +537,7 @@ To plug in a custom codec, for another registry or a test fake, declare
 
 ---
 
-## 19.10 The demo in this repository
+## 12.10 The demo in this repository
 
 The quote service runs in all three formats in the `client` and `server` modules, against a dev Apicurio
 Registry. Every one answers the same question — a `Person` in, a `Quote` out — so only the wire format
@@ -531,7 +551,7 @@ differs:
   `QuoteProtoMapper`. Its mappings name no format: a generated message is Protobuf wherever it is sent.
 - **JSON Schema:** `QuoteJsonSchemaConsumer` takes the shared `Person` and returns the shared `Quote`
   again, as ordinary JSON with `validation: true`. Its mappings name no format either — a governed topic
-  whose mapping is silent is JSON Schema. Because the schema cannot be inferred (19.2), the two schemas
+  whose mapping is silent is JSON Schema. Because the schema cannot be inferred (12.2), the two schemas
   live beside the DTOs they describe, in `shared-dto/src/main/resources/schemas/`, and both applications
   declare them under `registration.schemas` with `mode: STARTUP`, so the library publishes them into the
   `solace-request-reply` group as each starts; `json-schema.properties[apicurio.registry.find-latest]`
@@ -549,7 +569,7 @@ repository README.
 
 ---
 
-## 19.11 Not supported
+## 12.11 Not supported
 
 | | Why |
 | :--- | :--- |
@@ -560,4 +580,4 @@ repository README.
 
 ---
 
-**Back to:** [README](../README.md)
+**Previous:** [11. Multi-instance](11-multi-instance.md)  ·  [Index](00-index.md)  ·  **Next:** [13. Spring integration](13-spring-integration.md)

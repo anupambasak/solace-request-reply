@@ -1,11 +1,11 @@
-# 8. Producing messages
+# 6. Producing messages
 
 `SolaceTemplate<T>` is the send side, and `SolaceOperations<T>` is the interface it implements —
 the counterpart of `KafkaTemplate` / `KafkaOperations`.
 
 ---
 
-## 8.1 `SolaceOperations<T>`
+## 6.1 `SolaceOperations<T>`
 
 | Method | Use it when |
 | :--- | :--- |
@@ -16,7 +16,7 @@ the counterpart of `KafkaTemplate` / `KafkaOperations`.
 | `void send(Message<?> message)` | You already have a Spring `Message`. The destination comes from its `solace_targetDestination` header, else the template default. |
 | `void send(Destination destination, XMLMessage message)` | Full control: you built the JCSMP message yourself. No conversion, no header mapping. |
 | `<R> R executeInTransaction(TransactionCallback<T,R> callback)` | A programmatic local transaction without a `TransactionTemplate`. |
-| `<B> SolaceBrowser<B> browse(String queue, Class<B> type)` | Read a queue **without consuming it** — see [8.9](#89-browsing-a-queue). |
+| `<B> SolaceBrowser<B> browse(String queue, Class<B> type)` | Read a queue **without consuming it** — see [6.9](#69-browsing-a-queue). |
 | `<B> SolaceBrowser<B> browse(BrowseSpec spec, Class<B> type)` | The same, with a selector or a wait timeout. |
 
 Destination strings are **topics** unless prefixed `queue:`:
@@ -30,7 +30,7 @@ The prefix is `DefaultSolaceHeaderMapper.QUEUE_PREFIX` and applies to `solace_re
 
 ---
 
-## 8.2 Template defaults
+## 6.2 Template defaults
 
 Set from `solace.template.*` on the auto-configured bean, and settable on any template you build.
 They apply to every message the template sends.
@@ -62,7 +62,7 @@ Remember `solaceTemplate` is `@Primary`, so injections without a qualifier still
 
 ---
 
-## 8.3 What `send` actually does
+## 6.3 What `send` actually does
 
 ```
 send(destination, payload, headers)
@@ -87,7 +87,7 @@ empty-payload bug when integrating with a non-JCSMP publisher.
 
 **Transaction awareness is automatic.** `isTransactionActive()` consults
 `TransactionSynchronizationManager`, so the same call publishes immediately or enlists in an ambient
-transaction with no API difference. See [11. Transactions](11-transactions.md).
+transaction with no API difference. See [9. Transactions](09-transactions.md).
 
 **Publish acknowledgement.** With `PERSISTENT` delivery the broker acknowledges asynchronously.
 `DefaultSolaceSessionFactory.LoggingPublishEventHandler` logs the outcome; a `send` that returns has
@@ -96,7 +96,7 @@ when you need the commit to mean "the broker has it".
 
 ---
 
-## 8.4 Headers
+## 6.4 Headers
 
 Set Solace message fields through the constants in `SolaceHeaders`; anything else becomes an SDT
 user property.
@@ -121,11 +121,11 @@ solace.send("orders/created", order, Map.of(
 
 Never written outbound: `solace_rawMessage`, `solace_destination`, `solace_redelivered`,
 `solace_targetDestination`, and Spring's own `id` and `timestamp`. Full details in
-[12. Conversion and headers](12-conversion-and-headers.md).
+[10. Conversion and headers](10-conversion-and-headers.md).
 
 ---
 
-## 8.5 Sending a Spring `Message`
+## 6.5 Sending a Spring `Message`
 
 ```java
 Message<Order> message = MessageBuilder.withPayload(order)
@@ -142,7 +142,7 @@ Spring Integration flow.
 
 ---
 
-## 8.6 Programmatic transactions
+## 6.6 Programmatic transactions
 
 `executeInTransaction` is the lightweight option when you do not want a `TransactionTemplate`:
 
@@ -159,11 +159,11 @@ open a nested one. Otherwise a `TransactedSession` is created, bound, committed 
 rolled back on a `RuntimeException`, and closed either way.
 
 `TransactionTemplate` and `@Transactional("solaceTransactionManager")` do the same thing with the
-standard Spring semantics; see [11. Transactions](11-transactions.md).
+standard Spring semantics; see [9. Transactions](09-transactions.md).
 
 ---
 
-## 8.7 Full control
+## 6.7 Full control
 
 When you need a JCSMP feature the template does not surface, build the message yourself:
 
@@ -180,7 +180,7 @@ the transaction-aware producer, so it participates in an ambient transaction.
 
 ---
 
-## 8.8 Single, multiple, batch
+## 6.8 Single, multiple, batch
 
 Three send shapes worth naming explicitly, because they behave differently on failure:
 
@@ -204,7 +204,7 @@ adds a round trip at commit.
 
 ---
 
-## 8.9 Browsing a queue
+## 6.9 Browsing a queue
 
 Browsing reads what is spooled on an endpoint **without acknowledging it**. The messages stay on the
 queue and are still delivered to whatever consumer is bound. It is the operator's view: what is on the
@@ -274,4 +274,4 @@ reason not to point a browse at a live work queue by accident.
 
 ---
 
-**Next:** [9. Consuming messages](09-consuming-messages.md)
+**Previous:** [5. Exchange patterns](05-exchange-patterns.md)  ·  [Index](00-index.md)  ·  **Next:** [7. Consuming messages](07-consuming-messages.md)

@@ -39,11 +39,11 @@ sequenceDiagram
 ## 🧩 The Solace library (`solace-library`)
 
 > **The library has its own documentation set:** [`solace-library/README.md`](solace-library/README.md),
-> as eighteen numbered guides under [`solace-library/docs/`](solace-library/docs/) — start with
-> [1. Overview](solace-library/docs/01-overview.md) and [2. Getting started](solace-library/docs/02-getting-started.md),
-> or go straight to [4. Spring integration](solace-library/docs/04-spring-integration.md),
-> [5. Configuration](solace-library/docs/05-configuration.md) or
-> [17. Troubleshooting](solace-library/docs/17-troubleshooting.md). What follows is the short version.
+>as twenty-two numbered guides under [`solace-library/docs/`](solace-library/docs/00-index.md) — start with
+> [1. Introduction](solace-library/docs/01-introduction.md) and [2. Quickstart](solace-library/docs/02-quickstart.md),
+> or go straight to [13. Spring integration](solace-library/docs/13-spring-integration.md),
+> [15. Configuration](solace-library/docs/15-configuration.md) or
+> [21. Troubleshooting](solace-library/docs/21-troubleshooting.md). What follows is the short version.
 
 Everything lives under `org.cris.prs.messaging.solace`.
 
@@ -441,8 +441,8 @@ solace-request-reply/
  ├── shared-dto/                   # Person, Notification, Task, Quote, InventoryCheck/Status, ReplyResult — the client/server contract (resources/schemas/ — their JSON Schemas)
  ├── shared-proto/                 # quote.proto (QuoteRequest, QuoteReply) + QuoteProtoMapper — the Protobuf demo's contract
  ├── solace-library/               # the Spring-for-Solace library (auto-configured starter)
- ├── client/                       # WebFlux REST service, requester
- ├── server/                       # @SolaceListener request handler
+ ├── client/                       # WebFlux REST service, requester (see client/README.md)
+ ├── server/                       # @SolaceListener request handler (see server/README.md)
  ├── k8s-solace-deployment/        # Solace PubSub+ broker & Ingress manifests
  ├── skaffold.yaml / skaffold.env
  └── gradle.properties             # container_registry
@@ -582,7 +582,7 @@ Each demo gets its **own reply destination** because a reply topic is also a reg
 `Quote` replies that no single mapping could describe. Every other exchange is unaffected: POJOs are
 governed only on `request-reply/quote-avro/>` and `request-reply/quote-jsonschema/>`
 (`solace.schema-registry.destinations`), so they keep sending plain, unvalidated JSON.
-See [`solace-library/docs/19-schema-registry.md`](solace-library/docs/19-schema-registry.md).
+See [`solace-library/docs/12-schema-registry.md`](solace-library/docs/12-schema-registry.md).
 
 Across all three patterns the three verbs mean the same thing:
 

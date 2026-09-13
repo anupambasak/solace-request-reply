@@ -1,4 +1,4 @@
-# 2. Getting started
+# 2. Quickstart
 
 Everything on this page is complete and runnable. It assumes a reachable Solace PubSub+ broker.
 
@@ -33,7 +33,7 @@ The library brings its own transitive dependencies:
 
 Schema registry support is optional. It is backed by Apicurio Registry: add
 `io.apicurio:apicurio-registry-serde-common-avro`, `…-protobuf` and/or `…-jsonschema` only for the formats
-you use. See [19. Schema Registry](19-schema-registry.md).
+you use. See [12. Schema Registry](12-schema-registry.md).
 
 ## 2.2 Configure the broker connection
 
@@ -50,14 +50,14 @@ solace:
 
 That alone is enough. Everything under `solace.template.*`, `solace.listener.*` and
 `solace.request-reply.*` is optional and has working defaults — see
-[5. Configuration reference](05-configuration.md).
+[15. Configuration reference](15-configuration.md).
 
 ## 2.3 There is no `@EnableSolace` step
 
 Auto-configuration turns annotation-driven listeners on for you, exactly as Spring Boot does for
 Kafka. A plain `@SpringBootApplication` is all that is required. `@EnableSolace` exists for
 non-Boot Spring applications and for tests that build a context by hand —
-see [4. Spring integration](04-spring-integration.md#46-enablesolace-and-the-bootstrap-registrar).
+see [13. Spring integration](13-spring-integration.md#136-enablesolace-and-the-bootstrap-registrar).
 
 ---
 
@@ -82,7 +82,7 @@ public class OrderPublisher {
 `send` converts the payload with the configured `SolaceMessageConverter`, applies the template's
 delivery mode, TTL, priority and DMQ-eligibility defaults, and publishes. It is synchronous with
 respect to handing the message to JCSMP; with `PERSISTENT` delivery the broker acknowledgement is
-handled asynchronously and logged. See [8. Producing messages](08-producing-messages.md).
+handled asynchronously and logged. See [6. Producing messages](06-producing-messages.md).
 
 ## 2.5 Receive messages
 
@@ -104,7 +104,7 @@ public class OrderListener {
 
 That declaration provisions the durable queue `orders.workers`, subscribes it to `orders/created`,
 and binds five flows to it. Every instance of the application binds to the *same* queue, so the
-messages are shared out — competing consumers. See [7. Exchange patterns](07-exchange-patterns.md).
+messages are shared out — competing consumers. See [5. Exchange patterns](05-exchange-patterns.md).
 
 For broadcast instead, one line changes:
 
@@ -154,7 +154,7 @@ public class PricingClient {
 The requester stamps each request with a correlation id and its own reply destination
 (`reply/<pod-name>` by default), consumes that destination, and completes the matching future when
 the reply arrives. The responder never chooses where to reply — it echoes the request's `replyTo`.
-See [10. Request-reply](10-request-reply.md).
+See [8. Request-reply](08-request-reply.md).
 
 ## 2.7 Make it transactional
 
@@ -177,7 +177,7 @@ public void publishBatch(List<Order> orders) {
 }   // nothing reaches the broker until this returns normally
 ```
 
-See [11. Transactions](11-transactions.md).
+See [9. Transactions](09-transactions.md).
 
 ---
 
@@ -199,9 +199,9 @@ replyingSolaceTemplate        → ReplyingSolaceTemplate
 + the annotation post-processor and the endpoint registry
 ```
 
-Every one of them is replaceable. See [4. Spring integration](04-spring-integration.md) and
-[14. Extension points](14-extension-points.md).
+Every one of them is replaceable. See [13. Spring integration](13-spring-integration.md) and
+[16. Extension points](16-extension-points.md).
 
 ---
 
-**Next:** [3. Architecture](03-architecture.md)
+**Previous:** [1. Introduction](01-introduction.md)  ·  [Index](00-index.md)  ·  **Next:** [3. Architecture](03-architecture.md)

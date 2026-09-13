@@ -1,28 +1,25 @@
-# 10. Request-reply
+# 8. Request-reply
 
 The counterpart of `ReplyingKafkaTemplate`, with the multi-instance problem solved by construction.
 
 ---
 
-## 10.1 The shape of it
+## 8.1 The shape of it
 
-```
- Requester (pod-a)                    Broker                     Responder (any pod)
- ────────────────                     ──────                     ───────────────────
- sendAndReceive(                                                 @SolaceListener(
-   "pricing/quote", req, Quote.class)                              pattern="REQUEST_REPLY",
-   │                                                               queue="pricing", group="v1",
-   ├─ correlationId = UUID                                         topics="pricing/quote")
-   ├─ replyTo       = "reply/pod-a"                                Quote quote(PriceRequest r)
-   ├─ pending[cid]  = future
-   └─ publish ─────────────► pricing/quote ──────────────────────►  invoke
-                                                                        │
-              reply/pod-a ◄────────────────────────────────────────── return value
-                     │                                             published to the
-   onReply ◄─────────┘                                             request's replyTo,
-   ├─ pending.remove(cid)                                          carrying the same
-   ├─ convert to Quote                                             correlationId
-   └─ future.complete(quote)
+```mermaid
+sequenceDiagram
+    participant R as Requester (pod-a)
+    participant B as Solace broker
+    participant S as Responder (any pod)
+
+    Note over R: sendAndReceive("pricing/quote", req, Quote.class)
+    R->>R: correlationId = UUID<br/>replyTo = "reply/pod-a"<br/>pending[cid] = future
+    R->>B: publish req to pricing/quote<br/>(correlationId, replyTo)
+    B->>S: deliver from queue pricing.v1
+    Note over S: Quote quote(PriceRequest r)
+    S->>B: publish return value to request's replyTo<br/>(same correlationId)
+    B->>R: deliver on reply/pod-a
+    R->>R: pending.remove(cid) · convert to Quote<br/>future.complete(quote) · latency = now − sendTime
 ```
 
 Two invariants make this safe:
@@ -34,7 +31,7 @@ Two invariants make this safe:
 
 ---
 
-## 10.2 The requester
+## 8.2 The requester
 
 ```java
 @Service
@@ -82,7 +79,7 @@ A publish failure **completes the future exceptionally** rather than throwing, s
 place to handle every failure mode. `sendAndReceive` on a stopped template throws
 `IllegalStateException` — that is a programming error, not a message failure.
 
-## 10.3 `RequestReplyFuture<R>`
+## 8.3 `RequestReplyFuture<R>`
 
 Extends `CompletableFuture<R>`, so everything you know applies — `thenApply`, `orTimeout`,
 `Mono.fromFuture`, `join`. It additionally carries:
@@ -99,7 +96,7 @@ Extends `CompletableFuture<R>`, so everything you know applies — `thenApply`, 
 `getLatency()` is per-request round-trip time measured by the requester, which makes it the honest
 number to report.
 
-## 10.4 The responder
+## 8.4 The responder
 
 ```java
 @SolaceListener(pattern = "REQUEST_REPLY", queue = "pricing", group = "v1",
@@ -131,7 +128,7 @@ reply.
 
 ---
 
-## 10.5 Multi-instance handling
+## 8.5 Multi-instance handling
 
 The reply destination is `<reply-topic-prefix>/<sanitised instance id>`:
 
@@ -153,7 +150,7 @@ delivered to a sibling pod that has never heard of the correlation id, and the o
 time out. The reply endpoint is a temporary queue, so it disappears with the pod and nothing
 accumulates.
 
-The instance id comes from `InstanceIdProvider` — see [13. Multi-instance](13-multi-instance.md).
+The instance id comes from `InstanceIdProvider` — see [11. Multi-instance](11-multi-instance.md).
 
 Turn `append-instance-id` off only for a *shared durable* reply endpoint, where replies are
 load-balanced across instances. That requires correlation state visible to every instance, which this
@@ -161,7 +158,7 @@ library does not provide.
 
 ---
 
-## 10.6 When to split a reply destination
+## 8.6 When to split a reply destination
 
 **By default, every service an application calls should share its one per-instance reply
 destination.** The reply channel belongs to the requester, the correlation id keeps conversations
@@ -179,7 +176,7 @@ Four conditions justify a separate one:
 
 A fifth applies with a schema registry: a shared reply destination carries several reply types, and no
 single topic-to-artifact mapping fits them all (Avro's `RECORD` strategy is the exception). See
-[19.5](19-schema-registry.md#195-where-the-schema-comes-from-artifact-resolution). Whatever the reason,
+[12.5](12-schema-registry.md#125-where-the-schema-comes-from-artifact-resolution). Whatever the reason,
 map a reply destination in `solace.schema-registry.topic-profile` by its **prefix with `>`**, never by
 the resolved per-instance topic.
 
@@ -245,14 +242,14 @@ template defaults set one.
 **Give requests an expiry.** A request is persistent and its endpoint is durable, which is the point —
 but it means the request outlives the responder. Restart the server mid-flight and the request waits on
 the queue, is handled whenever the server comes back, and the reply arrives to a requester that gave up
-minutes ago (10.7). Setting `timeToLive` to the reply timeout makes the two agree: the broker stops
+minutes ago (8.7). Setting `timeToLive` to the reply timeout makes the two agree: the broker stops
 delivering a request at the moment its requester stops waiting. It only takes effect on an endpoint
-provisioned with `respects-ttl` ([9](09-consuming-messages.md)); with `dmqEligible` on, the expired
+provisioned with `respects-ttl` ([9](07-consuming-messages.md)); with `dmqEligible` on, the expired
 request lands on the dead message queue where it can be inspected rather than vanishing.
 
 ---
 
-## 10.7 Timeouts
+## 8.7 Timeouts
 
 A single-threaded daemon scheduler (`solace-reply-timeout`) fails futures whose replies never arrive:
 
@@ -274,7 +271,7 @@ first thing to look for when that warning appears in volume.
 When that warning follows a `SolaceReplyTimeoutException` for the *same* correlation id, the usual
 cause is not a slow responder but an absent one: the request sat on its durable queue with nothing
 bound to it, and was delivered the moment a listener started. Compare the responder's start-up log with
-the request's timestamp. The fix is an expiry on requests (`timeToLive` in 10.6), so the broker stops
+the request's timestamp. The fix is an expiry on requests (`timeToLive` in 8.6), so the broker stops
 delivering a request once its requester has stopped waiting.
 
 On `stop()`, every outstanding future is failed with `SolaceReplyTimeoutException`. Leaving callers
@@ -282,7 +279,7 @@ blocked on replies that can no longer arrive would turn shutdown into a hang.
 
 ---
 
-## 10.8 Concurrency and throughput
+## 8.8 Concurrency and throughput
 
 `sendAndReceive` never blocks. Concurrency is bounded by how many futures you keep outstanding:
 
@@ -304,7 +301,7 @@ means giving up per-instance ownership.
 
 ---
 
-## 10.9 Correlating by hand
+## 8.9 Correlating by hand
 
 You do not have to use `ReplyingSolaceTemplate`. A plain template plus a listener works when the
 reply arrives much later — a saga step, an approval:
@@ -328,4 +325,4 @@ still waiting. That is the trade the in-memory correlation of `ReplyingSolaceTem
 
 ---
 
-**Next:** [11. Transactions](11-transactions.md)
+**Previous:** [7. Consuming messages](07-consuming-messages.md)  ·  [Index](00-index.md)  ·  **Next:** [9. Transactions](09-transactions.md)
