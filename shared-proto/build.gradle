@@ -21,7 +21,10 @@ jar {
 
 dependencies {
     api libs.protoJava
+    api libs.protoJavaUtil
+    api libs.protoGoogleCommonProtos
     api project(':shared-dto')
+    api 'org.springframework.boot:spring-boot-starter-json'
 
     testImplementation platform('org.junit:junit-bom:5.10.0')
     testImplementation 'org.junit.jupiter:junit-jupiter'

@@ -1,5 +1,10 @@
 package cris.prs.messaging.spring.config;
 
+import com.fasterxml.jackson.annotation.JsonInclude;
+import com.fasterxml.jackson.core.JsonGenerator;
+import com.fasterxml.jackson.databind.*;
+import com.fasterxml.jackson.databind.module.SimpleModule;
+import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import org.cris.prs.messaging.solace.core.EndpointMode;
 import org.cris.prs.messaging.solace.requestreply.ReplyEndpointSpec;
 import org.cris.prs.messaging.solace.requestreply.ReplyingSolaceTemplate;
@@ -10,7 +15,11 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.transaction.support.TransactionTemplate;
 
+import java.io.IOException;
 import java.time.Duration;
+import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.time.ZoneId;
 
 @Configuration
 public class AppConfig {
